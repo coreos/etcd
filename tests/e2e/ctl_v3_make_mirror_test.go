@@ -82,7 +82,7 @@ func testMirrorCommand(cx ctlCtx, flags []string, sourcekvs []kv, destkvs []kvEx
 
 	cmdArgs := append(cx.PrefixArgs(), "make-mirror")
 	cmdArgs = append(cmdArgs, flags...)
-	cmdArgs = append(cmdArgs, fmt.Sprintf("localhost:%d", mirrorcfg.basePort))
+	cmdArgs = append(cmdArgs, fmt.Sprintf("--dest-endpoints=localhost:%d", mirrorcfg.basePort))
 	proc, err := spawnCmd(cmdArgs)
 	if err != nil {
 		cx.t.Fatal(err)

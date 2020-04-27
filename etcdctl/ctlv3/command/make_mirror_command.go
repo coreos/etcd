@@ -27,30 +27,37 @@ import (
 	"go.etcd.io/etcd/clientv3/mirror"
 	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
 	"go.etcd.io/etcd/mvcc/mvccpb"
+	"go.etcd.io/etcd/pkg/srv"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	mminsecureTr   bool
-	mmcert         string
-	mmkey          string
-	mmcacert       string
-	mmprefix       string
-	mmdestprefix   string
-	mmuser         string
-	mmpassword     string
-	mmnodestprefix bool
+	mmendpoints        []string
+	mmdiscoverySrv     string
+	mmdiscoverySrvName string
+	mminsecureTr       bool
+	mmcert             string
+	mmkey              string
+	mmcacert           string
+	mmprefix           string
+	mmdestprefix       string
+	mmuser             string
+	mmpassword         string
+	mmnodestprefix     bool
 )
 
 // NewMakeMirrorCommand returns the cobra command for "makeMirror".
 func NewMakeMirrorCommand() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "make-mirror [options] <destination>",
+		Use:   "make-mirror [options]",
 		Short: "Makes a mirror at the destination etcd cluster",
 		Run:   makeMirrorCommandFunc,
 	}
 
+	c.Flags().StringSliceVar(&mmendpoints, "dest-endpoints", []string{}, "destination cluster gRPC endpoints")
+	c.Flags().StringVar(&mmdiscoverySrv, "dest-discovery-srv", "", "destination cluster domain name to query for SRV records describing cluster endpoints")
+	c.Flags().StringVar(&mmdiscoverySrvName, "dest-discovery-srv-name", "", "destination cluster service name to query when using DNS discovery")
 	c.Flags().StringVar(&mmprefix, "prefix", "", "Key-value prefix to mirror")
 	c.Flags().StringVar(&mmdestprefix, "dest-prefix", "", "destination prefix to mirror a prefix to a different prefix in the destination cluster")
 	c.Flags().BoolVar(&mmnodestprefix, "no-dest-prefix", false, "mirror key-values to the root of the destination cluster")
@@ -63,6 +70,22 @@ func NewMakeMirrorCommand() *cobra.Command {
 	c.Flags().StringVar(&mmpassword, "dest-password", "", "Destination password for authentication (if this option is used, --user option shouldn't include password)")
 
 	return c
+}
+
+func destinationEndpoints() ([]string, error) {
+	discoveryCfg := &discoveryCfg{
+		domain:      mmdiscoverySrv,
+		serviceName: mmdiscoverySrvName,
+	}
+
+	if discoveryCfg.domain != "" {
+		srvs, err := srv.GetClient("etcd-client", discoveryCfg.domain, discoveryCfg.serviceName)
+		if err != nil {
+			return nil, err
+		}
+		return srvs.Endpoints, nil
+	}
+	return mmendpoints, nil
 }
 
 func authDestCfg() *authCfg {
@@ -94,24 +117,45 @@ func authDestCfg() *authCfg {
 }
 
 func makeMirrorCommandFunc(cmd *cobra.Command, args []string) {
-	if len(args) != 1 {
-		ExitWithError(ExitBadArgs, errors.New("make-mirror takes one destination argument"))
+	if len(args) == 0 && len(mmendpoints) == 0 && mmdiscoverySrv == "" {
+		ExitWithError(ExitBadArgs, errors.New("No destination endpoint(s) specified, --dest-endpoints or --dest-discovery-srv required"))
+	}
+	if len(mmendpoints) > 0 && mmdiscoverySrv != "" {
+		ExitWithError(ExitBadArgs, errors.New("--dest-endpoints and --dest-discovery-srv are mutually exclusive"))
+	}
+	if len(args) >= 1 && mmdiscoverySrv != "" {
+		ExitWithError(ExitBadArgs, errors.New("destination argument and --dest-discovery-srv are mutually exclusive"))
+	}
+	if len(args) == 1 {
+		if len(mmendpoints) != 0 {
+			ExitWithError(ExitBadArgs, errors.New("Multiple destination endpoints must be specified using --dest-endpoints"))
+		}
+		// For backwards compatibility accept single destination endpoint specified as first positional argument
+		mmendpoints = []string{args[0]}
+	}
+	if len(args) > 1 {
+		ExitWithError(ExitBadArgs, errors.New("make-mirror takes one destination argument. Multiple destination endpoints must be specified with --dest-endpoints"))
 	}
 
 	dialTimeout := dialTimeoutFromCmd(cmd)
 	keepAliveTime := keepAliveTimeFromCmd(cmd)
 	keepAliveTimeout := keepAliveTimeoutFromCmd(cmd)
+
 	sec := &secureCfg{
 		cert:              mmcert,
 		key:               mmkey,
 		cacert:            mmcacert,
 		insecureTransport: mminsecureTr,
 	}
+  auth := authDestCfg()
 
-	auth := authDestCfg()
+	eps, err := destinationEndpoints()
+	if err != nil {
+		ExitWithError(ExitError, err)
+	}
 
 	cc := &clientConfig{
-		endpoints:        []string{args[0]},
+		endpoints:        eps,
 		dialTimeout:      dialTimeout,
 		keepAliveTime:    keepAliveTime,
 		keepAliveTimeout: keepAliveTimeout,
@@ -121,7 +165,7 @@ func makeMirrorCommandFunc(cmd *cobra.Command, args []string) {
 	dc := cc.mustClient()
 	c := mustClientFromCmd(cmd)
 
-	err := makeMirror(context.TODO(), c, dc)
+	err = makeMirror(context.TODO(), c, dc)
 	ExitWithError(ExitError, err)
 }
 

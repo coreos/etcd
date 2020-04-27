@@ -1467,6 +1467,12 @@ RPC: UserRevokeRole
 
 #### Options
 
+- dest-endpoints -- destination cluster gRPC endpoints
+
+- dest-discovery-srv -- destination cluster domain name to query for SRV records describing cluster endpoints
+
+- dest-discovery-srv-name -- destination cluster service name to query when using DNS discovery
+
 - dest-cacert -- TLS certificate authority file for destination cluster
 
 - dest-cert -- TLS certificate file for destination cluster
@@ -1489,6 +1495,18 @@ The approximate total number of keys transferred to the destination cluster, upd
 
 ```
 ./etcdctl make-mirror mirror.example.com:2379
+# 10
+# 18
+```
+
+```
+./etcdctl make-mirror --dest-endpoints etcd1.mirror.example.com:2379,etcd2.mirror.example.com:2379
+# 10
+# 18
+```
+
+```
+./etcdctl make-mirror --dest-discovery-srv mirror.example.com
 # 10
 # 18
 ```
