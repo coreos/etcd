@@ -21,11 +21,12 @@ import (
 	"testing"
 )
 
-func TestCtlV3Watch(t *testing.T)          { testCtl(t, watchTest) }
-func TestCtlV3WatchNoTLS(t *testing.T)     { testCtl(t, watchTest, withCfg(configNoTLS)) }
-func TestCtlV3WatchClientTLS(t *testing.T) { testCtl(t, watchTest, withCfg(configClientTLS)) }
-func TestCtlV3WatchPeerTLS(t *testing.T)   { testCtl(t, watchTest, withCfg(configPeerTLS)) }
-func TestCtlV3WatchTimeout(t *testing.T)   { testCtl(t, watchTest, withDialTimeout(0)) }
+func TestCtlV3Watch(t *testing.T)              { testCtl(t, watchTest) }
+func TestCtlV3WatchNoTLS(t *testing.T)         { testCtl(t, watchTest, withCfg(configNoTLS)) }
+func TestCtlV3WatchClientTLS(t *testing.T)     { testCtl(t, watchTest, withCfg(configClientTLS)) }
+func TestCtlV3WatchPeerTLS(t *testing.T)       { testCtl(t, watchTest, withCfg(configPeerTLS)) }
+func TestCtlV3WatchClientAutoTLS(t *testing.T) { testCtl(t, watchTest, withCfg(configAutoTLS)) }
+func TestCtlV3WatchTimeout(t *testing.T)       { testCtl(t, watchTest, withDialTimeout(-1)) }
 
 func TestCtlV3WatchInteractive(t *testing.T) {
 	testCtl(t, watchTest, withInteractive())
@@ -38,6 +39,12 @@ func TestCtlV3WatchInteractiveClientTLS(t *testing.T) {
 }
 func TestCtlV3WatchInteractivePeerTLS(t *testing.T) {
 	testCtl(t, watchTest, withInteractive(), withCfg(configPeerTLS))
+}
+func TestCtlV3WatchInteractiveClientAutoTLS(t *testing.T) {
+	testCtl(t, watchTest, withInteractive(), withCfg(configAutoTLS))
+}
+func TestCtlV3WatchInteractiveTimeout(t *testing.T) {
+	testCtl(t, watchTest, withInteractive(), withDialTimeout(0), withCfg(configAutoTLS))
 }
 
 func watchTest(cx ctlCtx) {

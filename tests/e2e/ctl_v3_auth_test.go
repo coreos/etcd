@@ -39,13 +39,18 @@ func TestCtlV3AuthMemberAdd(t *testing.T)           { testCtl(t, authTestMemberA
 func TestCtlV3AuthMemberRemove(t *testing.T) {
 	testCtl(t, authTestMemberRemove, withQuorum(), withNoStrictReconfig())
 }
-func TestCtlV3AuthMemberUpdate(t *testing.T)     { testCtl(t, authTestMemberUpdate) }
-func TestCtlV3AuthCertCN(t *testing.T)           { testCtl(t, authTestCertCN, withCfg(configClientTLSCertAuth)) }
-func TestCtlV3AuthRevokeWithDelete(t *testing.T) { testCtl(t, authTestRevokeWithDelete) }
-func TestCtlV3AuthInvalidMgmt(t *testing.T)      { testCtl(t, authTestInvalidMgmt) }
-func TestCtlV3AuthFromKeyPerm(t *testing.T)      { testCtl(t, authTestFromKeyPerm) }
-func TestCtlV3AuthAndWatch(t *testing.T)         { testCtl(t, authTestWatch) }
-func TestCtlV3AuthAndWatchJWT(t *testing.T)      { testCtl(t, authTestWatch, withCfg(configJWT)) }
+func TestCtlV3AuthMemberUpdate(t *testing.T)      { testCtl(t, authTestMemberUpdate) }
+func TestCtlV3AuthCertCN(t *testing.T)            { testCtl(t, authTestCertCN, withCfg(configClientTLSCertAuth)) }
+func TestCtlV3AuthRevokeWithDelete(t *testing.T)  { testCtl(t, authTestRevokeWithDelete) }
+func TestCtlV3AuthInvalidMgmt(t *testing.T)       { testCtl(t, authTestInvalidMgmt) }
+func TestCtlV3AuthFromKeyPerm(t *testing.T)       { testCtl(t, authTestFromKeyPerm) }
+func TestCtlV3AuthAndWatch(t *testing.T)          { testCtl(t, authTestWatch) }
+func TestCtlV3AuthAndWatchClientTLS(t *testing.T) { testCtl(t, authTestWatch, withCfg(configClientTLS)) }
+func TestCtlV3AuthAndWatchPeerTLS(t *testing.T)   { testCtl(t, authTestWatch, withCfg(configPeerTLS)) }
+func TestCtlV3AuthAndWatchClientAutoTLS(t *testing.T) {
+	testCtl(t, authTestWatch, withCfg(configAutoTLS))
+}
+func TestCtlV3AuthAndWatchInteractive(t *testing.T) { testCtl(t, authTestWatch, withInteractive()) }
 
 func TestCtlV3AuthLeaseTestKeepAlive(t *testing.T) { testCtl(t, authLeaseTestKeepAlive) }
 func TestCtlV3AuthLeaseTestTimeToLiveExpired(t *testing.T) {
