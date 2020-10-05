@@ -58,6 +58,14 @@ func (p *fieldsPrinter) Get(r v3.GetResponse) {
 	fmt.Println(`"Count" :`, r.Count)
 }
 
+func (p *fieldsPrinter) GetStream(r v3.GetStreamResponse) {
+	p.hdr(r.Header)
+	for _, kv := range r.Kvs {
+		p.kv("", kv)
+	}
+	fmt.Println(`"Count" :`, r.TotalCount)
+}
+
 func (p *fieldsPrinter) Put(r v3.PutResponse) {
 	p.hdr(r.Header)
 	if r.PrevKv != nil {

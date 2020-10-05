@@ -18,23 +18,29 @@ import "go.etcd.io/etcd/v3/lease"
 
 type metricsTxnWrite struct {
 	TxnWrite
-	ranges  uint
-	puts    uint
-	deletes uint
-	putSize int64
+	ranges       uint
+	puts         uint
+	deletes      uint
+	putSize      int64
+	rangeStreams uint
 }
 
 func newMetricsTxnRead(tr TxnRead) TxnRead {
-	return &metricsTxnWrite{&txnReadWrite{tr}, 0, 0, 0, 0}
+	return &metricsTxnWrite{&txnReadWrite{tr}, 0, 0, 0, 0, 0}
 }
 
 func newMetricsTxnWrite(tw TxnWrite) TxnWrite {
-	return &metricsTxnWrite{tw, 0, 0, 0, 0}
+	return &metricsTxnWrite{tw, 0, 0, 0, 0, 0}
 }
 
 func (tw *metricsTxnWrite) Range(key, end []byte, ro RangeOptions) (*RangeResult, error) {
 	tw.ranges++
 	return tw.TxnWrite.Range(key, end, ro)
+}
+
+func (tw *metricsTxnWrite) RangeStream(key, end []byte, ro RangeOptions, streamC chan *RangeResult) (err error) {
+	tw.rangeStreams++
+	return tw.TxnWrite.RangeStream(key, end, ro, streamC)
 }
 
 func (tw *metricsTxnWrite) DeleteRange(key, end []byte) (n, rev int64) {

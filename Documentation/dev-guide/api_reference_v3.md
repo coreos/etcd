@@ -45,6 +45,7 @@ This is a generated documentation. Please read the proto files for more.
 | Method | Request Type | Response Type | Description |
 | ------ | ------------ | ------------- | ----------- |
 | Range | RangeRequest | RangeResponse | Range gets the keys in the range from the key-value store. |
+| RangeStream | RangeStreamRequest | RangeStreamResponse | RangeStream gets the keys in the range stream from the key-value store. |
 | Put | PutRequest | PutResponse | Put puts the given key into the key-value store. A put request increments the revision of the key-value store and generates one event in the event history. |
 | DeleteRange | DeleteRangeRequest | DeleteRangeResponse | DeleteRange deletes the given range from the key-value store. A delete request increments the revision of the key-value store and generates a delete event in the event history for every deleted key. |
 | Txn | TxnRequest | TxnResponse | Txn processes multiple requests in a single transaction. A txn request increments the revision of the key-value store and generates events with the same revision for every completed request. It is not allowed to modify the same key several times within one txn. |
@@ -808,6 +809,31 @@ Empty field.
 
 
 
+##### message `RangeStreamRequest` (etcdserver/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| key | key is the first key for the range. If range_end is not given, the request only looks up key. | bytes |
+| range_end | range_end is the upper bound on the requested range [key, range_end). If range_end is '\0', the range is all keys >= key. If range_end is key plus one (e.g., "aa"+1 == "ab", "a\xff"+1 == "b"), then the range request gets all keys prefixed with key. If both key and range_end are '\0', then the range request returns all keys. | bytes |
+| limit | limit is a limit on the number of keys returned for the request. When limit is set to 0, it is treated as no limit. | int64 |
+| revision | revision is the point-in-time of the key-value store to use for the range. If revision is less or equal to zero, the range is over the newest key-value store. If the revision has been compacted, ErrCompacted is returned as a response. | int64 |
+| serializable | serializable sets the range request to use serializable member-local reads. Range requests are linearizable by default; linearizable requests have higher latency and lower throughput than serializable requests but reflect the current consensus of the cluster. For better performance, in exchange for possible stale reads, a serializable range request is served locally without needing to reach consensus with other nodes in the cluster. | bool |
+| keys_only | keys_only when set returns only the keys and not the values. | bool |
+
+
+
+##### message `RangeStreamResponse` (etcdserver/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| header |  | ResponseHeader |
+| kvs | kvs is the list of key-value pairs matched by the range request. kvs is empty when count is requested. | (slice of) mvccpb.KeyValue |
+| count | count is set to the number of keys within the range when requested. | int64 |
+| totalCount |  | int64 |
+| totalSize |  | int64 |
+
+
+
 ##### message `RequestOp` (etcdserver/etcdserverpb/rpc.proto)
 
 | Field | Description | Type |
@@ -817,6 +843,7 @@ Empty field.
 | request_put |  | PutRequest |
 | request_delete_range |  | DeleteRangeRequest |
 | request_txn |  | TxnRequest |
+| request_range_stream |  | RangeStreamRequest |
 
 
 
@@ -840,6 +867,7 @@ Empty field.
 | response_put |  | PutResponse |
 | response_delete_range |  | DeleteRangeResponse |
 | response_txn |  | TxnResponse |
+| response_range_stream |  | RangeStreamResponse |
 
 
 

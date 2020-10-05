@@ -60,6 +60,19 @@ func (kv *kvPrefix) Get(ctx context.Context, key string, opts ...clientv3.OpOpti
 	return get, nil
 }
 
+func (kv *kvPrefix) GetStream(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetStreamResponse, error) {
+	if len(key) == 0 {
+		return nil, rpctypes.ErrEmptyKey
+	}
+	r, err := kv.KV.Do(ctx, kv.prefixOp(clientv3.OpGetStream(key, opts...)))
+	if err != nil {
+		return nil, err
+	}
+	get := r.GetStream()
+	kv.unprefixGetStreamResponse(get)
+	return get, nil
+}
+
 func (kv *kvPrefix) Delete(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.DeleteResponse, error) {
 	if len(key) == 0 {
 		return nil, rpctypes.ErrEmptyKey
@@ -139,6 +152,12 @@ func (kv *kvPrefix) prefixOp(op clientv3.Op) clientv3.Op {
 }
 
 func (kv *kvPrefix) unprefixGetResponse(resp *clientv3.GetResponse) {
+	for i := range resp.Kvs {
+		resp.Kvs[i].Key = resp.Kvs[i].Key[len(kv.pfx):]
+	}
+}
+
+func (kv *kvPrefix) unprefixGetStreamResponse(resp *clientv3.GetStreamResponse) {
 	for i := range resp.Kvs {
 		resp.Kvs[i].Key = resp.Kvs[i].Key[len(kv.pfx):]
 	}

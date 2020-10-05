@@ -39,6 +39,12 @@ func (rv *readView) Range(key, end []byte, ro RangeOptions) (r *RangeResult, err
 	return tr.Range(key, end, ro)
 }
 
+func (rv *readView) RangeStream(key, end []byte, ro RangeOptions, streamC chan *RangeResult) (err error) {
+	tr := rv.kv.Read(traceutil.TODO())
+	defer tr.End()
+	return tr.RangeStream(key, end, ro, streamC)
+}
+
 type writeView struct{ kv KV }
 
 func (wv *writeView) DeleteRange(key, end []byte) (n, rev int64) {

@@ -86,6 +86,11 @@ func (lkv *leasingKV) Get(ctx context.Context, key string, opts ...v3.OpOption) 
 	return lkv.get(ctx, v3.OpGet(key, opts...))
 }
 
+// TODO yxj
+func (lkv *leasingKV) GetStream(ctx context.Context, key string, opts ...v3.OpOption) (*v3.GetStreamResponse, error) {
+	panic("unsupported")
+}
+
 func (lkv *leasingKV) Put(ctx context.Context, key, val string, opts ...v3.OpOption) (*v3.PutResponse, error) {
 	return lkv.put(ctx, v3.OpPut(key, val, opts...))
 }

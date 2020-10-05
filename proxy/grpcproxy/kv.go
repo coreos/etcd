@@ -67,6 +67,11 @@ func (p *kvProxy) Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeRespo
 	return gresp, nil
 }
 
+// TODO yxj
+func (p *kvProxy) RangeStream(*pb.RangeStreamRequest, pb.KV_RangeStreamServer) error {
+	panic("implement me")
+}
+
 func (p *kvProxy) Put(ctx context.Context, r *pb.PutRequest) (*pb.PutResponse, error) {
 	p.cache.Invalidate(r.Key, nil)
 	cacheKeys.Set(float64(p.cache.Size()))

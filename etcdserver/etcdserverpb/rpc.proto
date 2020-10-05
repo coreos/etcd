@@ -20,6 +20,14 @@ service KV {
     };
   }
 
+  // RangeStream gets the keys in the range stream from the key-value store.
+    rpc RangeStream(RangeStreamRequest) returns (stream RangeStreamResponse) {
+        option (google.api.http) = {
+          post: "/v3/kv/rangestream"
+          body: "*"
+      };
+    }
+
   // Put puts the given key into the key-value store.
   // A put request increments the revision of the key-value store
   // and generates one event in the event history.
@@ -466,6 +474,35 @@ message RangeRequest {
   int64 max_create_revision = 13;
 }
 
+message RangeStreamRequest {
+  // key is the first key for the range. If range_end is not given, the request only looks up key.
+  bytes key = 1;
+  // range_end is the upper bound on the requested range [key, range_end).
+  // If range_end is '\0', the range is all keys >= key.
+  // If range_end is key plus one (e.g., "aa"+1 == "ab", "a\xff"+1 == "b"),
+  // then the range request gets all keys prefixed with key.
+  // If both key and range_end are '\0', then the range request returns all keys.
+  bytes range_end = 2;
+  // limit is a limit on the number of keys returned for the request. When limit is set to 0,
+  // it is treated as no limit.
+  int64 limit = 3;
+  // revision is the point-in-time of the key-value store to use for the range.
+  // If revision is less or equal to zero, the range is over the newest key-value store.
+  // If the revision has been compacted, ErrCompacted is returned as a response.
+  int64 revision = 4;
+
+  // serializable sets the range request to use serializable member-local reads.
+  // Range requests are linearizable by default; linearizable requests have higher
+  // latency and lower throughput than serializable requests but reflect the current
+  // consensus of the cluster. For better performance, in exchange for possible stale reads,
+  // a serializable range request is served locally without needing to reach consensus
+  // with other nodes in the cluster.
+  bool serializable = 7;
+
+  // keys_only when set returns only the keys and not the values.
+  bool keys_only = 8;
+}
+
 message RangeResponse {
   ResponseHeader header = 1;
   // kvs is the list of key-value pairs matched by the range request.
@@ -475,6 +512,19 @@ message RangeResponse {
   bool more = 3;
   // count is set to the number of keys within the range when requested.
   int64 count = 4;
+}
+
+message RangeStreamResponse {
+  ResponseHeader header = 1;
+  // kvs is the list of key-value pairs matched by the range request.
+  // kvs is empty when count is requested.
+  repeated mvccpb.KeyValue kvs = 2;
+  // count is set to the number of keys within the range when requested.
+  int64 count = 4;
+
+  int64 totalCount = 5;
+
+  int64 totalSize = 6;
 }
 
 message PutRequest {
@@ -535,6 +585,7 @@ message RequestOp {
     PutRequest request_put = 2;
     DeleteRangeRequest request_delete_range = 3;
     TxnRequest request_txn = 4;
+    RangeStreamRequest request_range_stream = 5;
   }
 }
 
@@ -545,6 +596,7 @@ message ResponseOp {
     PutResponse response_put = 2;
     DeleteRangeResponse response_delete_range = 3;
     TxnResponse response_txn = 4;
+    RangeStreamResponse response_range_stream = 5;
   }
 }
 

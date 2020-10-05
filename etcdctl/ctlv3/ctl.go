@@ -71,6 +71,7 @@ func init() {
 
 	rootCmd.AddCommand(
 		command.NewGetCommand(),
+		command.NewGetStreamCommand(),
 		command.NewPutCommand(),
 		command.NewDelCommand(),
 		command.NewTxnCommand(),

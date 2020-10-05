@@ -105,6 +105,10 @@ func (rkv *retryKVClient) Range(ctx context.Context, in *pb.RangeRequest, opts .
 	return rkv.kc.Range(ctx, in, append(opts, withRetryPolicy(repeatable))...)
 }
 
+func (rkv *retryKVClient) RangeStream(ctx context.Context, in *pb.RangeStreamRequest, opts ...grpc.CallOption) (pb.KV_RangeStreamClient, error) {
+	return rkv.kc.RangeStream(ctx, in, append(opts, withRetryPolicy(repeatable))...)
+}
+
 func (rkv *retryKVClient) Put(ctx context.Context, in *pb.PutRequest, opts ...grpc.CallOption) (resp *pb.PutResponse, err error) {
 	return rkv.kc.Put(ctx, in, opts...)
 }

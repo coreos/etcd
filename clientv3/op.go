@@ -24,6 +24,7 @@ const (
 	tPut
 	tDeleteRange
 	tTxn
+	tRangeStream
 )
 
 var noPrefixEnd = []byte{0}
@@ -166,6 +167,21 @@ func (op Op) toRangeRequest() *pb.RangeRequest {
 	return r
 }
 
+func (op Op) toRangeStreamRequest() *pb.RangeStreamRequest {
+	if op.t != tRangeStream {
+		panic("op.t != tRangeStream")
+	}
+	r := &pb.RangeStreamRequest{
+		Key:          op.key,
+		RangeEnd:     op.end,
+		Limit:        op.limit,
+		Revision:     op.rev,
+		Serializable: op.serializable,
+		KeysOnly:     op.keysOnly,
+	}
+	return r
+}
+
 func (op Op) toTxnRequest() *pb.TxnRequest {
 	thenOps := make([]*pb.RequestOp, len(op.thenOps))
 	for i, tOp := range op.thenOps {
@@ -223,6 +239,16 @@ func OpGet(key string, opts ...OpOption) Op {
 		panic("`WithPrefix` and `WithFromKey` cannot be set at the same time, choose one")
 	}
 	ret := Op{t: tRange, key: []byte(key)}
+	ret.applyOpts(opts)
+	return ret
+}
+
+func OpGetStream(key string, opts ...OpOption) Op {
+	// WithPrefix and WithFromKey are not supported together
+	if isWithPrefix(opts) && isWithFromKey(opts) {
+		panic("`WithPrefix` and `WithFromKey` cannot be set at the same time, choose one")
+	}
+	ret := Op{t: tRangeStream, key: []byte(key)}
 	ret.applyOpts(opts)
 	return ret
 }

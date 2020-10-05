@@ -64,6 +64,7 @@ type applierV3 interface {
 
 	Put(ctx context.Context, txn mvcc.TxnWrite, p *pb.PutRequest) (*pb.PutResponse, *traceutil.Trace, error)
 	Range(ctx context.Context, txn mvcc.TxnRead, r *pb.RangeRequest) (*pb.RangeResponse, error)
+	RangeStream(ctx context.Context, txn mvcc.TxnRead, r *pb.RangeStreamRequest, rspC chan *pb.RangeStreamResponse, errC chan error) (*pb.RangeStreamResponse, error)
 	DeleteRange(txn mvcc.TxnWrite, dr *pb.DeleteRangeRequest) (*pb.DeleteRangeResponse, error)
 	Txn(ctx context.Context, rt *pb.TxnRequest) (*pb.TxnResponse, *traceutil.Trace, error)
 	Compaction(compaction *pb.CompactionRequest) (*pb.CompactionResponse, <-chan struct{}, *traceutil.Trace, error)
@@ -381,6 +382,106 @@ func (a *applierV3backend) Range(ctx context.Context, txn mvcc.TxnRead, r *pb.Ra
 		}
 		resp.Kvs[i] = &rr.KVs[i]
 	}
+	trace.Step("assemble the response")
+	return resp, nil
+}
+
+func (a *applierV3backend) RangeStream(ctx context.Context, txn mvcc.TxnRead, r *pb.RangeStreamRequest, rspC chan *pb.RangeStreamResponse, errC chan error) (*pb.RangeStreamResponse, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			switch e := err.(type) {
+			case error:
+				a.s.getLogger().Error(
+					"applierV3backend RangeStream() panic error", zap.Error(e))
+			}
+		}
+	}()
+
+	defer close(rspC)
+	defer close(errC)
+
+	trace := traceutil.Get(ctx)
+
+	lg := a.s.getLogger()
+
+	resp := &pb.RangeStreamResponse{}
+	resp.Header = &pb.ResponseHeader{}
+	streamC := make(chan *mvcc.RangeResult)
+
+	var err error
+
+	if txn == nil {
+		txn = a.s.kv.Read(trace)
+		defer txn.End()
+	}
+
+	limit := r.Limit
+	ro := mvcc.RangeOptions{
+		Limit: limit,
+		Rev:   r.Revision,
+	}
+
+	go func() {
+		err = txn.RangeStream(r.Key, mkGteRange(r.RangeEnd), ro, streamC)
+		if err != nil {
+			lg.Error("storeTxnRead RangeStream error", zap.Error(err))
+		}
+	}()
+
+Loop:
+	for {
+		select {
+		case rr := <-streamC:
+			if rr == nil {
+				select {
+				case rspC <- nil:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				break Loop
+			}
+
+			if rr.Err != nil {
+				select {
+				case errC <- rr.Err:
+					return nil, rr.Err
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+
+			subResp := &pb.RangeStreamResponse{}
+			subResp.Header = &pb.ResponseHeader{}
+
+			subResp.Header.Revision = rr.Rev
+			subResp.Count = int64(rr.Count)
+
+			// resp TotalCount just use monitor long time range stream
+			resp.TotalCount += int64(rr.Count)
+			subResp.TotalCount = resp.TotalCount
+			subResp.Kvs = make([]*mvccpb.KeyValue, len(rr.KVs))
+			for i := range rr.KVs {
+				if r.KeysOnly {
+					rr.KVs[i].Value = nil
+				}
+				subResp.Kvs[i] = &rr.KVs[i]
+			}
+			// resp TotalSize just use monitor long time range stream
+			resp.TotalSize += int64(proto.Size(subResp))
+			// resp Header.Revision just use monitor long time range stream
+			resp.Header.Revision = subResp.Header.Revision
+
+			select {
+			case rspC <- subResp:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
 	trace.Step("assemble the response")
 	return resp, nil
 }

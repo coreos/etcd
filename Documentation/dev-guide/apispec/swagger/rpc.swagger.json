@@ -36,7 +36,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -69,7 +69,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -102,7 +102,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -135,7 +135,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -168,7 +168,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -201,7 +201,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -234,7 +234,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -267,7 +267,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -300,7 +300,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -333,7 +333,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -366,7 +366,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -399,7 +399,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -432,7 +432,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -465,7 +465,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -498,7 +498,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -531,7 +531,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -564,7 +564,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -597,7 +597,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -630,7 +630,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -663,7 +663,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -696,7 +696,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -729,7 +729,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -762,7 +762,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -795,7 +795,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -828,7 +828,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -861,7 +861,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -894,7 +894,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -927,7 +927,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -960,7 +960,49 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        }
+      }
+    },
+    "/v3/kv/rangestream": {
+      "post": {
+        "tags": [
+          "KV"
+        ],
+        "summary": "RangeStream gets the keys in the range stream from the key-value store.",
+        "operationId": "KV_RangeStream",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/etcdserverpbRangeStreamRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "title": "Stream result of etcdserverpbRangeStreamResponse",
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                },
+                "result": {
+                  "$ref": "#/definitions/etcdserverpbRangeStreamResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -993,7 +1035,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1026,7 +1068,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1069,7 +1111,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1102,7 +1144,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1135,7 +1177,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1168,7 +1210,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1201,7 +1243,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1234,7 +1276,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1267,7 +1309,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1300,7 +1342,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1342,7 +1384,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1375,7 +1417,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1408,7 +1450,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1451,7 +1493,7 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
               "$ref": "#/definitions/runtimeError"
             }
@@ -1567,8 +1609,7 @@
       "type": "object",
       "properties": {
         "no_password": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         }
       }
     },
@@ -1779,8 +1820,7 @@
           "title": "authRevision is the current revision of auth store"
         },
         "enabled": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "header": {
           "$ref": "#/definitions/etcdserverpbResponseHeader"
@@ -1962,8 +2002,7 @@
       "properties": {
         "physical": {
           "description": "physical is set so the RPC will wait until the compaction is physically\napplied to the local database such that compacted entries are totally\nremoved from the backend database.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "revision": {
           "description": "revision is the key-value store revision for the compaction operation.",
@@ -2049,8 +2088,7 @@
         },
         "prev_kv": {
           "description": "If prev_kv is set, etcd gets the previous key-value pairs before deleting it.\nThe previous key-value pairs will be returned in the delete response.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "range_end": {
           "description": "range_end is the key following the last key to delete for the range [key, range_end).\nIf range_end is not given, the range is defined to contain only the key argument.\nIf range_end is one bit larger than the given key, then the range is all the keys\nwith the prefix (the given key).\nIf range_end is '\\0', the range is all keys greater than or equal to the key argument.",
@@ -2266,8 +2304,7 @@
         },
         "keys": {
           "description": "keys is true to query all the keys attached to this lease.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         }
       }
     },
@@ -2319,8 +2356,7 @@
         },
         "isLearner": {
           "description": "isLearner indicates if the member is raft learner.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "name": {
           "description": "name is the human-readable name of the member. If the member is not started, the name will be an empty string.",
@@ -2340,8 +2376,7 @@
       "properties": {
         "isLearner": {
           "description": "isLearner indicates if the added member is raft learner.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "peerURLs": {
           "description": "peerURLs is the list of URLs the added member will use to communicate with the cluster.",
@@ -2375,8 +2410,7 @@
       "type": "object",
       "properties": {
         "linearizable": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         }
       }
     },
@@ -2500,13 +2534,11 @@
       "properties": {
         "ignore_lease": {
           "description": "If ignore_lease is set, etcd updates the key using its current lease.\nReturns an error if the key does not exist.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "ignore_value": {
           "description": "If ignore_value is set, etcd updates the key using its current value.\nReturns an error if the key does not exist.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "key": {
           "description": "key is the key, in bytes, to put into the key-value store.",
@@ -2520,8 +2552,7 @@
         },
         "prev_kv": {
           "description": "If prev_kv is set, etcd gets the previous key-value pair before changing it.\nThe previous key-value pair will be returned in the put response.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "value": {
           "description": "value is the value, in bytes, to associate with the key in the key-value store.",
@@ -2547,8 +2578,7 @@
       "properties": {
         "count_only": {
           "description": "count_only when set returns only the count of the keys in the range.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "key": {
           "description": "key is the first key for the range. If range_end is not given, the request only looks up key.",
@@ -2557,8 +2587,7 @@
         },
         "keys_only": {
           "description": "keys_only when set returns only the keys and not the values.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "limit": {
           "description": "limit is a limit on the number of keys returned for the request. When limit is set to 0,\nit is treated as no limit.",
@@ -2597,8 +2626,7 @@
         },
         "serializable": {
           "description": "serializable sets the range request to use serializable member-local reads.\nRange requests are linearizable by default; linearizable requests have higher\nlatency and lower throughput than serializable requests but reflect the current\nconsensus of the cluster. For better performance, in exchange for possible stale reads,\na serializable range request is served locally without needing to reach consensus\nwith other nodes in the cluster.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "sort_order": {
           "description": "sort_order is the order for returned sorted results.",
@@ -2630,8 +2658,68 @@
         },
         "more": {
           "description": "more indicates if there are more keys to return in the requested range.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
+        }
+      }
+    },
+    "etcdserverpbRangeStreamRequest": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "key is the first key for the range. If range_end is not given, the request only looks up key.",
+          "type": "string",
+          "format": "byte"
+        },
+        "keys_only": {
+          "description": "keys_only when set returns only the keys and not the values.",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "limit is a limit on the number of keys returned for the request. When limit is set to 0,\nit is treated as no limit.",
+          "type": "string",
+          "format": "int64"
+        },
+        "range_end": {
+          "description": "range_end is the upper bound on the requested range [key, range_end).\nIf range_end is '\\0', the range is all keys \u003e= key.\nIf range_end is key plus one (e.g., \"aa\"+1 == \"ab\", \"a\\xff\"+1 == \"b\"),\nthen the range request gets all keys prefixed with key.\nIf both key and range_end are '\\0', then the range request returns all keys.",
+          "type": "string",
+          "format": "byte"
+        },
+        "revision": {
+          "description": "revision is the point-in-time of the key-value store to use for the range.\nIf revision is less or equal to zero, the range is over the newest key-value store.\nIf the revision has been compacted, ErrCompacted is returned as a response.",
+          "type": "string",
+          "format": "int64"
+        },
+        "serializable": {
+          "description": "serializable sets the range request to use serializable member-local reads.\nRange requests are linearizable by default; linearizable requests have higher\nlatency and lower throughput than serializable requests but reflect the current\nconsensus of the cluster. For better performance, in exchange for possible stale reads,\na serializable range request is served locally without needing to reach consensus\nwith other nodes in the cluster.",
+          "type": "boolean"
+        }
+      }
+    },
+    "etcdserverpbRangeStreamResponse": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "count is set to the number of keys within the range when requested.",
+          "type": "string",
+          "format": "int64"
+        },
+        "header": {
+          "$ref": "#/definitions/etcdserverpbResponseHeader"
+        },
+        "kvs": {
+          "description": "kvs is the list of key-value pairs matched by the range request.\nkvs is empty when count is requested.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/mvccpbKeyValue"
+          }
+        },
+        "totalCount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "totalSize": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },
@@ -2646,6 +2734,9 @@
         },
         "request_range": {
           "$ref": "#/definitions/etcdserverpbRangeRequest"
+        },
+        "request_range_stream": {
+          "$ref": "#/definitions/etcdserverpbRangeStreamRequest"
         },
         "request_txn": {
           "$ref": "#/definitions/etcdserverpbTxnRequest"
@@ -2688,6 +2779,9 @@
         },
         "response_range": {
           "$ref": "#/definitions/etcdserverpbRangeResponse"
+        },
+        "response_range_stream": {
+          "$ref": "#/definitions/etcdserverpbRangeStreamResponse"
         },
         "response_txn": {
           "$ref": "#/definitions/etcdserverpbTxnResponse"
@@ -2744,8 +2838,7 @@
         },
         "isLearner": {
           "description": "isLearner indicates if the member is raft learner.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "leader": {
           "description": "leader is the member ID which the responding member believes is the current leader.",
@@ -2815,8 +2908,7 @@
         },
         "succeeded": {
           "description": "succeeded is set to true if the compare evaluated to true or false otherwise.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         }
       }
     },
@@ -2842,8 +2934,7 @@
         },
         "fragment": {
           "description": "fragment enables splitting large revisions into multiple watch responses.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "key": {
           "description": "key is the key to register for watching.",
@@ -2852,13 +2943,11 @@
         },
         "prev_kv": {
           "description": "If prev_kv is set, created watcher gets the previous KV before the event happens.\nIf the previous KV is already compacted, nothing will be returned.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "progress_notify": {
           "description": "progress_notify is set so that the etcd server will periodically send a WatchResponse with\nno events to the new watcher if there are no recent events. It is useful when clients\nwish to recover a disconnected watcher starting from a recent known revision.\nThe etcd server may decide how often it will send notifications based on current load.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "range_end": {
           "description": "range_end is the end of the range [key, range_end) to watch. If range_end is not given,\nonly the key argument is watched. If range_end is equal to '\\0', all keys greater than\nor equal to the key argument are watched.\nIf the range_end is one bit larger than the given key,\nthen all keys with the prefix (the given key) will be watched.",
@@ -2904,8 +2993,7 @@
         },
         "canceled": {
           "description": "canceled is set to true if the response is for a cancel watch request.\nNo further events will be sent to the canceled watcher.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "compact_revision": {
           "description": "compact_revision is set to the minimum index if a watcher tries to watch\nat a compacted index.\n\nThis happens when creating a watcher at a compacted revision or the watcher cannot\ncatch up with the progress of the key-value store.\n\nThe client should treat the watcher as canceled and should not try to create any\nwatcher with the same start_revision again.",
@@ -2914,8 +3002,7 @@
         },
         "created": {
           "description": "created is set to true if the response is for a create watch request.\nThe client should record the watch_id and expect to receive events for\nthe created watcher from the same stream.\nAll events sent to the created watcher will attach with the same watch_id.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "events": {
           "type": "array",
@@ -2925,8 +3012,7 @@
         },
         "fragment": {
           "description": "framgment is true if large watch response was split over multiple responses.",
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "header": {
           "$ref": "#/definitions/etcdserverpbResponseHeader"

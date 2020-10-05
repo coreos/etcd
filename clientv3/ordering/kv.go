@@ -75,6 +75,11 @@ func (kv *kvOrdering) Get(ctx context.Context, key string, opts ...clientv3.OpOp
 	}
 }
 
+// TODO yxj
+func (kv *kvOrdering) GetStream(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetStreamResponse, error) {
+	panic("unsupported")
+}
+
 func (kv *kvOrdering) Txn(ctx context.Context) clientv3.Txn {
 	return &txnOrdering{
 		kv.KV.Txn(ctx),

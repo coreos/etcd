@@ -32,6 +32,13 @@ func (s *kvs2kvc) Range(ctx context.Context, in *pb.RangeRequest, opts ...grpc.C
 	return s.kvs.Range(ctx, in)
 }
 
+func (s *kvs2kvc) RangeStream(ctx context.Context, in *pb.RangeStreamRequest, opts ...grpc.CallOption) (pb.KV_RangeStreamClient, error) {
+	cs := newPipeStream(ctx, func(ss chanServerStream) error {
+		return s.kvs.RangeStream(in, (&rs2rcServerStream{ss}))
+	})
+	return &rs2rcClientStream{cs}, nil
+}
+
 func (s *kvs2kvc) Put(ctx context.Context, in *pb.PutRequest, opts ...grpc.CallOption) (*pb.PutResponse, error) {
 	return s.kvs.Put(ctx, in)
 }
@@ -46,4 +53,30 @@ func (s *kvs2kvc) Txn(ctx context.Context, in *pb.TxnRequest, opts ...grpc.CallO
 
 func (s *kvs2kvc) Compact(ctx context.Context, in *pb.CompactionRequest, opts ...grpc.CallOption) (*pb.CompactionResponse, error) {
 	return s.kvs.Compact(ctx, in)
+}
+
+type rs2rcClientStream struct{ chanClientStream }
+
+type rs2rcServerStream struct{ chanServerStream }
+
+func (s *rs2rcClientStream) Send(wr *pb.RangeStreamRequest) error {
+	return s.SendMsg(wr)
+}
+func (s *rs2rcClientStream) Recv() (*pb.RangeStreamResponse, error) {
+	var v interface{}
+	if err := s.RecvMsg(&v); err != nil {
+		return nil, err
+	}
+	return v.(*pb.RangeStreamResponse), nil
+}
+
+func (s *rs2rcServerStream) Send(wr *pb.RangeStreamResponse) error {
+	return s.SendMsg(wr)
+}
+func (s *rs2rcServerStream) Recv() (*pb.RangeStreamRequest, error) {
+	var v interface{}
+	if err := s.RecvMsg(&v); err != nil {
+		return nil, err
+	}
+	return v.(*pb.RangeStreamRequest), nil
 }

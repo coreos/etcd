@@ -43,6 +43,12 @@ func (s *simplePrinter) Get(resp v3.GetResponse) {
 	}
 }
 
+func (s *simplePrinter) GetStream(resp v3.GetStreamResponse) {
+	for _, kv := range resp.Kvs {
+		printKV(s.isHex, s.valueOnly, kv)
+	}
+}
+
 func (s *simplePrinter) Put(r v3.PutResponse) {
 	fmt.Println("OK")
 	if r.PrevKv != nil {

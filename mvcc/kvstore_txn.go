@@ -22,6 +22,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const RangeStreamBatch int = 1000
+
 type storeTxnRead struct {
 	s  *store
 	tx backend.ReadTx
@@ -49,6 +51,10 @@ func (tr *storeTxnRead) Rev() int64      { return tr.rev }
 
 func (tr *storeTxnRead) Range(key, end []byte, ro RangeOptions) (r *RangeResult, err error) {
 	return tr.rangeKeys(key, end, tr.Rev(), ro)
+}
+
+func (tr *storeTxnRead) RangeStream(key, end []byte, ro RangeOptions, streamC chan *RangeResult) (err error) {
+	return tr.rangeStreamKeys(key, end, tr.Rev(), ro, streamC)
 }
 
 func (tr *storeTxnRead) End() {
@@ -85,6 +91,14 @@ func (tw *storeTxnWrite) Range(key, end []byte, ro RangeOptions) (r *RangeResult
 		rev++
 	}
 	return tw.rangeKeys(key, end, rev, ro)
+}
+
+func (tw *storeTxnWrite) RangeStream(key, end []byte, ro RangeOptions, streamC chan *RangeResult) (err error) {
+	rev := tw.beginRev
+	if len(tw.changes) > 0 {
+		rev++
+	}
+	return tw.rangeStreamKeys(key, end, rev, ro, streamC)
 }
 
 func (tw *storeTxnWrite) DeleteRange(key, end []byte) (int64, int64) {
@@ -162,6 +176,91 @@ func (tr *storeTxnRead) rangeKeys(key, end []byte, curRev int64, ro RangeOptions
 	}
 	tr.trace.Step("range keys from bolt db")
 	return &RangeResult{KVs: kvs, Count: len(revpairs), Rev: curRev}, nil
+}
+
+func (tr *storeTxnRead) rangeStreamKeys(key, end []byte, curRev int64, ro RangeOptions, streamC chan *RangeResult) error {
+	defer func() {
+		if err := recover(); err != nil {
+			switch e := err.(type) {
+			case error:
+				tr.s.lg.Error(
+					"storeTxnRead rangeStreamKeys() panic error", zap.Error(e))
+			}
+		}
+	}()
+
+	defer close(streamC)
+
+	rev := ro.Rev
+	if rev > curRev {
+		streamC <- &RangeResult{KVs: nil, Count: -1, Rev: curRev, Err: ErrFutureRev}
+		return ErrFutureRev
+	}
+	if rev <= 0 {
+		rev = curRev
+	}
+	if rev < tr.s.compactMainRev {
+		streamC <- &RangeResult{KVs: nil, Count: -1, Rev: 0, Err: ErrCompacted}
+		return ErrCompacted
+	}
+	revpairs := tr.s.kvindex.Revisions(key, end, rev, int(ro.Limit))
+	tr.trace.Step("range keys from in-memory index tree")
+	if len(revpairs) == 0 {
+		streamC <- &RangeResult{KVs: nil, Count: 0, Rev: curRev}
+		streamC <- nil
+		return nil
+	}
+
+	limit := int(ro.Limit)
+	if limit <= 0 || limit > len(revpairs) {
+		limit = len(revpairs)
+	}
+
+	var kvsLen int
+	totalRevpairsCount := len(revpairs)
+
+	if limit <= RangeStreamBatch {
+		kvsLen = limit
+	} else {
+		kvsLen = RangeStreamBatch
+		limit -= RangeStreamBatch
+	}
+	kvs := make([]mvccpb.KeyValue, kvsLen)
+
+	revBytes := newRevBytes()
+	for i, revpair := range revpairs {
+		revToBytes(revpair, revBytes)
+		_, vs := tr.tx.UnsafeRange(keyBucketName, revBytes, nil, 0)
+		if len(vs) != 1 {
+			tr.s.lg.Fatal(
+				"range failed to find revision pair",
+				zap.Int64("revision-main", revpair.main),
+				zap.Int64("revision-sub", revpair.sub),
+			)
+		}
+		if err := kvs[i%RangeStreamBatch].Unmarshal(vs[0]); err != nil {
+			tr.s.lg.Fatal(
+				"failed to unmarshal mvccpb.KeyValue",
+				zap.Error(err),
+			)
+		}
+		if (i+1)%RangeStreamBatch == 0 && (i+1) != totalRevpairsCount {
+			streamC <- &RangeResult{KVs: kvs, Count: RangeStreamBatch, Rev: curRev}
+
+			if limit <= RangeStreamBatch {
+				kvsLen = limit
+			} else {
+				kvsLen = RangeStreamBatch
+				limit -= RangeStreamBatch
+			}
+			kvs = make([]mvccpb.KeyValue, kvsLen)
+		}
+	}
+
+	tr.trace.Step("range keys from bolt db")
+	streamC <- &RangeResult{KVs: kvs, Count: kvsLen, Rev: curRev}
+	streamC <- nil
+	return nil
 }
 
 func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {

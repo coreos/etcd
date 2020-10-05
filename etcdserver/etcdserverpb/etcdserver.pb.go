@@ -18,7 +18,9 @@
 		InternalAuthenticateRequest
 		ResponseHeader
 		RangeRequest
+		RangeStreamRequest
 		RangeResponse
+		RangeStreamResponse
 		PutRequest
 		PutResponse
 		DeleteRangeRequest
