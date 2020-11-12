@@ -29,9 +29,6 @@ func TestValidateURLsValueBad(t *testing.T) {
 		// bad port specification
 		"127.0.0.1:foo",
 		"127.0.0.1:",
-		// unix sockets not supported
-		"unix://",
-		"unix://tmp/etcd.sock",
 		// bad strings
 		"somewhere",
 		"234#$",
