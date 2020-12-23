@@ -53,6 +53,9 @@ func TestNewURLsValue(t *testing.T) {
 		{s: "http://10.1.1.1:80", exp: []url.URL{{Scheme: "http", Host: "10.1.1.1:80"}}},
 		{s: "http://localhost:80", exp: []url.URL{{Scheme: "http", Host: "localhost:80"}}},
 		{s: "http://:80", exp: []url.URL{{Scheme: "http", Host: ":80"}}},
+		{s: "unix://tmp/etcd.sock", exp: []url.URL{{Scheme: "unix", Host: "tmp", Path: "/etcd.sock"}}},
+		{s: "unix:///tmp/127.27.84.4:23432", exp: []url.URL{{Scheme: "unix", Path: "/tmp/127.27.84.4:23432"}}},
+		{s: "unix://127.0.0.5:1456", exp: []url.URL{{Scheme: "unix", Host: "127.0.0.5:1456"}}},
 		{
 			s: "http://localhost:1,https://localhost:2",
 			exp: []url.URL{
