@@ -84,6 +84,16 @@ func (mp *maintenanceProxy) Status(ctx context.Context, r *pb.StatusRequest) (*p
 	return pb.NewMaintenanceClient(conn).Status(ctx, r)
 }
 
+func (mp *maintenanceProxy) ShowProcessList(ctx context.Context, r *pb.ShowProcessListRequest) (*pb.ShowProcessListResponse, error) {
+	conn := mp.client.ActiveConnection()
+	return pb.NewMaintenanceClient(conn).ShowProcessList(ctx, r)
+}
+
+func (mp *maintenanceProxy) Kill(ctx context.Context, r *pb.KillRequest) (*pb.KillResponse, error) {
+	conn := mp.client.ActiveConnection()
+	return pb.NewMaintenanceClient(conn).Kill(ctx, r)
+}
+
 func (mp *maintenanceProxy) MoveLeader(ctx context.Context, r *pb.MoveLeaderRequest) (*pb.MoveLeaderResponse, error) {
 	conn := mp.client.ActiveConnection()
 	return pb.NewMaintenanceClient(conn).MoveLeader(ctx, r)

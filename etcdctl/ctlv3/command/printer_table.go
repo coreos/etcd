@@ -55,6 +55,16 @@ func (tp *tablePrinter) EndpointStatus(r []epStatus) {
 	table.SetAlignment(tablewriter.ALIGN_RIGHT)
 	table.Render()
 }
+func (tp *tablePrinter) ShowProcessList(spls []showProcessList) {
+	hdr, rows := makeShowProcessListTable(spls)
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader(hdr)
+	for _, row := range rows {
+		table.Append(row)
+	}
+	table.SetAlignment(tablewriter.ALIGN_RIGHT)
+	table.Render()
+}
 func (tp *tablePrinter) EndpointHashKV(r []epHashKV) {
 	hdr, rows := makeEndpointHashKVTable(r)
 	table := tablewriter.NewWriter(os.Stdout)

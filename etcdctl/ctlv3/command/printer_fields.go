@@ -168,6 +168,23 @@ func (p *fieldsPrinter) EndpointStatus(eps []epStatus) {
 	}
 }
 
+func (p *fieldsPrinter) ShowProcessList(spls []showProcessList) {
+	for _, spl := range spls {
+		p.hdr(spl.Resp.Header)
+		fmt.Printf("\"Endpoint\" : %q\n", spl.Ep)
+		for _, sp := range spl.Resp.Pls {
+			fmt.Printf("\"ID\" : %d\n", sp.Id)
+			fmt.Println(`"SourceIP" :`, sp.SourceIP)
+			fmt.Println(`"FullMethod" :`, sp.FullMethod)
+			fmt.Println(`"RequestStr" :`, sp.RequestStr)
+			fmt.Println(`"StartTime" :`, sp.StartTime)
+			fmt.Println()
+		}
+		fmt.Println(`"Count" :`, spl.Resp.Count)
+		fmt.Println()
+	}
+}
+
 func (p *fieldsPrinter) EndpointHashKV(hs []epHashKV) {
 	for _, h := range hs {
 		p.hdr(h.Resp.Header)

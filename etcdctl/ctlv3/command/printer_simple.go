@@ -164,6 +164,13 @@ func (s *simplePrinter) EndpointStatus(statusList []epStatus) {
 	}
 }
 
+func (s *simplePrinter) ShowProcessList(showProcessLists []showProcessList) {
+	_, rows := makeShowProcessListTable(showProcessLists)
+	for _, row := range rows {
+		fmt.Println(strings.Join(row, ", "))
+	}
+}
+
 func (s *simplePrinter) EndpointHashKV(hashList []epHashKV) {
 	_, rows := makeEndpointHashKVTable(hashList)
 	for _, row := range rows {

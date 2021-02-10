@@ -45,6 +45,7 @@ func Server(s *etcdserver.EtcdServer, tls *tls.Config, gopts ...grpc.ServerOptio
 	opts = append(opts, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
 		newLogUnaryInterceptor(s),
 		newUnaryInterceptor(s),
+		newProcessListInterceptor(s),
 		grpc_prometheus.UnaryServerInterceptor,
 	)))
 	opts = append(opts, grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(

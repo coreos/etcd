@@ -71,11 +71,13 @@ This is a generated documentation. Please read the proto files for more.
 | Alarm | AlarmRequest | AlarmResponse | Alarm activates, deactivates, and queries alarms regarding cluster health. |
 | Status | StatusRequest | StatusResponse | Status gets the status of the member. |
 | Defragment | DefragmentRequest | DefragmentResponse | Defragment defragments a member's backend database to recover storage space. |
+| ShowProcessList | ShowProcessListRequest | ShowProcessListResponse | ShowProcessList gets the process list. |
+| Kill | KillRequest | KillResponse | Kill kills a connection from show processlist. |
 | Hash | HashRequest | HashResponse | Hash computes the hash of whole backend keyspace, including key, lease, and other buckets in storage. This is designed for testing ONLY! Do not rely on this in production with ongoing transactions, since Hash operation does not hold MVCC locks. Use "HashKV" API instead for "key" bucket consistency checks. |
 | HashKV | HashKVRequest | HashKVResponse | HashKV computes the hash of all MVCC keys up to a given revision. It only iterates "key" bucket in backend storage. |
 | Snapshot | SnapshotRequest | SnapshotResponse | Snapshot sends a snapshot of the entire backend from a member over a stream to a client. |
 | MoveLeader | MoveLeaderRequest | MoveLeaderResponse | MoveLeader requests current leader node to transfer its leadership to transferee. |
-| Downgrade | DowngradeRequest | DowngradeResponse | Downgrade requests downgrade, cancel downgrade on the cluster version. |
+| Downgrade | DowngradeRequest | DowngradeResponse | Downgrade requests downgrades, verifies feasibility or cancels downgrade on the cluster version. Supported since etcd 3.5. |
 
 
 
@@ -516,6 +518,23 @@ Empty field.
 
 
 
+##### message `KillRequest` (api/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| type |  | Type |
+| id |  | int64 |
+
+
+
+##### message `KillResponse` (api/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| header |  | ResponseHeader |
+
+
+
 ##### message `LeaseCheckpoint` (api/etcdserverpb/rpc.proto)
 
 | Field | Description | Type |
@@ -843,6 +862,26 @@ Empty field.
 
 
 
+##### message `ShowProcessListRequest` (api/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| count_only |  | bool |
+| type |  | Type |
+| id |  | int64 |
+
+
+
+##### message `ShowProcessListResponse` (api/etcdserverpb/rpc.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| header |  | ResponseHeader |
+| pls |  | (slice of) mvccpb.ProcessList |
+| count |  | int64 |
+
+
+
 ##### message `SnapshotRequest` (api/etcdserverpb/rpc.proto)
 
 Empty field.
@@ -981,6 +1020,19 @@ Empty field.
 | version | version is the version of the key. A deletion resets the version to zero and any modification of the key increases its version. | int64 |
 | value | value is the value held by the key, in bytes. | bytes |
 | lease | lease is the ID of the lease that attached to key. When the attached lease expires, the key will be deleted. If lease is 0, then no lease is attached to the key. | int64 |
+
+
+
+##### message `ProcessList` (api/mvccpb/kv.proto)
+
+| Field | Description | Type |
+| ----- | ----------- | ---- |
+| id |  | int64 |
+| startTime=2 |  | string |
+| unixNano=3 |  | int64 |
+| sourceIP |  | string |
+| fullMethod |  | string |
+| requestStr |  | string |
 
 
 

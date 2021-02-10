@@ -37,10 +37,11 @@ func newJSONPrinter(isHex bool) printer {
 	}
 }
 
-func (p *jsonPrinter) EndpointHealth(r []epHealth) { printJSON(r) }
-func (p *jsonPrinter) EndpointStatus(r []epStatus) { printJSON(r) }
-func (p *jsonPrinter) EndpointHashKV(r []epHashKV) { printJSON(r) }
-func (p *jsonPrinter) DBStatus(r snapshot.Status)  { printJSON(r) }
+func (p *jsonPrinter) EndpointHealth(r []epHealth)         { printJSON(r) }
+func (p *jsonPrinter) EndpointStatus(r []epStatus)         { printJSON(r) }
+func (p *jsonPrinter) ShowProcessList(r []showProcessList) { printJSON(r) }
+func (p *jsonPrinter) EndpointHashKV(r []epHashKV)         { printJSON(r) }
+func (p *jsonPrinter) DBStatus(r snapshot.Status)          { printJSON(r) }
 
 func (p *jsonPrinter) MemberList(r clientv3.MemberListResponse) {
 	if p.isHex {

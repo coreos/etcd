@@ -200,6 +200,22 @@ service Maintenance {
     };
   }
 
+  // ShowProcessList gets the process list.
+    rpc ShowProcessList(ShowProcessListRequest) returns (ShowProcessListResponse) {
+        option (google.api.http) = {
+          post: "/v3/maintenance/showprocesslist"
+          body: "*"
+      };
+    }
+
+    // Kill kills a connection from show processlist.
+    rpc Kill(KillRequest) returns (KillResponse) {
+        option (google.api.http) = {
+          post: "/v3/maintenance/kill"
+          body: "*"
+      };
+    }
+
   // Hash computes the hash of whole backend keyspace,
   // including key, lease, and other buckets in storage.
   // This is designed for testing ONLY!
@@ -940,6 +956,40 @@ message DefragmentRequest {
 }
 
 message DefragmentResponse {
+  ResponseHeader header = 1;
+}
+
+message ShowProcessListRequest {
+  bool count_only = 1;
+
+  enum Type {
+    OP = 0;
+    STREAM = 1;
+  }
+
+  Type type = 2;
+
+  int64 id = 3;
+}
+
+message ShowProcessListResponse {
+  ResponseHeader header = 1;
+  repeated mvccpb.ProcessList pls = 2;
+  int64 count = 3;
+}
+
+message KillRequest {
+  enum Type {
+    OP = 0;
+    STREAM = 1;
+  }
+
+  Type type = 1;
+
+  int64 id = 2;
+}
+
+message KillResponse {
   ResponseHeader header = 1;
 }
 

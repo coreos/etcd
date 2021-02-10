@@ -36,6 +36,14 @@ func (s *mts2mtc) Status(ctx context.Context, r *pb.StatusRequest, opts ...grpc.
 	return s.mts.Status(ctx, r)
 }
 
+func (s *mts2mtc) ShowProcessList(ctx context.Context, r *pb.ShowProcessListRequest, opts ...grpc.CallOption) (*pb.ShowProcessListResponse, error) {
+	return s.mts.ShowProcessList(ctx, r)
+}
+
+func (s *mts2mtc) Kill(ctx context.Context, r *pb.KillRequest, opts ...grpc.CallOption) (*pb.KillResponse, error) {
+	return s.mts.Kill(ctx, r)
+}
+
 func (s *mts2mtc) Defragment(ctx context.Context, dr *pb.DefragmentRequest, opts ...grpc.CallOption) (*pb.DefragmentResponse, error) {
 	return s.mts.Defragment(ctx, dr)
 }

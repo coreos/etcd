@@ -67,6 +67,8 @@ func (EntryType) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_b042552c306ae59b, []int{0}
 }
 
+// For description of different message types, see:
+// https://pkg.go.dev/go.etcd.io/etcd/raft/v3#hdr-MessageType
 type MessageType int32
 
 const (

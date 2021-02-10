@@ -18,10 +18,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"io"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/raft/v3"
@@ -32,6 +35,8 @@ import (
 
 	"go.uber.org/zap"
 )
+
+const showProcessListFormat = "2006-01-02 15:04:05"
 
 type KVGetter interface {
 	KV() mvcc.ConsistentWatchableKV
@@ -94,6 +99,147 @@ func (ms *maintenanceServer) Defragment(ctx context.Context, sr *pb.DefragmentRe
 	}
 	ms.lg.Info("finished defragment")
 	return &pb.DefragmentResponse{}, nil
+}
+
+func (ms *maintenanceServer) ShowProcessList(ctx context.Context, sr *pb.ShowProcessListRequest) (*pb.ShowProcessListResponse, error) {
+	resp := &pb.ShowProcessListResponse{}
+	resp.Header = &pb.ResponseHeader{}
+	ms.hdr.fill(resp.Header)
+
+	if sr.CountOnly {
+		if sr.Type == pb.ShowProcessListRequest_OP {
+			resp.Count = int64(processListCache.Count())
+		} else if sr.Type == pb.ShowProcessListRequest_STREAM {
+			smap.mu.RLock()
+			resp.Count = int64(len(smap.idStreams))
+			smap.mu.RUnlock()
+		}
+		return resp, nil
+	}
+
+	processListConvFunc := func(item *processList) *mvccpb.ProcessList {
+		processListPB := &mvccpb.ProcessList{}
+		processListPB.Id = item.ID
+		processListPB.StartTime = item.StartTime.Format(showProcessListFormat)
+		processListPB.UnixNano = item.StartTime.Local().UnixNano()
+		processListPB.SourceIP = item.SourceIP
+		processListPB.FullMethod = item.FullMethod
+		processListPB.RequestStr = item.RequestStr
+
+		return processListPB
+	}
+
+	serverStreamWithCtxConvFunc := func(item serverStreamWithCtx) *mvccpb.ProcessList {
+		processListPB := &mvccpb.ProcessList{}
+		processListPB.Id = item.ID
+		processListPB.StartTime = item.StartTime.Format(showProcessListFormat)
+		processListPB.UnixNano = item.StartTime.Local().UnixNano()
+		processListPB.SourceIP = item.SourceIP
+		processListPB.FullMethod = item.FullMethod
+		processListPB.RequestStr = item.RequestStr
+
+		return processListPB
+	}
+
+	resp.Pls = make([]*mvccpb.ProcessList, 0)
+
+	if sr.Type == pb.ShowProcessListRequest_OP {
+		if sr.Id != 0 {
+			p, ok := processListCache.Get(strconv.FormatInt(sr.Id, 10))
+			if !ok {
+				return resp, nil
+			}
+			if item, ok := p.(*processList); ok {
+				processListPB := processListConvFunc(item)
+				resp.Pls = append(resp.Pls, processListPB)
+			}
+		} else {
+			for _, p := range processListCache.Items() {
+				if item, ok := p.(*processList); ok {
+					processListPB := processListConvFunc(item)
+					resp.Pls = append(resp.Pls, processListPB)
+				}
+			}
+		}
+	} else if sr.Type == pb.ShowProcessListRequest_STREAM {
+		if sr.Id != 0 {
+			smap.mu.RLock()
+			p, ok := smap.idStreams[sr.Id]
+			smap.mu.RUnlock()
+			if !ok {
+				return resp, nil
+			}
+			if item, ok := p.(serverStreamWithCtx); ok {
+				processListPB := serverStreamWithCtxConvFunc(item)
+				resp.Pls = append(resp.Pls, processListPB)
+			}
+		} else {
+			smap.mu.RLock()
+			for _, p := range smap.idStreams {
+				if item, ok := p.(serverStreamWithCtx); ok {
+					processListPB := serverStreamWithCtxConvFunc(item)
+					resp.Pls = append(resp.Pls, processListPB)
+				}
+			}
+			smap.mu.RUnlock()
+		}
+	}
+
+	resp.Count = int64(len(resp.Pls))
+	sort.Slice(resp.Pls, func(i, j int) bool {
+		if resp.Pls[i].UnixNano < resp.Pls[j].UnixNano {
+			return true
+		}
+		return false
+	})
+
+	return resp, nil
+}
+
+func (ms *maintenanceServer) Kill(ctx context.Context, sr *pb.KillRequest) (*pb.KillResponse, error) {
+	ms.lg.Info("starting kill", zap.Int64("id", sr.Id))
+	resp := &pb.KillResponse{}
+	resp.Header = &pb.ResponseHeader{}
+	ms.hdr.fill(resp.Header)
+
+	if sr.Type == pb.KillRequest_OP {
+		if sr.Id != 0 {
+			p, ok := processListCache.Get(strconv.FormatInt(sr.Id, 10))
+			if !ok {
+				ms.lg.Info("kill from processListCache, not find ID.", zap.Int64("id", sr.Id))
+				return resp, nil
+			}
+			if item, ok := p.(*processList); ok {
+				(*item.Cancel)()
+				<-item.Ctx.Done()
+
+				processListCache.Remove(strconv.FormatInt(sr.Id, 10))
+				ms.lg.Info("kill from processListCache, kill connection success.", zap.Int64("id", sr.Id))
+			}
+		}
+	} else if sr.Type == pb.KillRequest_STREAM {
+		if sr.Id != 0 {
+			smap.mu.RLock()
+			p, ok := smap.idStreams[sr.Id]
+			smap.mu.RUnlock()
+			if !ok {
+				ms.lg.Info("kill from smap, not find ID.", zap.Int64("id", sr.Id))
+				return resp, nil
+			}
+			if item, ok := p.(serverStreamWithCtx); ok {
+				(*item.cancel)()
+				<-item.Context().Done()
+
+				smap.mu.Lock()
+				delete(smap.idStreams, sr.Id)
+				delete(smap.streams, p)
+				smap.mu.Unlock()
+				ms.lg.Info("kill from smap, kill connection success.", zap.Int64("id", sr.Id))
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 // big enough size to hold >1 OS pages in the buffer

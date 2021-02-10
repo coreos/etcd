@@ -1247,7 +1247,7 @@
         "tags": [
           "Maintenance"
         ],
-        "summary": "Downgrade requests downgrade, cancel downgrade on the cluster version.",
+        "summary": "Downgrade requests downgrades, verifies feasibility or cancels downgrade\non the cluster version.\nSupported since etcd 3.5.",
         "operationId": "Maintenance_Downgrade",
         "parameters": [
           {
@@ -1297,6 +1297,72 @@
             "description": "A successful response.",
             "schema": {
               "$ref": "#/definitions/etcdserverpbHashKVResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        }
+      }
+    },
+    "/v3/maintenance/kill": {
+      "post": {
+        "tags": [
+          "Maintenance"
+        ],
+        "summary": "Kill kills a connection from show processlist.",
+        "operationId": "Maintenance_Kill",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/etcdserverpbKillRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/etcdserverpbKillResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        }
+      }
+    },
+    "/v3/maintenance/showprocesslist": {
+      "post": {
+        "tags": [
+          "Maintenance"
+        ],
+        "summary": "ShowProcessList gets the process list.",
+        "operationId": "Maintenance_ShowProcessList",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/etcdserverpbShowProcessListRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/etcdserverpbShowProcessListResponse"
             }
           },
           "default": {
@@ -2148,6 +2214,34 @@
         }
       }
     },
+    "etcdserverpbKillRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "int64"
+        },
+        "type": {
+          "$ref": "#/definitions/etcdserverpbKillRequestType"
+        }
+      }
+    },
+    "etcdserverpbKillRequestType": {
+      "type": "string",
+      "default": "OP",
+      "enum": [
+        "OP",
+        "STREAM"
+      ]
+    },
+    "etcdserverpbKillResponse": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "#/definitions/etcdserverpbResponseHeader"
+        }
+      }
+    },
     "etcdserverpbLeaseGrantRequest": {
       "type": "object",
       "properties": {
@@ -2694,6 +2788,48 @@
         }
       }
     },
+    "etcdserverpbShowProcessListRequest": {
+      "type": "object",
+      "properties": {
+        "count_only": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "id": {
+          "type": "string",
+          "format": "int64"
+        },
+        "type": {
+          "$ref": "#/definitions/etcdserverpbShowProcessListRequestType"
+        }
+      }
+    },
+    "etcdserverpbShowProcessListRequestType": {
+      "type": "string",
+      "default": "OP",
+      "enum": [
+        "OP",
+        "STREAM"
+      ]
+    },
+    "etcdserverpbShowProcessListResponse": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "string",
+          "format": "int64"
+        },
+        "header": {
+          "$ref": "#/definitions/etcdserverpbResponseHeader"
+        },
+        "pls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/mvccpbProcessList"
+          }
+        }
+      }
+    },
     "etcdserverpbSnapshotRequest": {
       "type": "object"
     },
@@ -2985,6 +3121,31 @@
         },
         "version": {
           "description": "version is the version of the key. A deletion resets\nthe version to zero and any modification of the key\nincreases its version.",
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "mvccpbProcessList": {
+      "type": "object",
+      "properties": {
+        "fullMethod": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "format": "int64"
+        },
+        "requestStr": {
+          "type": "string"
+        },
+        "sourceIP": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "string"
+        },
+        "unixNano": {
           "type": "string",
           "format": "int64"
         }

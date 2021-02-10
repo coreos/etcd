@@ -16,6 +16,8 @@ package v3rpc
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,6 +32,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
+
+	cmap "github.com/orcaman/concurrent-map"
 )
 
 const (
@@ -37,9 +41,31 @@ const (
 	warnUnaryRequestLatency = 300 * time.Millisecond
 )
 
+type processList struct {
+	Ctx        context.Context
+	Cancel     *context.CancelFunc
+	ID         int64
+	StartTime  time.Time
+	SourceIP   string
+	FullMethod string
+	RequestStr string
+}
+
+var smap *streamsMap
+var processListCache cmap.ConcurrentMap
+
+func init() {
+	smap = &streamsMap{
+		streams:   make(map[grpc.ServerStream]struct{}),
+		idStreams: make(map[int64]grpc.ServerStream),
+	}
+	processListCache = cmap.New()
+}
+
 type streamsMap struct {
-	mu      sync.Mutex
-	streams map[grpc.ServerStream]struct{}
+	mu        sync.RWMutex
+	streams   map[grpc.ServerStream]struct{}
+	idStreams map[int64]grpc.ServerStream
 }
 
 func newUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
@@ -79,6 +105,75 @@ func newLogUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerIntercepto
 		if lg != nil { // acquire stats if debug level is enabled or request is expensive
 			defer logUnaryRequestStats(ctx, lg, info, startTime, req, resp)
 		}
+		return resp, err
+	}
+}
+
+func GetRealAddr(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+
+	rips := md.Get("x-real-ip")
+	if len(rips) == 0 {
+		return ""
+	}
+
+	return rips[0]
+}
+
+// GetPeerAddr get peer addr
+func GetPeerAddr(ctx context.Context) string {
+	var addr string
+	if pr, ok := peer.FromContext(ctx); ok {
+		if tcpAddr, ok := pr.Addr.(*net.TCPAddr); ok {
+			addr = tcpAddr.IP.String()
+		} else {
+			addr = pr.Addr.String()
+		}
+	}
+	return addr
+}
+
+func newProcessListInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		ctx, cancel := context.WithCancel(ctx)
+
+		startTime := time.Now()
+		id := startTime.Local().UnixNano()
+		idStr := strconv.FormatInt(id, 10)
+		p := new(processList)
+		p.Ctx = ctx
+		p.Cancel = &cancel
+		p.ID = id
+		p.StartTime = startTime
+		if ip := GetRealAddr(ctx); ip != "" {
+			p.SourceIP = ip
+		} else {
+			p.SourceIP = GetPeerAddr(ctx)
+		}
+		p.FullMethod = info.FullMethod
+
+		switch _req := req.(type) {
+		case *pb.RangeRequest:
+			p.RequestStr = _req.String()
+		case *pb.PutRequest:
+			p.RequestStr = pb.NewLoggablePutRequest(_req).String()
+		case *pb.DeleteRangeRequest:
+			p.RequestStr = _req.String()
+		case *pb.TxnRequest:
+			p.RequestStr = pb.NewLoggableTxnRequest(_req).String()
+		default:
+		}
+
+		processListCache.Set(idStr, p)
+		defer func() {
+			processListCache.Remove(idStr)
+			cancel()
+		}()
+
+		resp, err := handler(ctx, req)
 		return resp, err
 	}
 }
@@ -207,7 +302,7 @@ func logExpensiveRequestStats(lg *zap.Logger, startTime time.Time, duration time
 }
 
 func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor {
-	smap := monitorLeader(s)
+	monitorLeader(s)
 
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if !api.IsCapabilityEnabled(api.V3rpcCapability) {
@@ -231,16 +326,30 @@ func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor
 					return rpctypes.ErrGRPCNoLeader
 				}
 
+				startTime := time.Now()
+				id := startTime.Local().UnixNano()
+				var sourceIP string
+				if ip := GetRealAddr(ss.Context()); ip != "" {
+					sourceIP = ip
+				} else {
+					sourceIP = GetPeerAddr(ss.Context())
+				}
+
 				cctx, cancel := context.WithCancel(ss.Context())
-				ss = serverStreamWithCtx{ctx: cctx, cancel: &cancel, ServerStream: ss}
+				ss = serverStreamWithCtx{
+					ctx: cctx, cancel: &cancel, ServerStream: ss,
+					ID: id, StartTime: startTime, SourceIP: sourceIP, FullMethod: info.FullMethod,
+				}
 
 				smap.mu.Lock()
 				smap.streams[ss] = struct{}{}
+				smap.idStreams[id] = ss
 				smap.mu.Unlock()
 
 				defer func() {
 					smap.mu.Lock()
 					delete(smap.streams, ss)
+					delete(smap.idStreams, id)
 					smap.mu.Unlock()
 					cancel()
 				}()
@@ -253,17 +362,18 @@ func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor
 
 type serverStreamWithCtx struct {
 	grpc.ServerStream
-	ctx    context.Context
-	cancel *context.CancelFunc
+	ctx        context.Context
+	cancel     *context.CancelFunc
+	ID         int64
+	StartTime  time.Time
+	SourceIP   string
+	FullMethod string
+	RequestStr string
 }
 
 func (ssc serverStreamWithCtx) Context() context.Context { return ssc.ctx }
 
-func monitorLeader(s *etcdserver.EtcdServer) *streamsMap {
-	smap := &streamsMap{
-		streams: make(map[grpc.ServerStream]struct{}),
-	}
-
+func monitorLeader(s *etcdserver.EtcdServer) {
 	s.GoAttach(func() {
 		election := time.Duration(s.Cfg.TickMs) * time.Duration(s.Cfg.ElectionTicks) * time.Millisecond
 		noLeaderCnt := 0
@@ -291,11 +401,10 @@ func monitorLeader(s *etcdserver.EtcdServer) *streamsMap {
 						}
 					}
 					smap.streams = make(map[grpc.ServerStream]struct{})
+					smap.idStreams = make(map[int64]grpc.ServerStream)
 					smap.mu.Unlock()
 				}
 			}
 		}
 	})
-
-	return smap
 }

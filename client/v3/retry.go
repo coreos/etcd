@@ -202,6 +202,14 @@ func (rmc *retryMaintenanceClient) Status(ctx context.Context, in *pb.StatusRequ
 	return rmc.mc.Status(ctx, in, append(opts, withRetryPolicy(repeatable))...)
 }
 
+func (rmc *retryMaintenanceClient) ShowProcessList(ctx context.Context, in *pb.ShowProcessListRequest, opts ...grpc.CallOption) (resp *pb.ShowProcessListResponse, err error) {
+	return rmc.mc.ShowProcessList(ctx, in, append(opts, withRetryPolicy(repeatable))...)
+}
+
+func (rmc *retryMaintenanceClient) Kill(ctx context.Context, in *pb.KillRequest, opts ...grpc.CallOption) (resp *pb.KillResponse, err error) {
+	return rmc.mc.Kill(ctx, in, append(opts, withRetryPolicy(repeatable))...)
+}
+
 func (rmc *retryMaintenanceClient) Hash(ctx context.Context, in *pb.HashRequest, opts ...grpc.CallOption) (resp *pb.HashResponse, err error) {
 	return rmc.mc.Hash(ctx, in, append(opts, withRetryPolicy(repeatable))...)
 }

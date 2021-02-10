@@ -77,6 +77,8 @@ func init() {
 		command.NewCompactionCommand(),
 		command.NewAlarmCommand(),
 		command.NewDefragCommand(),
+		command.NewShowProcessListCommand(),
+		command.NewKillCommand(),
 		command.NewEndpointCommand(),
 		command.NewMoveLeaderCommand(),
 		command.NewWatchCommand(),

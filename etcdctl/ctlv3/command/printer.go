@@ -47,6 +47,7 @@ type printer interface {
 
 	EndpointHealth([]epHealth)
 	EndpointStatus([]epStatus)
+	ShowProcessList([]showProcessList)
 	EndpointHashKV([]epHashKV)
 	MoveLeader(leader, target uint64, r v3.MoveLeaderResponse)
 
@@ -156,10 +157,11 @@ func newPrinterUnsupported(n string) printer {
 	return &printerUnsupported{printerRPC{nil, f}}
 }
 
-func (p *printerUnsupported) EndpointHealth([]epHealth) { p.p(nil) }
-func (p *printerUnsupported) EndpointStatus([]epStatus) { p.p(nil) }
-func (p *printerUnsupported) EndpointHashKV([]epHashKV) { p.p(nil) }
-func (p *printerUnsupported) DBStatus(snapshot.Status)  { p.p(nil) }
+func (p *printerUnsupported) EndpointHealth([]epHealth)         { p.p(nil) }
+func (p *printerUnsupported) EndpointStatus([]epStatus)         { p.p(nil) }
+func (p *printerUnsupported) EndpointHashKV([]epHashKV)         { p.p(nil) }
+func (p *printerUnsupported) DBStatus(snapshot.Status)          { p.p(nil) }
+func (p *printerUnsupported) ShowProcessList([]showProcessList) { p.p(nil) }
 
 func (p *printerUnsupported) MoveLeader(leader, target uint64, r v3.MoveLeaderResponse) { p.p(nil) }
 
@@ -215,6 +217,23 @@ func makeEndpointStatusTable(statusList []epStatus) (hdr []string, rows [][]stri
 			fmt.Sprint(status.Resp.RaftAppliedIndex),
 			fmt.Sprint(strings.Join(status.Resp.Errors, ", ")),
 		})
+	}
+	return hdr, rows
+}
+
+func makeShowProcessListTable(spls []showProcessList) (hdr []string, rows [][]string) {
+	hdr = []string{"endpoint", "ID", "SourceIP", "FullMethod", "RequestStr", "StartTime"}
+	for _, spl := range spls {
+		for _, pl := range spl.Resp.Pls {
+			rows = append(rows, []string{
+				spl.Ep,
+				fmt.Sprintf("%d", pl.Id),
+				pl.SourceIP,
+				pl.FullMethod,
+				pl.RequestStr,
+				pl.StartTime,
+			})
+		}
 	}
 	return hdr, rows
 }

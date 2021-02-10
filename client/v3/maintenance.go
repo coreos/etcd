@@ -25,12 +25,14 @@ import (
 )
 
 type (
-	DefragmentResponse pb.DefragmentResponse
-	AlarmResponse      pb.AlarmResponse
-	AlarmMember        pb.AlarmMember
-	StatusResponse     pb.StatusResponse
-	HashKVResponse     pb.HashKVResponse
-	MoveLeaderResponse pb.MoveLeaderResponse
+	DefragmentResponse      pb.DefragmentResponse
+	AlarmResponse           pb.AlarmResponse
+	AlarmMember             pb.AlarmMember
+	StatusResponse          pb.StatusResponse
+	HashKVResponse          pb.HashKVResponse
+	MoveLeaderResponse      pb.MoveLeaderResponse
+	ShowProcessListResponse pb.ShowProcessListResponse
+	KillResponse            pb.KillResponse
 )
 
 type Maintenance interface {
@@ -65,6 +67,10 @@ type Maintenance interface {
 	// MoveLeader requests current leader to transfer its leadership to the transferee.
 	// Request must be made to the leader.
 	MoveLeader(ctx context.Context, transfereeID uint64) (*MoveLeaderResponse, error)
+
+	ShowProcessList(ctx context.Context, endpoint string, countOnly bool, streamType bool, id int64) (*ShowProcessListResponse, error)
+
+	Kill(ctx context.Context, endpoint string, streamType bool, id int64) (*KillResponse, error)
 }
 
 type maintenance struct {
@@ -200,6 +206,42 @@ func (m *maintenance) HashKV(ctx context.Context, endpoint string, rev int64) (*
 		return nil, toErr(ctx, err)
 	}
 	return (*HashKVResponse)(resp), nil
+}
+
+func (m *maintenance) ShowProcessList(ctx context.Context, endpoint string, countOnly bool, streamType bool, id int64) (*ShowProcessListResponse, error) {
+	remote, cancel, err := m.dial(endpoint)
+	if err != nil {
+		return nil, toErr(ctx, err)
+	}
+	defer cancel()
+	var processListtype pb.ShowProcessListRequest_Type
+	if streamType {
+		processListtype = pb.ShowProcessListRequest_STREAM
+	}
+
+	resp, err := remote.ShowProcessList(ctx, &pb.ShowProcessListRequest{CountOnly: countOnly, Type: processListtype, Id: id}, m.callOpts...)
+	if err != nil {
+		return nil, toErr(ctx, err)
+	}
+	return (*ShowProcessListResponse)(resp), nil
+}
+
+func (m *maintenance) Kill(ctx context.Context, endpoint string, streamType bool, id int64) (*KillResponse, error) {
+	remote, cancel, err := m.dial(endpoint)
+	if err != nil {
+		return nil, toErr(ctx, err)
+	}
+	defer cancel()
+	var killType pb.KillRequest_Type
+	if streamType {
+		killType = pb.KillRequest_STREAM
+	}
+
+	resp, err := remote.Kill(ctx, &pb.KillRequest{Type: killType, Id: id}, m.callOpts...)
+	if err != nil {
+		return nil, toErr(ctx, err)
+	}
+	return (*KillResponse)(resp), nil
 }
 
 func (m *maintenance) Snapshot(ctx context.Context) (io.ReadCloser, error) {
