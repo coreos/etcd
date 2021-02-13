@@ -29,15 +29,15 @@ stabilize
   Lead:0 State:StateCandidate
   HardState Term:1 Vote:1 Commit:2
   Messages:
-  1->2 MsgVote Term:1 Log:1/2
-  1->3 MsgVote Term:1 Log:1/2
+  1->2 MsgVote Term:1 Log:1/2 Commit:2
+  1->3 MsgVote Term:1 Log:1/2 Commit:2
 > 2 receiving messages
-  1->2 MsgVote Term:1 Log:1/2
+  1->2 MsgVote Term:1 Log:1/2 Commit:2
   INFO 2 [term: 0] received a MsgVote message with higher term from 1 [term: 1]
   INFO 2 became follower at term 1
   INFO 2 [logterm: 1, index: 2, vote: 0] cast MsgVote for 1 [logterm: 1, index: 2] at term 1
 > 3 receiving messages
-  1->3 MsgVote Term:1 Log:1/2
+  1->3 MsgVote Term:1 Log:1/2 Commit:2
   INFO 3 [term: 0] received a MsgVote message with higher term from 1 [term: 1]
   INFO 3 became follower at term 1
   INFO 3 [logterm: 1, index: 2, vote: 0] cast MsgVote for 1 [logterm: 1, index: 2] at term 1

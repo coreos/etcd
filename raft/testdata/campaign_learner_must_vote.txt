@@ -65,8 +65,8 @@ Ready MustSync=true:
 Lead:0 State:StateCandidate
 HardState Term:2 Vote:2 Commit:4
 Messages:
-2->1 MsgVote Term:2 Log:1/4
-2->3 MsgVote Term:2 Log:1/4
+2->1 MsgVote Term:2 Log:1/4 Commit:4
+2->3 MsgVote Term:2 Log:1/4 Commit:4
 
 # n2 is now campaigning while n1 is down (does not respond). The latest config
 # has n3 as a voter, but n3 doesn't even have the corresponding conf change in
@@ -75,7 +75,7 @@ Messages:
 stabilize 3
 ----
 > 3 receiving messages
-  2->3 MsgVote Term:2 Log:1/4
+  2->3 MsgVote Term:2 Log:1/4 Commit:4
   INFO 3 [term: 1] received a MsgVote message with higher term from 2 [term: 2]
   INFO 3 became follower at term 2
   INFO 3 [logterm: 1, index: 3, vote: 0] cast MsgVote for 2 [logterm: 1, index: 4] at term 2

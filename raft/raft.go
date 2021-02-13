@@ -807,6 +807,12 @@ func (r *raft) campaign(t CampaignType) {
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	}
+
+	commit := r.raftLog.committed
+	commitTerm, err := r.raftLog.term(commit)
+	if err != nil {
+		r.logger.Panicf("unexpected error when getting term of the last committed entry (%v)", err)
+	}
 	for _, id := range ids {
 		if id == r.id {
 			continue
@@ -818,7 +824,7 @@ func (r *raft) campaign(t CampaignType) {
 		if t == campaignTransfer {
 			ctx = []byte(t)
 		}
-		r.send(pb.Message{Term: term, To: id, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Context: ctx})
+		r.send(pb.Message{Term: term, To: id, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Commit: commit, CommitTerm: commitTerm, Context: ctx})
 	}
 }
 
@@ -962,7 +968,21 @@ func (r *raft) Step(m pb.Message) error {
 		} else {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] rejected %s from %x [logterm: %d, index: %d] at term %d",
 				r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term)
-			r.send(pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true})
+
+			var commit, commitTerm uint64
+			if m.Commit > r.raftLog.committed && r.raftLog.matchTerm(m.Commit, m.CommitTerm) {
+				r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] fast-forwarded commit to vote request [index: %d, term: %d]",
+					r.id, r.raftLog.committed, r.raftLog.lastIndex(), r.raftLog.lastTerm(), m.Commit, m.CommitTerm)
+				r.raftLog.commitTo(m.Commit)
+			} else {
+				commit = r.raftLog.committed
+				if t, err := r.raftLog.term(commit); err == nil {
+					commitTerm = t
+				} else {
+					r.logger.Panicf("unexpected error when getting term of the last committed entry (%v)", err)
+				}
+			}
+			r.send(pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true, Commit: commit, CommitTerm: commitTerm})
 		}
 
 	default:
@@ -1277,6 +1297,11 @@ func stepCandidate(r *raft, m pb.Message) error {
 	case myVoteRespType:
 		gr, rj, res := r.poll(m.From, m.Type, !m.Reject)
 		r.logger.Infof("%x has received %d %s votes and %d vote rejections", r.id, gr, m.Type, rj)
+		if m.Reject && m.Commit > r.raftLog.committed && r.raftLog.matchTerm(m.Commit, m.CommitTerm) {
+			r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] fast-forwarded commit to vote response [index: %d, term: %d]",
+				r.id, r.raftLog.committed, r.raftLog.lastIndex(), r.raftLog.lastTerm(), m.Commit, m.CommitTerm)
+			r.raftLog.commitTo(m.Commit)
+		}
 		switch res {
 		case quorum.VoteWon:
 			if r.state == StatePreCandidate {

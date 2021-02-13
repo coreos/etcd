@@ -4265,6 +4265,206 @@ func TestConfChangeV2CheckBeforeCampaign(t *testing.T) {
 	testConfChangeCheckBeforeCampaign(t, true)
 }
 
+// Tests the commit index can be forwarded by vote request
+func TestForwardCommitIndexByVoteRequest(t *testing.T) {
+	tests := []pb.ConfChangeI{
+		// Simple confchange
+		pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: 4},
+		// Enter joint confchange
+		pb.ConfChangeV2{
+			Changes: []pb.ConfChangeSingle{
+				{
+					Type:   pb.ConfChangeAddLearnerNode,
+					NodeID: 3,
+				},
+				{
+					Type:   pb.ConfChangeAddNode,
+					NodeID: 4,
+				},
+			},
+		},
+	}
+	for _, cc := range tests {
+		n1 := newTestLearnerRaft(1, []uint64{1, 2, 3}, []uint64{4}, 10, 1, NewMemoryStorage())
+		n2 := newTestLearnerRaft(2, []uint64{1, 2, 3}, []uint64{4}, 10, 1, NewMemoryStorage())
+		n3 := newTestLearnerRaft(3, []uint64{1, 2, 3}, []uint64{4}, 10, 1, NewMemoryStorage())
+		n4 := newTestLearnerRaft(4, []uint64{1, 2, 3}, []uint64{4}, 10, 1, NewMemoryStorage())
+
+		nt := newNetwork(n1, n2, n3, n4)
+		nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+
+		typ, ccData, err := pb.MarshalConfChange(cc)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// propose a confchange entry but don't let it commit
+		nt.ignore(pb.MsgAppResp)
+		nt.send(pb.Message{
+			From:    1,
+			To:      1,
+			Type:    pb.MsgProp,
+			Entries: []pb.Entry{{Type: typ, Data: ccData}},
+		})
+		confChangeIndex := n1.raftLog.lastIndex()
+
+		// let node 4 have more up to data log than other voter
+		nt.recover()
+		nt.cut(1, 2)
+		nt.cut(1, 3)
+		nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+
+		// let the confchange entry commit but don't let node 4 know
+		nt.recover()
+		nt.cut(1, 4)
+		nt.ignore(pb.MsgApp)
+		nt.send(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: n2.raftLog.lastIndex()})
+		nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgBeat})
+
+		// simulate the leader down
+		nt.recover()
+		nt.isolate(1)
+
+		if n4.raftLog.committed >= confChangeIndex {
+			t.Fatalf("expected node 4 commit index less than %d, got %d", confChangeIndex, n4.raftLog.committed)
+		}
+		// node 4 can't start new election because it think itself is a learner
+		nt.send(pb.Message{From: 4, To: 4, Type: pb.MsgHup})
+		if n4.state != StateFollower {
+			t.Fatalf("node 4 state: %s, want %s", n4.state, StateFollower)
+		}
+
+		if n2.raftLog.committed < confChangeIndex {
+			t.Fatalf("expected node 2 commit index not less than %d, got %d", confChangeIndex, n2.raftLog.committed)
+		} else {
+			n2.applyConfChange(cc.AsV2())
+			n2.raftLog.appliedTo(confChangeIndex)
+		}
+		// node 2 need votes from both node 3 and node 4, but node 4 will reject it
+		nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
+		if n2.state == StateLeader {
+			t.Fatalf("node 2 state: %s, want %s", n2.state, StateCandidate)
+		}
+
+		// node 4's commit index should be forwarded by node 2's vote request
+		if n4.raftLog.committed < confChangeIndex {
+			t.Fatalf("expected node 4 commit index not less than %d, got %d", confChangeIndex, n4.raftLog.committed)
+		} else {
+			n4.applyConfChange(cc.AsV2())
+			n4.raftLog.appliedTo(confChangeIndex)
+		}
+
+		// now node 4 can start new election and become leader
+		nt.send(pb.Message{From: 4, To: 4, Type: pb.MsgHup})
+		if n4.state != StateLeader {
+			t.Fatalf("node 4 state: %s, want %s", n4.state, StateLeader)
+		}
+	}
+}
+
+// Tests the commit index can be forwarded by vote response
+func TestForwardCommitIndexByVoteResponse(t *testing.T) {
+	tests := []pb.ConfChangeI{
+		// Simple confchange
+		pb.ConfChange{Type: pb.ConfChangeRemoveNode, NodeID: 4},
+		// Leave joint confchange
+		pb.ConfChangeV2{},
+	}
+	// Enter joint confchange
+	enterJoint := pb.ConfChangeV2{
+		Changes: []pb.ConfChangeSingle{
+			{
+				Type:   pb.ConfChangeAddNode,
+				NodeID: 3,
+			},
+			{
+				Type:   pb.ConfChangeAddLearnerNode,
+				NodeID: 4,
+			},
+		},
+	}
+	for _, cc := range tests {
+		nt := newNetwork(nil, nil, nil, nil)
+		n1 := nt.peers[1].(*raft)
+		n2 := nt.peers[2].(*raft)
+		n3 := nt.peers[3].(*raft)
+		n4 := nt.peers[4].(*raft)
+
+		// Joint confchange, let's enter joint first
+		if _, isSimple := cc.AsV1(); !isSimple {
+			n1.applyConfChange(enterJoint)
+			n2.applyConfChange(enterJoint)
+			n3.applyConfChange(enterJoint)
+			n4.applyConfChange(enterJoint)
+		}
+
+		nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgHup})
+
+		typ, ccData, err := pb.MarshalConfChange(cc)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// propose a confchange entry but don't let it commit
+		nt.ignore(pb.MsgAppResp)
+		nt.send(pb.Message{
+			From:    1,
+			To:      1,
+			Type:    pb.MsgProp,
+			Entries: []pb.Entry{{Type: typ, Data: ccData}},
+		})
+		confChangeIndex := n1.raftLog.lastIndex()
+
+		// let node 4 have more up to data log than other voter
+		nt.recover()
+		nt.cut(1, 2)
+		nt.cut(1, 3)
+		nt.send(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+
+		// A delayed MsgAppResp message make the confchange entry become committed
+		nt.send(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: n2.raftLog.lastIndex()})
+
+		// simulate the leader down
+		nt.recover()
+		nt.isolate(1)
+
+		if n4.raftLog.committed < confChangeIndex {
+			t.Fatalf("expected node 4 commit index not less than %d, got %d", confChangeIndex, n4.raftLog.committed)
+		} else {
+			n4.applyConfChange(cc.AsV2())
+			n4.raftLog.appliedTo(confChangeIndex)
+		}
+		// node 4 can't start new election because it think itself is a learner
+		nt.send(pb.Message{From: 4, To: 4, Type: pb.MsgHup})
+		if n4.state != StateFollower {
+			t.Fatalf("node 4 state: %s, want %s", n4.state, StateFollower)
+		}
+
+		if n2.raftLog.committed >= confChangeIndex {
+			t.Fatalf("expected node 2 commit index less than %d, got %d", confChangeIndex, n2.raftLog.committed)
+		}
+		// node 2 can't become leader, because it need votes from both node 3 and node 4, but node 4 will reject it
+		nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
+		if n2.state == StateLeader {
+			t.Fatalf("unexpected node 2 state: %s, want %s", n2.state, StateCandidate)
+		}
+
+		// node 2's commit index should be forwarded by vote response
+		if n2.raftLog.committed < confChangeIndex {
+			t.Fatalf("expected node 2 commit index not less than %d, got %d", confChangeIndex, n2.raftLog.committed)
+		} else {
+			n2.applyConfChange(cc.AsV2())
+			n2.raftLog.appliedTo(confChangeIndex)
+		}
+
+		// now node 2 only need vote from node 3
+		nt.send(pb.Message{From: 2, To: 2, Type: pb.MsgHup})
+		if n2.state != StateLeader {
+			t.Fatalf("node 2 state: %s, want %s", n2.state, StateLeader)
+		}
+	}
+}
+
 func entsWithConfig(configFunc func(*Config), terms ...uint64) *raft {
 	storage := NewMemoryStorage()
 	for i, term := range terms {
