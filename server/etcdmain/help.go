@@ -227,6 +227,12 @@ Unsafe feature:
   --unsafe-no-fsync 'false'
     Disables fsync, unsafe, will cause data loss.
 
+Metrics:
+  --metrics-big-value 1048576 (equal 1MB)
+    Big value size metrics.
+  --metrics-hot-key 524288 (equal 0.5MB)
+    Hot Key size metrics.
+
 CAUTIOUS with unsafe flag! It may break the guarantees given by the consensus protocol!
 `
 )

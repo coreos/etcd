@@ -60,6 +60,9 @@ var defaultCompactBatchLimit = 1000
 
 type StoreConfig struct {
 	CompactionBatchLimit int
+	// metrics
+	BigValueSize uint64
+	HotKeySize   uint64
 }
 
 type store struct {

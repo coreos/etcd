@@ -70,6 +70,9 @@ import (
 const (
 	DefaultSnapshotCount = 100000
 
+	DefaultBigValueSize uint64 = 1 * 1024 * 1024
+	DefaultHotKeySize   uint64 = 0.5 * 1024 * 1024
+
 	// DefaultSnapshotCatchUpEntries is the number of entries for a slow follower
 	// to catch-up after compacting the raft storage entries.
 	// We expect the follower has a millisecond level latency with the leader.
@@ -558,7 +561,12 @@ func NewServer(cfg ServerConfig) (srv *EtcdServer, err error) {
 		cfg.Logger.Warn("failed to create token provider", zap.Error(err))
 		return nil, err
 	}
-	srv.kv = mvcc.New(srv.getLogger(), srv.be, srv.lessor, srv.consistIndex, mvcc.StoreConfig{CompactionBatchLimit: cfg.CompactionBatchLimit})
+	srv.kv = mvcc.New(srv.getLogger(), srv.be, srv.lessor, srv.consistIndex,
+		mvcc.StoreConfig{
+			CompactionBatchLimit: cfg.CompactionBatchLimit,
+			BigValueSize:         cfg.BigValueSize,
+			HotKeySize:           cfg.HotKeySize,
+		})
 	kvindex := srv.consistIndex.ConsistentIndex()
 	srv.lg.Debug("restore consistentIndex",
 		zap.Uint64("index", kvindex))
@@ -750,6 +758,24 @@ func (s *EtcdServer) start() {
 			zap.Uint64("updated-snapshot-catchup-entries", DefaultSnapshotCatchUpEntries),
 		)
 		s.Cfg.SnapshotCatchUpEntries = DefaultSnapshotCatchUpEntries
+	}
+
+	// metrics
+	if s.Cfg.BigValueSize == 0 {
+		lg.Info(
+			"updating metrics-big-value to default",
+			zap.Uint64("given-metrics-big-value", s.Cfg.BigValueSize),
+			zap.Uint64("updated-metrics-big-value", DefaultBigValueSize),
+		)
+		s.Cfg.BigValueSize = DefaultBigValueSize
+	}
+	if s.Cfg.HotKeySize == 0 {
+		lg.Info(
+			"updating metrics-hot-key to default",
+			zap.Uint64("given-metrics-hot-key", s.Cfg.HotKeySize),
+			zap.Uint64("updated-metrics-hot-key", DefaultHotKeySize),
+		)
+		s.Cfg.HotKeySize = DefaultHotKeySize
 	}
 
 	s.w = wait.New()

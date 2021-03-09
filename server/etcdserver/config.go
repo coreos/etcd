@@ -45,6 +45,10 @@ type ServerConfig struct {
 
 	SnapshotCount uint64
 
+	// metrics
+	BigValueSize uint64 `json:"metrics-big-value"`
+	HotKeySize   uint64 `json:"metrics-hot-key"`
+
 	// SnapshotCatchUpEntries is the number of entries for a slow follower
 	// to catch-up after compacting the raft storage entries.
 	// We expect the follower has a millisecond level latency with the leader.

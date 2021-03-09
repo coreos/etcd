@@ -272,6 +272,10 @@ func newConfig() *config {
 	fs.BoolVar(&cfg.ec.UnsafeNoFsync, "unsafe-no-fsync", false, "Disables fsync, unsafe, will cause data loss.")
 	fs.BoolVar(&cfg.ec.ForceNewCluster, "force-new-cluster", false, "Force to create a new one member cluster.")
 
+	// metrics
+	fs.Uint64Var(&cfg.ec.BigValueSize, "metrics-big-value", cfg.ec.BigValueSize, "Big value size.")
+	fs.Uint64Var(&cfg.ec.HotKeySize, "metrics-hot-key", cfg.ec.HotKeySize, "Hot key value size.")
+
 	// ignored
 	for _, f := range cfg.ignored {
 		fs.Var(&flags.IgnoredFlag{Name: f}, f, "")

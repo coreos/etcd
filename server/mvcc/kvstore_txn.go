@@ -212,6 +212,20 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 	tw.changes = append(tw.changes, kv)
 	tw.trace.Step("store kv pair into bolt db")
 
+	// big value metrics
+	valueSize := len(value)
+	if uint64(valueSize) > tw.s.cfg.BigValueSize {
+		tw.storeTxnRead.s.lg.Warn("Catch big value",
+			zap.String("Big value key", string(key)),
+			zap.Float64("Big value size", float64(valueSize)))
+		putBigValue.WithLabelValues(string(key)).Set(float64(valueSize))
+	}
+
+	// hot key metrics
+	if uint64(valueSize) > tw.s.cfg.HotKeySize {
+		putHotKey.WithLabelValues(string(key)).Set(float64(valueSize))
+	}
+
 	if oldLease != lease.NoLease {
 		if tw.s.le == nil {
 			panic("no lessor to detach lease")

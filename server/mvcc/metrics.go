@@ -52,6 +52,25 @@ var (
 			Help:      "Total number of puts seen by this member.",
 		})
 
+	putBigValue = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "etcd_debugging",
+			Subsystem: "mvcc",
+			Name:      "put_big_value",
+			Help:      "Every big value size of per key.",
+		},
+		[]string{"big_key"})
+
+	// putHotKey metrics
+	putHotKey = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "etcd_debugging",
+			Subsystem: "mvcc",
+			Name:      "put_hot_key",
+			Help:      "Every hot key.",
+		},
+		[]string{"hot_key"})
+
 	deleteCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "etcd",
@@ -319,6 +338,8 @@ func init() {
 	prometheus.MustRegister(rangeCounterDebug)
 	prometheus.MustRegister(putCounter)
 	prometheus.MustRegister(putCounterDebug)
+	prometheus.MustRegister(putBigValue)
+	prometheus.MustRegister(putHotKey)
 	prometheus.MustRegister(deleteCounter)
 	prometheus.MustRegister(deleteCounterDebug)
 	prometheus.MustRegister(txnCounter)
