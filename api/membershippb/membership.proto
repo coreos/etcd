@@ -16,6 +16,26 @@ message RaftAttributes {
   bool is_learner = 2;
 }
 
+message MemberMonitor {
+  enum Op {
+    GREATER_EQUAL = 0;
+  }
+
+  enum Type {
+    PROGRESS = 0;
+  }
+
+  Type type = 1;
+  Op op = 2;
+  uint64 threshold = 3;
+  uint32 delay = 4;
+}
+
+message MemberPromoteRule {
+  bool auto = 1;
+  repeated MemberMonitor monitors = 2;
+}
+
 // Attributes represents all the non-raft related attributes of an etcd member.
 message Attributes {
   string name = 1;
@@ -26,6 +46,7 @@ message Member {
   uint64 ID = 1;
   RaftAttributes raft_attributes = 2;
   Attributes member_attributes = 3;
+  repeated MemberPromoteRule promote_rules = 4;
 }
 
 message ClusterVersionSetRequest {

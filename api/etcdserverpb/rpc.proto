@@ -166,7 +166,7 @@ service Cluster {
     };
   }
 
-  // MemberPromote promotes a member from raft learner (non-voting) to raft voting member.
+  // MemberPromote promotes a member from raft non-voting member to raft voting member.
   rpc MemberPromote(MemberPromoteRequest) returns (MemberPromoteResponse) {
       option (google.api.http) = {
         post: "/v3/cluster/member/promote"
@@ -863,6 +863,27 @@ message LeaseLeasesResponse {
   repeated LeaseStatus leases = 2;
 }
 
+message MemberMonitor {
+  enum Op {
+    GREATER_EQUAL = 0;
+  }
+
+  enum Type {
+    PROGRESS = 0;
+  }
+
+  Type type = 1;
+  Op op = 2;
+  uint64 threshold = 3;
+  uint32 delay = 4;
+}
+
+message MemberPromoteRule {
+  bool auto = 1;
+  repeated MemberMonitor monitors = 2;
+}
+
+
 message Member {
   // ID is the member ID for this member.
   uint64 ID = 1;
@@ -874,6 +895,8 @@ message Member {
   repeated string clientURLs = 4;
   // isLearner indicates if the member is raft learner.
   bool isLearner = 5;
+  // promoteRules govern the automatic promotion of learner members.
+  repeated MemberPromoteRule promoteRules = 6;
 }
 
 message MemberAddRequest {
@@ -881,6 +904,8 @@ message MemberAddRequest {
   repeated string peerURLs = 1;
   // isLearner indicates if the added member is raft learner.
   bool isLearner = 2;
+  // promoteRules govern the automatic promotion of learner members.
+  repeated MemberPromoteRule promoteRules = 3;
 }
 
 message MemberAddResponse {

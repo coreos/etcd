@@ -66,8 +66,8 @@ type RaftCluster struct {
 // ConfigChangeContext represents a context for confChange.
 type ConfigChangeContext struct {
 	Member
-	// IsPromote indicates if the config change is for promoting a learner member.
-	// This flag is needed because both adding a new member and promoting a learner member
+	// IsPromote indicates if the config change is for promoting a member to another role.
+	// This flag is needed because both adding a new member and promoting a member
 	// uses the same config change type 'ConfChangeAddNode'.
 	IsPromote bool `json:"isPromote"`
 }
@@ -373,6 +373,7 @@ func (c *RaftCluster) ValidateConfigurationChange(cc raftpb.ConfChange) error {
 func (c *RaftCluster) AddMember(m *Member) {
 	c.Lock()
 	defer c.Unlock()
+
 	if c.v2store != nil {
 		mustSaveMemberToStore(c.lg, c.v2store, m)
 	}
@@ -464,6 +465,7 @@ func (c *RaftCluster) PromoteMember(id types.ID) {
 	defer c.Unlock()
 
 	c.members[id].RaftAttributes.IsLearner = false
+
 	if c.v2store != nil {
 		mustUpdateMemberInStore(c.lg, c.v2store, c.members[id])
 	}
@@ -497,6 +499,26 @@ func (c *RaftCluster) UpdateRaftAttributes(id types.ID, raftAttr RaftAttributes)
 		zap.String("updated-remote-peer-id", id.String()),
 		zap.Strings("updated-remote-peer-urls", raftAttr.PeerURLs),
 	)
+}
+
+func (c *RaftCluster) UpdatePromoteRules(id types.ID, rules []PromoteRule) {
+	m, ok := c.members[id]
+	if !ok {
+		return
+	}
+	for ridx := range m.PromoteRules {
+		if ridx > len(rules)-1 {
+			break
+		}
+		for midx := range m.PromoteRules[ridx].Monitors {
+			if midx > len(rules[ridx].Monitors)-1 {
+				break
+			}
+			m.PromoteRules[ridx].Monitors[midx].status = rules[ridx].Monitors[midx].status
+			m.PromoteRules[ridx].Monitors[midx].statusChangedAt = rules[ridx].Monitors[midx].statusChangedAt
+			m.PromoteRules[ridx].Monitors[midx].value = rules[ridx].Monitors[midx].value
+		}
+	}
 }
 
 func (c *RaftCluster) Version() *semver.Version {

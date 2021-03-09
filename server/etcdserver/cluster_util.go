@@ -348,6 +348,9 @@ func promoteMemberHTTP(ctx context.Context, url string, id uint64, peerRt http.R
 		if strings.Contains(string(b), ErrLearnerNotReady.Error()) {
 			return nil, ErrLearnerNotReady
 		}
+		if strings.Contains(string(b), ErrCannotPromote.Error()) {
+			return nil, ErrCannotPromote
+		}
 		if strings.Contains(string(b), membership.ErrMemberNotLearner.Error()) {
 			return nil, membership.ErrMemberNotLearner
 		}

@@ -124,13 +124,29 @@ func (cp *clusterProxy) monitor(wa endpoints.WatchChannel) {
 
 func (cp *clusterProxy) MemberAdd(ctx context.Context, r *pb.MemberAddRequest) (*pb.MemberAddResponse, error) {
 	if r.IsLearner {
+		if len(r.PromoteRules) > 0 {
+			return cp.memberAddAsAutoPromotingLearner(ctx, r.PeerURLs, r.PromoteRules)
+		}
 		return cp.memberAddAsLearner(ctx, r.PeerURLs)
 	}
-	return cp.memberAdd(ctx, r.PeerURLs)
+	return cp.memberAddAsNode(ctx, r.PeerURLs)
 }
 
-func (cp *clusterProxy) memberAdd(ctx context.Context, peerURLs []string) (*pb.MemberAddResponse, error) {
+func (cp *clusterProxy) memberAddAsNode(ctx context.Context, peerURLs []string) (*pb.MemberAddResponse, error) {
 	mresp, err := cp.clus.MemberAdd(ctx, peerURLs)
+	if err != nil {
+		return nil, err
+	}
+	resp := (pb.MemberAddResponse)(*mresp)
+	return &resp, err
+}
+
+func (cp *clusterProxy) memberAddAsAutoPromotingLearner(ctx context.Context, peerURLs []string, promoteRules []*pb.MemberPromoteRule) (*pb.MemberAddResponse, error) {
+	var cv3PromoteRules = make([]clientv3.MemberPromoteRule, len(promoteRules))
+	for i, promoteRule := range promoteRules {
+		cv3PromoteRules[i] = (clientv3.MemberPromoteRule)(*promoteRule)
+	}
+	mresp, err := cp.clus.MemberAddAsLearnerWithPromoteRules(ctx, peerURLs, cv3PromoteRules)
 	if err != nil {
 		return nil, err
 	}

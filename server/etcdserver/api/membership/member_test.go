@@ -121,3 +121,27 @@ func newTestMemberAsLearner(id uint64, peerURLs []string, name string, clientURL
 		Attributes:     Attributes{Name: name, ClientURLs: clientURLs},
 	}
 }
+
+func newTestMemberAsLearnerWithPromoteRules(id uint64, peerURLs []string, name string, clientURLs []string, promoteRules []PromoteRule) *Member {
+	if len(promoteRules) == 0 {
+		promoteRules = []PromoteRule{
+			{
+				Auto: true,
+				Monitors: []Monitor{
+					{
+						Op:        GreaterEqual,
+						Type:      Progress,
+						Threshold: 90,
+						Delay:     0,
+					},
+				},
+			},
+		}
+	}
+	return &Member{
+		ID:             types.ID(id),
+		RaftAttributes: RaftAttributes{PeerURLs: peerURLs, IsLearner: true},
+		Attributes:     Attributes{Name: name, ClientURLs: clientURLs},
+		PromoteRules:   promoteRules,
+	}
+}

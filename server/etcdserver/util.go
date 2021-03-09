@@ -190,3 +190,59 @@ func (n panicAlternativeStringer) String() (s string) {
 	s = n.stringer.String()
 	return s
 }
+
+func promoteRulesToProtoPromoteRules(promoteRules []membership.PromoteRule) []*pb.MemberPromoteRule {
+	rules := make([]*pb.MemberPromoteRule, len(promoteRules))
+	for idx, rule := range promoteRules {
+		monitors := make([]*pb.MemberMonitor, len(rule.Monitors))
+		for idx, monitor := range rule.Monitors {
+			monitors[idx] = &pb.MemberMonitor{
+				Delay:     monitor.Delay,
+				Threshold: monitor.Threshold,
+			}
+			switch monitor.Op {
+			case membership.GreaterEqual:
+				monitors[idx].Op = pb.MemberMonitor_GREATER_EQUAL
+				break
+			}
+			switch monitor.Type {
+			case membership.Progress:
+				monitors[idx].Type = pb.MemberMonitor_PROGRESS
+				break
+			}
+		}
+		rules[idx] = &pb.MemberPromoteRule{
+			Auto:     rule.Auto,
+			Monitors: monitors,
+		}
+	}
+	return rules
+}
+
+func protoPromoteRulesToPromoteRules(promoteRules []*pb.MemberPromoteRule) []membership.PromoteRule {
+	rules := make([]membership.PromoteRule, len(promoteRules))
+	for idx, rule := range promoteRules {
+		monitors := make([]membership.Monitor, len(rule.Monitors))
+		for idx, monitor := range rule.Monitors {
+			monitors[idx] = membership.Monitor{
+				Delay:     monitor.Delay,
+				Threshold: monitor.Threshold,
+			}
+			switch monitor.Op {
+			case pb.MemberMonitor_GREATER_EQUAL:
+				monitors[idx].Op = membership.GreaterEqual
+				break
+			}
+			switch monitor.Type {
+			case pb.MemberMonitor_PROGRESS:
+				monitors[idx].Type = membership.Progress
+				break
+			}
+		}
+		rules[idx] = membership.PromoteRule{
+			Auto:     rule.Auto,
+			Monitors: monitors,
+		}
+	}
+	return rules
+}

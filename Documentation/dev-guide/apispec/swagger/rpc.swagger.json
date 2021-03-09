@@ -643,7 +643,7 @@
         "tags": [
           "Cluster"
         ],
-        "summary": "MemberPromote promotes a member from raft learner (non-voting) to raft voting member.",
+        "summary": "MemberPromote promotes a member from raft non-voting member to raft voting member.",
         "operationId": "Cluster_MemberPromote",
         "parameters": [
           {
@@ -1508,6 +1508,13 @@
         "DELETE"
       ]
     },
+    "MemberMonitorOp": {
+      "type": "string",
+      "default": "GREATER_EQUAL",
+      "enum": [
+        "GREATER_EQUAL"
+      ]
+    },
     "RangeRequestSortOrder": {
       "type": "string",
       "default": "NONE",
@@ -2332,6 +2339,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "promoteRules": {
+          "description": "promoteRules govern the automatic promotion of learner members.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/etcdserverpbMemberPromoteRule"
+          }
         }
       }
     },
@@ -2348,6 +2362,13 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "promoteRules": {
+          "description": "promoteRules govern the automatic promotion of learner members.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/etcdserverpbMemberPromoteRule"
           }
         }
       }
@@ -2395,6 +2416,32 @@
         }
       }
     },
+    "etcdserverpbMemberMonitor": {
+      "type": "object",
+      "properties": {
+        "delay": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "op": {
+          "$ref": "#/definitions/MemberMonitorOp"
+        },
+        "threshold": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "type": {
+          "$ref": "#/definitions/etcdserverpbMemberMonitorType"
+        }
+      }
+    },
+    "etcdserverpbMemberMonitorType": {
+      "type": "string",
+      "default": "PROGRESS",
+      "enum": [
+        "PROGRESS"
+      ]
+    },
     "etcdserverpbMemberPromoteRequest": {
       "type": "object",
       "properties": {
@@ -2416,6 +2463,21 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/etcdserverpbMember"
+          }
+        }
+      }
+    },
+    "etcdserverpbMemberPromoteRule": {
+      "type": "object",
+      "properties": {
+        "auto": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "monitors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/etcdserverpbMemberMonitor"
           }
         }
       }

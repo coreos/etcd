@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/pkg/v3/testutil"
 	"go.etcd.io/etcd/pkg/v3/types"
 	"go.etcd.io/etcd/tests/v3/integration"
@@ -216,6 +218,48 @@ func TestMemberAddForLearner(t *testing.T) {
 	}
 }
 
+func TestMemberAddForAutoPromotee(t *testing.T) {
+	defer testutil.AfterTest(t)
+
+	clus := integration.NewClusterV3(t, &integration.ClusterConfig{Size: 3})
+	defer clus.Terminate(t)
+
+	capi := clus.RandClient()
+
+	urls := []string{"http://127.0.0.1:1234"}
+	rules := []clientv3.MemberPromoteRule{
+		{
+			Auto: true,
+			Monitors: []*pb.MemberMonitor{
+				{
+					Op:        pb.MemberMonitor_GREATER_EQUAL,
+					Type:      pb.MemberMonitor_PROGRESS,
+					Threshold: 50,
+					Delay:     0,
+				},
+			},
+		},
+	}
+	resp, err := capi.MemberAddAsLearnerWithPromoteRules(context.Background(), urls, rules)
+	if err != nil {
+		t.Fatalf("failed to add member %v", err)
+	}
+
+	if !resp.Member.IsLearner {
+		t.Errorf("Added a member as auto-promoting node, got resp.Member.IsLearner = %v", resp.Member.IsLearner)
+	}
+
+	numberOfLearners := 0
+	for _, m := range resp.Members {
+		if m.IsLearner {
+			numberOfLearners++
+		}
+	}
+	if numberOfLearners != 1 {
+		t.Errorf("Added 1 auto-promoting learner to cluster, got %d", numberOfLearners)
+	}
+}
+
 func TestMemberPromote(t *testing.T) {
 	defer testutil.AfterTest(t)
 
@@ -374,6 +418,113 @@ func TestMemberPromoteMemberNotExist(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), expectedErrKeywords) {
 		t.Errorf("expect error to contain %s, got %s", expectedErrKeywords, err.Error())
+	}
+}
+
+// Test that auto-promoting learners are automatically promoted to voters
+// upon catching up with the leader.
+func TestMemberAutoPromotion(t *testing.T) {
+	defer testutil.AfterTest(t)
+
+	clus := integration.NewClusterV3(t, &integration.ClusterConfig{Size: 3})
+	defer clus.Terminate(t)
+
+	// add auto-promoting member request can be sent to any server
+	// in cluster, the request will be auto-forwarded to leader on
+	// server-side. This test explicitly includes the server-side
+	// forwarding by sending the request to follower.
+	leaderIdx := clus.WaitLeader(t)
+	followerIdx := (leaderIdx + 1) % 3
+	capi := clus.Client(followerIdx)
+
+	urls := []string{"http://127.0.0.1:1234"}
+	rules := []clientv3.MemberPromoteRule{
+		{
+			Auto: true,
+			Monitors: []*pb.MemberMonitor{
+				{
+					Op:        pb.MemberMonitor_GREATER_EQUAL,
+					Type:      pb.MemberMonitor_PROGRESS,
+					Threshold: 50,
+					Delay:     0,
+				},
+			},
+		},
+	}
+	memberAddResp, err := capi.MemberAddAsLearnerWithPromoteRules(context.Background(), urls, rules)
+	if err != nil {
+		t.Fatalf("failed to add auto-promoting member %v", err)
+	}
+
+	if !memberAddResp.Member.IsLearner {
+		t.Fatalf("Added a member as auto-promoting learner, got resp.Member.IsLearner = %v", memberAddResp.Member.IsLearner)
+	}
+	learnerID := memberAddResp.Member.ID
+
+	numberOfLearners := 0
+	for _, m := range memberAddResp.Members {
+		if m.IsLearner {
+			numberOfLearners++
+		}
+	}
+	if numberOfLearners != 1 {
+		t.Fatalf("Added 1 (auto-promoting) learner node to cluster, got %d learners", numberOfLearners)
+	}
+
+	// Verify that cluster stored new member as learner
+	foundMember := false
+	if memberList, err := capi.MemberList(context.Background()); err != nil {
+		t.Errorf("before launching member, failed to get member list: %v", err)
+	} else {
+		for _, member := range memberList.Members {
+			if member.ID == learnerID {
+				foundMember = true
+				if member.IsLearner == false {
+					t.Errorf("expected new member %v to be stored as learner, but is stored as voter", learnerID)
+				}
+				if len(member.PromoteRules) == 0 {
+					t.Errorf("expected new member %v to have 1 promote rules, but had 0", learnerID)
+				}
+			}
+		}
+	}
+	if foundMember == false {
+		t.Errorf("expected to find new member %v in member list, but new member was not found", learnerID)
+	}
+
+	// create and launch auto-promoting learner member based on the response of V3 Member Add API.
+	// (the response has information on peer urls of the existing members in cluster)
+	learnerMember := clus.MustNewMember(t, memberAddResp)
+	clus.Members = append(clus.Members, learnerMember)
+	if err := learnerMember.Launch(); err != nil {
+		t.Fatal(err)
+	}
+
+	// retry until auto-promote success or timeout
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-timeout:
+			t.Errorf("auto-promoting learner member was not promoted, last error: %v", err)
+			break
+		}
+
+		if memberList, err := capi.MemberList(context.Background()); err != nil {
+			t.Errorf("while waiting for member auto-promote, failed to get member list: %v", err)
+		} else {
+			success := false
+			for _, member := range memberList.Members {
+				if member.ID == learnerID {
+					if member.IsLearner == false {
+						success = true
+					}
+				}
+			}
+			if success {
+				break
+			}
+		}
 	}
 }
 

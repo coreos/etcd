@@ -24,8 +24,12 @@ var (
 	ErrIDRemoved        = errors.New("membership: ID removed")
 	ErrIDExists         = errors.New("membership: ID exists")
 	ErrIDNotFound       = errors.New("membership: ID not found")
+	ErrInactiveMonitor  = errors.New("membership: a promote rule is not satisfied until all its monitors are active")
 	ErrPeerURLexists    = errors.New("membership: peerURL exists")
+	ErrLearnerNotReady  = errors.New("membership: can only promote a learner member which is in sync with leader")
 	ErrMemberNotLearner = errors.New("membership: can only promote a learner member")
+	ErrNoMonitors       = errors.New("membership: a promote rule without monitors cannot be satisfied")
+	ErrNoPromoteRules   = errors.New("membership: a member without promote rules is not eligible for promotion")
 	ErrTooManyLearners  = errors.New("membership: too many learner members in cluster")
 )
 

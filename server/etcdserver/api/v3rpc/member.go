@@ -47,7 +47,12 @@ func (cs *ClusterServer) MemberAdd(ctx context.Context, r *pb.MemberAddRequest) 
 	now := time.Now()
 	var m *membership.Member
 	if r.IsLearner {
-		m = membership.NewMemberAsLearner("", urls, "", &now)
+		if len(r.PromoteRules) == 0 {
+			m = membership.NewMemberAsLearner("", urls, "", &now)
+		} else {
+			rules := protoPromoteRulesToPromoteRules(r.PromoteRules)
+			m = membership.NewMemberAsLearnerWithPromoteRules("", urls, rules, "", &now)
+		}
 	} else {
 		m = membership.NewMember("", urls, "", &now)
 	}
@@ -59,9 +64,10 @@ func (cs *ClusterServer) MemberAdd(ctx context.Context, r *pb.MemberAddRequest) 
 	return &pb.MemberAddResponse{
 		Header: cs.header(),
 		Member: &pb.Member{
-			ID:        uint64(m.ID),
-			PeerURLs:  m.PeerURLs,
-			IsLearner: m.IsLearner,
+			ID:           uint64(m.ID),
+			PeerURLs:     m.PeerURLs,
+			IsLearner:    m.IsLearner,
+			PromoteRules: promoteRulesToProtoPromoteRules(m.PromoteRules),
 		},
 		Members: membersToProtoMembers(membs),
 	}, nil
@@ -113,12 +119,69 @@ func membersToProtoMembers(membs []*membership.Member) []*pb.Member {
 	protoMembs := make([]*pb.Member, len(membs))
 	for i := range membs {
 		protoMembs[i] = &pb.Member{
-			Name:       membs[i].Name,
-			ID:         uint64(membs[i].ID),
-			PeerURLs:   membs[i].PeerURLs,
-			ClientURLs: membs[i].ClientURLs,
-			IsLearner:  membs[i].IsLearner,
+			Name:         membs[i].Name,
+			ID:           uint64(membs[i].ID),
+			PeerURLs:     membs[i].PeerURLs,
+			ClientURLs:   membs[i].ClientURLs,
+			IsLearner:    membs[i].IsLearner,
+			PromoteRules: promoteRulesToProtoPromoteRules(membs[i].PromoteRules),
 		}
 	}
 	return protoMembs
+}
+
+func promoteRulesToProtoPromoteRules(promoteRules []membership.PromoteRule) []*pb.MemberPromoteRule {
+	protoPromoteRules := make([]*pb.MemberPromoteRule, len(promoteRules))
+	for idx, rule := range promoteRules {
+		monitors := make([]*pb.MemberMonitor, len(rule.Monitors))
+		for idx, monitor := range rule.Monitors {
+			monitors[idx] = &pb.MemberMonitor{
+				Delay:     monitor.Delay,
+				Threshold: monitor.Threshold,
+			}
+			switch monitor.Op {
+			case membership.GreaterEqual:
+				monitors[idx].Op = pb.MemberMonitor_GREATER_EQUAL
+				break
+			}
+			switch monitor.Type {
+			case membership.Progress:
+				monitors[idx].Type = pb.MemberMonitor_PROGRESS
+				break
+			}
+		}
+		protoPromoteRules[idx] = &pb.MemberPromoteRule{
+			Auto:     rule.Auto,
+			Monitors: monitors,
+		}
+	}
+	return protoPromoteRules
+}
+
+func protoPromoteRulesToPromoteRules(protoPromoteRules []*pb.MemberPromoteRule) []membership.PromoteRule {
+	promoteRules := make([]membership.PromoteRule, len(protoPromoteRules))
+	for idx, rule := range protoPromoteRules {
+		monitors := make([]membership.Monitor, len(rule.Monitors))
+		for idx, monitor := range rule.Monitors {
+			monitors[idx] = membership.Monitor{
+				Delay:     monitor.Delay,
+				Threshold: monitor.Threshold,
+			}
+			switch monitor.Op {
+			case pb.MemberMonitor_GREATER_EQUAL:
+				monitors[idx].Op = membership.GreaterEqual
+				break
+			}
+			switch monitor.Type {
+			case pb.MemberMonitor_PROGRESS:
+				monitors[idx].Type = membership.Progress
+				break
+			}
+		}
+		promoteRules[idx] = membership.PromoteRule{
+			Auto:     rule.Auto,
+			Monitors: monitors,
+		}
+	}
+	return promoteRules
 }

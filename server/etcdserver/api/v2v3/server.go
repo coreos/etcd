@@ -108,9 +108,38 @@ func v3MembersToMembership(v3membs []*pb.Member) []*membership.Member {
 				Name:       m.Name,
 				ClientURLs: m.ClientURLs,
 			},
+			PromoteRules: v3PromoteRulesToMembership(m.PromoteRules),
 		}
 	}
 	return membs
+}
+
+func v3PromoteRulesToMembership(v3rules []*pb.MemberPromoteRule) []membership.PromoteRule {
+	rules := make([]membership.PromoteRule, len(v3rules))
+	for idx, rule := range v3rules {
+		monitors := make([]membership.Monitor, len(rule.Monitors))
+		for idx, monitor := range rule.Monitors {
+			monitors[idx] = membership.Monitor{
+				Delay:     monitor.Delay,
+				Threshold: monitor.Threshold,
+			}
+			switch monitor.Op {
+			case pb.MemberMonitor_GREATER_EQUAL:
+				monitors[idx].Op = membership.GreaterEqual
+				break
+			}
+			switch monitor.Type {
+			case pb.MemberMonitor_PROGRESS:
+				monitors[idx].Type = membership.Progress
+				break
+			}
+		}
+		rules[idx] = membership.PromoteRule{
+			Auto:     rule.Auto,
+			Monitors: monitors,
+		}
+	}
+	return rules
 }
 
 func (s *v2v3Server) ClusterVersion() *semver.Version      { return s.Version() }
