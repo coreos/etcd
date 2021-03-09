@@ -203,6 +203,7 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		WatchProgressNotifyInterval: cfg.ExperimentalWatchProgressNotifyInterval,
 		DowngradeCheckTime:          cfg.ExperimentalDowngradeCheckTime,
 		WarningApplyDuration:        cfg.ExperimentalWarningApplyDuration,
+		LinearizableReadMode:        cfg.ExperimentalLinearizableReadMode,
 	}
 	print(e.cfg.logger, *cfg, srvcfg, memberInitialized)
 	if e.Server, err = etcdserver.NewServer(srvcfg); err != nil {

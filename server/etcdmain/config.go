@@ -265,6 +265,8 @@ func newConfig() *config {
 	fs.DurationVar(&cfg.ec.ExperimentalDowngradeCheckTime, "experimental-downgrade-check-time", cfg.ec.ExperimentalDowngradeCheckTime, "Duration of time between two downgrade status check.")
 	fs.DurationVar(&cfg.ec.ExperimentalWarningApplyDuration, "experimental-warning-apply-duration", cfg.ec.ExperimentalWarningApplyDuration, "Time duration after which a warning is generated if request takes more time.")
 
+	fs.StringVar(&cfg.ec.ExperimentalLinearizableReadMode, "experimental-linearizable-read-mode", cfg.ec.ExperimentalLinearizableReadMode, "Safe guarantees the linearizability of the read only request by communicating with the quorum. LeaseBased ensures linearizability of the read only request by relying on the leader lease. It can be affected by clock drift.")
+
 	// unsafe
 	fs.BoolVar(&cfg.ec.UnsafeNoFsync, "unsafe-no-fsync", false, "Disables fsync, unsafe, will cause data loss.")
 	fs.BoolVar(&cfg.ec.ForceNewCluster, "force-new-cluster", false, "Force to create a new one member cluster.")

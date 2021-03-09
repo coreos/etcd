@@ -59,6 +59,7 @@ const (
 	DefaultGRPCKeepAliveInterval = 2 * time.Hour
 	DefaultGRPCKeepAliveTimeout  = 20 * time.Second
 	DefaultDowngradeCheckTime    = 5 * time.Second
+	DefaultLinearizableReadMode  = "Safe"
 
 	DefaultListenPeerURLs   = "http://localhost:2380"
 	DefaultListenClientURLs = "http://localhost:2379"
@@ -345,6 +346,8 @@ type Config struct {
 	UnsafeNoFsync bool `json:"unsafe-no-fsync"`
 
 	ExperimentalDowngradeCheckTime time.Duration `json:"experimental-downgrade-check-time"`
+
+	ExperimentalLinearizableReadMode string `json:"experimental-linearizable-read-mode"`
 }
 
 // configYAML holds the config suitable for yaml parsing
@@ -433,6 +436,8 @@ func NewConfig() *Config {
 		EnableGRPCGateway: true,
 
 		ExperimentalDowngradeCheckTime: DefaultDowngradeCheckTime,
+
+		ExperimentalLinearizableReadMode: DefaultLinearizableReadMode,
 	}
 	cfg.InitialCluster = cfg.InitialClusterFromName(cfg.Name)
 	return cfg

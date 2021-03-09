@@ -216,6 +216,15 @@ Experimental feature:
     Duration of periodical watch progress notification.
   --experimental-warning-apply-duration '100ms'
 	Warning is generated if requests take more than this duration.
+  --experimental-linearizable-read-mode 'Safe'
+    Specifies how the read only request is processed.
+    Safe guarantees the linearizability of the read only request by
+    communicating with the quorum. It is the default and suggested option.
+    LeaseBased ensures linearizability of the read only request by
+    relying on the leader lease. It can be affected by clock drift.
+    If the clock drift is unbounded, leader might keep the lease longer than it
+    should (clock can move backward/pause without any bound). ReadIndex is not safe
+    in that case.
 
 Unsafe feature:
   --force-new-cluster 'false'

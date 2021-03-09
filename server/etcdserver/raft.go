@@ -44,6 +44,9 @@ const (
 	// Never overflow the rafthttp buffer, which is 4096.
 	// TODO: a better const?
 	maxInflightMsgs = 4096 / 8
+
+	readOnlySafeOption = "safe"
+	readOnlyLeaseBasedOption = "LeaseBased"
 )
 
 var (
@@ -450,6 +453,12 @@ func startNode(cfg ServerConfig, cl *membership.RaftCluster, ids []types.ID) (id
 		zap.String("cluster-id", cl.ID().String()),
 	)
 	s = raft.NewMemoryStorage()
+
+	readOnlyOption, err := parseReadOnlyOption(cfg.LinearizableReadMode)
+	if err != nil {
+		cfg.Logger.Fatal(	"failed to parse linearizable read mode", zap.Error(err))
+	}
+
 	c := &raft.Config{
 		ID:              uint64(id),
 		ElectionTick:    cfg.ElectionTicks,
@@ -459,6 +468,7 @@ func startNode(cfg ServerConfig, cl *membership.RaftCluster, ids []types.ID) (id
 		MaxInflightMsgs: maxInflightMsgs,
 		CheckQuorum:     true,
 		PreVote:         cfg.PreVote,
+		ReadOnlyOption:  readOnlyOption,
 	}
 	if cfg.Logger != nil {
 		// called after capnslog setting in "init" function
@@ -717,4 +727,15 @@ func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, ind
 	}
 
 	return ents
+}
+
+func parseReadOnlyOption(mode string) (raft.ReadOnlyOption, error) {
+	switch mode {
+	case readOnlySafeOption:
+		return raft.ReadOnlySafe, nil
+	case readOnlyLeaseBasedOption:
+		return raft.ReadOnlyLeaseBased, nil
+	default:
+		return 0, fmt.Errorf("unknown linearizable read mode: %s", mode)
+	}
 }

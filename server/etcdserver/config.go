@@ -166,6 +166,8 @@ type ServerConfig struct {
 	UnsafeNoFsync bool `json:"unsafe-no-fsync"`
 
 	DowngradeCheckTime time.Duration
+
+	LinearizableReadMode string
 }
 
 // VerifyBootstrap sanity-checks the initial config for bootstrap case
