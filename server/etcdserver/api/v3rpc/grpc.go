@@ -58,7 +58,15 @@ func Server(s *etcdserver.EtcdServer, tls *tls.Config, gopts ...grpc.ServerOptio
 	if s.Cfg.ExperimentalEnableDistributedTracing {
 		chainUnaryInterceptors = append(chainUnaryInterceptors, otelgrpc.UnaryServerInterceptor(s.Cfg.ExperimentalTracerOptions...))
 		chainStreamInterceptors = append(chainStreamInterceptors, otelgrpc.StreamServerInterceptor(s.Cfg.ExperimentalTracerOptions...))
+	}
 
+	if s.Cfg.ExperimentalEnableKVRequestDump {
+		chainUnaryInterceptors = append(chainUnaryInterceptors, etcdserver.UnaryServerDumpInterceptor(s))
+		chainStreamInterceptors = append(chainStreamInterceptors, etcdserver.StreamServerDumpInterceptor(s))
+	}
+
+	if s.Cfg.ExperimentalEnableKVRequestReplay {
+		etcdserver.SetWatchServer(NewWatchServer(s))
 	}
 
 	opts = append(opts, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(chainUnaryInterceptors...)))

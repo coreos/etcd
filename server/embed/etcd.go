@@ -213,6 +213,9 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		Logger:                                   cfg.logger,
 		ForceNewCluster:                          cfg.ForceNewCluster,
 		EnableGRPCGateway:                        cfg.EnableGRPCGateway,
+		ExperimentalEnableKVRequestDump:          cfg.ExperimentalEnableKVRequestDump,
+		ExperimentalAutoStartKVRequestDump:       cfg.ExperimentalAutoStartKVRequestDump,
+		ExperimentalEnableKVRequestReplay:        cfg.ExperimentalEnableKVRequestReplay,
 		ExperimentalEnableDistributedTracing:     cfg.ExperimentalEnableDistributedTracing,
 		UnsafeNoFsync:                            cfg.UnsafeNoFsync,
 		EnableLeaseCheckpoint:                    cfg.ExperimentalEnableLeaseCheckpoint,
@@ -677,6 +680,12 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 		}
 		if cfg.LogLevel == "debug" {
 			sctx.registerTrace()
+		}
+		if cfg.ExperimentalEnableKVRequestDump {
+			sctx.registerKVRequestDump()
+		}
+		if cfg.ExperimentalEnableKVRequestReplay {
+			sctx.registerKVRequestReplay()
 		}
 		sctxs[addr] = sctx
 	}

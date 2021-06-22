@@ -155,6 +155,13 @@ type ServerConfig struct {
 
 	EnableGRPCGateway bool
 
+	// ExperimentalEnableKVRequestDump enables saving requests & responses to dump files.
+	ExperimentalEnableKVRequestDump bool
+	// ExperimentalAutoStartKVRequestDump auto starts requests & responses dump when server starts.
+	ExperimentalAutoStartKVRequestDump bool
+	// ExperimentalEnableKVRequestReplay enables replay grpc kv requests
+	ExperimentalEnableKVRequestReplay bool
+
 	// ExperimentalEnableDistributedTracing enables distributed tracing using OpenTelemetry protocol.
 	ExperimentalEnableDistributedTracing bool
 	// ExperimentalTracerOptions are options for OpenTelemetry gRPC interceptor.

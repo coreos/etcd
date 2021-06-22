@@ -276,6 +276,11 @@ func newConfig() *config {
 	// gateway
 	fs.BoolVar(&cfg.ec.EnableGRPCGateway, "enable-grpc-gateway", cfg.ec.EnableGRPCGateway, "Enable GRPC gateway.")
 
+	// grpc dump & replay
+	fs.BoolVar(&cfg.ec.ExperimentalEnableKVRequestDump, "experimental-enable-kv-request-dump", false, "Enable GRPC KV requests & response dump.")
+	fs.BoolVar(&cfg.ec.ExperimentalAutoStartKVRequestDump, "experimental-autostart-kv-request-dump", false, "Auto start GRPC KV requests & response dump.")
+	fs.BoolVar(&cfg.ec.ExperimentalEnableKVRequestReplay, "experimental-enable-kv-request-replay", false, "Enable GRPC KV requests & responses replay")
+
 	// experimental
 	fs.BoolVar(&cfg.ec.ExperimentalInitialCorruptCheck, "experimental-initial-corrupt-check", cfg.ec.ExperimentalInitialCorruptCheck, "Enable to check data corruption before serving any client/peer traffic.")
 	fs.DurationVar(&cfg.ec.ExperimentalCorruptCheckTime, "experimental-corrupt-check-time", cfg.ec.ExperimentalCorruptCheckTime, "Duration of time between cluster corruption check passes.")

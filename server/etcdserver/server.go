@@ -791,6 +791,7 @@ func (s *EtcdServer) adjustTicks() {
 // Start must be non-blocking; any long-running server functionality
 // should be implemented in goroutines.
 func (s *EtcdServer) Start() {
+	lg := s.Logger()
 	s.start()
 	s.GoAttach(func() { s.adjustTicks() })
 	// TODO: Switch to publishV3 in 3.6.
@@ -802,6 +803,15 @@ func (s *EtcdServer) Start() {
 	s.GoAttach(s.linearizableReadLoop)
 	s.GoAttach(s.monitorKVHash)
 	s.GoAttach(s.monitorDowngrade)
+	if s.Cfg.ExperimentalEnableKVRequestReplay {
+		s.GoAttach(s.monitorKVRequestReplay)
+	}
+	if s.Cfg.ExperimentalAutoStartKVRequestDump && s.Cfg.ExperimentalEnableKVRequestDump {
+		lg.Info("autostart KV request dump")
+		if err := DumpStart(); err != nil {
+			lg.Error("failed to autostart dump")
+		}
+	}
 }
 
 // start prepares and starts server in a new goroutine. It is no longer safe to
@@ -2549,6 +2559,11 @@ func (s *EtcdServer) updateClusterVersionV3(ver string) {
 	default:
 		lg.Warn("failed to update cluster version", zap.Error(err))
 	}
+}
+
+// monitorKVRequestReplay is executed by EtcdServer inside a goroutine
+func (s *EtcdServer) monitorKVRequestReplay() {
+	KvRequestReplayWorker(s)
 }
 
 func (s *EtcdServer) monitorDowngrade() {

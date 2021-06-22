@@ -419,6 +419,18 @@ func (sctx *serveCtx) registerPprof() {
 	}
 }
 
+func (sctx *serveCtx) registerKVRequestDump() {
+	for p, h := range etcdserver.KVRequestDumpHandlers() {
+		sctx.registerUserHandler(p, h)
+	}
+}
+
+func (sctx *serveCtx) registerKVRequestReplay() {
+	for p, h := range etcdserver.KVRequestReplayHandlers() {
+		sctx.registerUserHandler(p, h)
+	}
+}
+
 func (sctx *serveCtx) registerTrace() {
 	reqf := func(w http.ResponseWriter, r *http.Request) { trace.Render(w, r, true) }
 	sctx.registerUserHandler("/debug/requests", http.HandlerFunc(reqf))

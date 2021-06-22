@@ -377,6 +377,13 @@ type Config struct {
 	// The gateway translates a RESTful HTTP API into gRPC.
 	EnableGRPCGateway bool `json:"enable-grpc-gateway"`
 
+	// ExperimentalEnableKVRequestDump enables saving requests & responses to dump files
+	ExperimentalEnableKVRequestDump bool `json:"experimental-enable-kv-request-dump"`
+	// ExperimentalAutoStartKVRequestDump auto starts requests & responses dump
+	ExperimentalAutoStartKVRequestDump bool `json:"experimental-autostart-kv-request-dump"`
+	// ExperimentalEnableKVRequestReplay enables replay grpc requests
+	ExperimentalEnableKVRequestReplay bool `json:"experimental-enable-kv-request-replay"`
+
 	// UnsafeNoFsync disables all uses of fsync.
 	// Setting this is unsafe and will cause data loss.
 	UnsafeNoFsync bool `json:"unsafe-no-fsync"`
