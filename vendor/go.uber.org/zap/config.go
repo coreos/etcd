@@ -21,6 +21,7 @@
 package zap
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -172,6 +173,10 @@ func (cfg Config) Build(opts ...Option) (*Logger, error) {
 	sink, errSink, err := cfg.openSinks()
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.Level == (AtomicLevel{}) {
+		return nil, fmt.Errorf("missing Level")
 	}
 
 	log := New(

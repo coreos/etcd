@@ -17,23 +17,7 @@ jobs:
         - all-build
         - linux-amd64-grpcproxy
         - linux-386-unit
-        exclude:
-        - go: 1.12.17
-          target: linux-amd64-grpcproxy
-        - go: 1.12.17
-          target: linux-386-unit
-        - go: 1.15.13
-          target: linux-amd64-integration-1-cpu
-        - go: 1.15.13
-          target: linux-amd64-integration-2-cpu
-        - go: 1.12.17
-          target: linux-amd64-unit
-        - go: 1.15.13
-          target: linux-amd64-coverage
-        - go: 1.12.17
-          target: linux-amd64-fmt
-        - go: 1.15.13
-          target: linux-386-unit
+
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-go@v2

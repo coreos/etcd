@@ -95,13 +95,13 @@ github.com/tmc/grpc-websocket-proxy/wsproxy
 github.com/urfave/cli
 # github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2
 github.com/xiang90/probing
-# go.etcd.io/bbolt v1.3.3
+# go.etcd.io/bbolt v1.3.4
 go.etcd.io/bbolt
-# go.uber.org/atomic v1.3.2
+# go.uber.org/atomic v1.6.0
 go.uber.org/atomic
-# go.uber.org/multierr v1.1.0
+# go.uber.org/multierr v1.5.0
 go.uber.org/multierr
-# go.uber.org/zap v1.10.0
+# go.uber.org/zap v1.14.1
 go.uber.org/zap
 go.uber.org/zap/buffer
 go.uber.org/zap/internal/bufferpool
