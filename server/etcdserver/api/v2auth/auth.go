@@ -28,7 +28,7 @@ import (
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2error"
 
 	"go.uber.org/zap"
@@ -67,7 +67,7 @@ var guestRole = Role{
 }
 
 type doer interface {
-	Do(context.Context, etcdserverpb.Request) (etcdserver.Response, error)
+	Do(context.Context, etcdserverpb.Request) (api.Response, error)
 }
 
 type Store interface {

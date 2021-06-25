@@ -43,7 +43,7 @@ type v2v3Server struct {
 	fakeStats
 }
 
-func NewServer(lg *zap.Logger, c *clientv3.Client, pfx string) etcdserver.ServerPeer {
+func NewServer(lg *zap.Logger, c *clientv3.Client, pfx string) api.ServerPeer {
 	return &v2v3Server{lg: lg, c: c, store: newStore(c, pfx)}
 }
 
@@ -114,11 +114,11 @@ func v3MembersToMembership(v3membs []*pb.Member) []*membership.Member {
 }
 
 func (s *v2v3Server) ClusterVersion() *semver.Version      { return s.Version() }
-func (s *v2v3Server) Cluster() api.Cluster                 { return s }
+func (s *v2v3Server) Cluster() api.Cluster                 { return s.Cluster() }
 func (s *v2v3Server) Alarms() []*pb.AlarmMember            { return nil }
 func (s *v2v3Server) LeaderChangedNotify() <-chan struct{} { return nil }
 
-func (s *v2v3Server) Do(ctx context.Context, r pb.Request) (etcdserver.Response, error) {
+func (s *v2v3Server) Do(ctx context.Context, r pb.Request) (api.Response, error) {
 	applier := etcdserver.NewApplierV2(s.lg, s.store, nil)
 	reqHandler := etcdserver.NewStoreRequestV2Handler(s.store, applier)
 	req := (*etcdserver.RequestV2)(&r)

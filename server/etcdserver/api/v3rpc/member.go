@@ -21,17 +21,22 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 )
 
 type ClusterServer struct {
 	cluster api.Cluster
-	server  *etcdserver.EtcdServer
+	server  ClusterServerProvider
 }
 
-func NewClusterServer(s *etcdserver.EtcdServer) *ClusterServer {
+type ClusterServerProvider interface {
+	api.Server
+	LinearizableReadNotify(ctx context.Context) error
+	api.RaftStatusGetter
+}
+
+func NewClusterServer(s ClusterServerProvider) *ClusterServer {
 	return &ClusterServer{
 		cluster: s.Cluster(),
 		server:  s,

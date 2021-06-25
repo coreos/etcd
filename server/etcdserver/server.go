@@ -80,9 +80,6 @@ const (
 	// follower to catch up.
 	DefaultSnapshotCatchUpEntries uint64 = 5000
 
-	StoreClusterPrefix = "/0"
-	StoreKeysPrefix    = "/1"
-
 	// HealthInterval is the minimum time the cluster should be healthy
 	// before accepting add member requests.
 	HealthInterval = 5 * time.Second
@@ -101,8 +98,6 @@ const (
 	recommendedMaxRequestBytes = 10 * 1024 * 1024
 
 	readyPercent = 0.9
-
-	DowngradeEnabledPath = "/downgrade/enabled"
 )
 
 var (
@@ -129,76 +124,7 @@ func init() {
 	)
 }
 
-type Response struct {
-	Term    uint64
-	Index   uint64
-	Event   *v2store.Event
-	Watcher v2store.Watcher
-	Err     error
-}
-
-type ServerV2 interface {
-	Server
-	Leader() types.ID
-
-	// Do takes a V2 request and attempts to fulfill it, returning a Response.
-	Do(ctx context.Context, r pb.Request) (Response, error)
-	stats.Stats
-	ClientCertAuthEnabled() bool
-}
-
-type ServerV3 interface {
-	Server
-	RaftStatusGetter
-}
-
 func (s *EtcdServer) ClientCertAuthEnabled() bool { return s.Cfg.ClientCertAuthEnabled }
-
-type Server interface {
-	// AddMember attempts to add a member into the cluster. It will return
-	// ErrIDRemoved if member ID is removed from the cluster, or return
-	// ErrIDExists if member ID exists in the cluster.
-	AddMember(ctx context.Context, memb membership.Member) ([]*membership.Member, error)
-	// RemoveMember attempts to remove a member from the cluster. It will
-	// return ErrIDRemoved if member ID is removed from the cluster, or return
-	// ErrIDNotFound if member ID is not in the cluster.
-	RemoveMember(ctx context.Context, id uint64) ([]*membership.Member, error)
-	// UpdateMember attempts to update an existing member in the cluster. It will
-	// return ErrIDNotFound if the member ID does not exist.
-	UpdateMember(ctx context.Context, updateMemb membership.Member) ([]*membership.Member, error)
-	// PromoteMember attempts to promote a non-voting node to a voting node. It will
-	// return ErrIDNotFound if the member ID does not exist.
-	// return ErrLearnerNotReady if the member are not ready.
-	// return ErrMemberNotLearner if the member is not a learner.
-	PromoteMember(ctx context.Context, id uint64) ([]*membership.Member, error)
-
-	// ClusterVersion is the cluster-wide minimum major.minor version.
-	// Cluster version is set to the min version that an etcd member is
-	// compatible with when first bootstrap.
-	//
-	// ClusterVersion is nil until the cluster is bootstrapped (has a quorum).
-	//
-	// During a rolling upgrades, the ClusterVersion will be updated
-	// automatically after a sync. (5 second by default)
-	//
-	// The API/raft component can utilize ClusterVersion to determine if
-	// it can accept a client request or a raft RPC.
-	// NOTE: ClusterVersion might be nil when etcd 2.1 works with etcd 2.0 and
-	// the leader is etcd 2.0. etcd 2.0 leader will not update clusterVersion since
-	// this feature is introduced post 2.0.
-	ClusterVersion() *semver.Version
-	Cluster() api.Cluster
-	Alarms() []*pb.AlarmMember
-
-	// LeaderChangedNotify returns a channel for application level code to be notified
-	// when etcd leader changes, this function is intend to be used only in application
-	// which embed etcd.
-	// Caution:
-	// 1. the returned channel is being closed when the leadership changes.
-	// 2. so the new channel needs to be obtained for each raft term.
-	// 3. user can loose some consecutive channel changes using this API.
-	LeaderChangedNotify() <-chan struct{}
-}
 
 // EtcdServer is the production implementation of the Server interface
 type EtcdServer struct {
@@ -332,7 +258,7 @@ func (bh *backendHooks) SetConfState(confState *raftpb.ConfState) {
 // NewServer creates a new EtcdServer from the supplied configuration. The
 // configuration is considered static for the lifetime of the EtcdServer.
 func NewServer(cfg config.ServerConfig) (srv *EtcdServer, err error) {
-	st := v2store.New(StoreClusterPrefix, StoreKeysPrefix)
+	st := v2store.New(api.StoreClusterPrefix, api.StoreKeysPrefix)
 
 	var (
 		w  *wal.WAL
@@ -452,7 +378,7 @@ func NewServer(cfg config.ServerConfig) (srv *EtcdServer, err error) {
 			var str string
 			str, err = v2discovery.JoinCluster(cfg.Logger, cfg.DiscoveryURL, cfg.DiscoveryProxy, m.ID, cfg.InitialPeerURLsMap.String())
 			if err != nil {
-				return nil, &DiscoveryError{Op: "join", Err: err}
+				return nil, &api.DiscoveryError{Op: "join", Err: err}
 			}
 			var urlsmap types.URLsMap
 			urlsmap, err = types.NewURLsMap(str)
@@ -900,12 +826,6 @@ func (s *EtcdServer) Cluster() api.Cluster { return s.cluster }
 
 func (s *EtcdServer) ApplyWait() <-chan struct{} { return s.applyWait.Wait(s.getCommittedIndex()) }
 
-type ServerPeer interface {
-	ServerV2
-	RaftHandler() http.Handler
-	LeaseHandler() http.Handler
-}
-
 func (s *EtcdServer) LeaseHandler() http.Handler {
 	if s.lessor == nil {
 		return nil
@@ -914,12 +834,6 @@ func (s *EtcdServer) LeaseHandler() http.Handler {
 }
 
 func (s *EtcdServer) RaftHandler() http.Handler { return s.r.transport.Handler() }
-
-type ServerPeerV2 interface {
-	ServerPeer
-	HashKVHandler() http.Handler
-	DowngradeEnabledHandler() http.Handler
-}
 
 func (s *EtcdServer) DowngradeInfo() *membership.DowngradeInfo { return s.cluster.DowngradeInfo() }
 
@@ -946,7 +860,7 @@ func (h *downgradeEnabledHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("X-Etcd-Cluster-ID", h.cluster.ID().String())
 
-	if r.URL.Path != DowngradeEnabledPath {
+	if r.URL.Path != api.DowngradeEnabledPath {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
@@ -1398,7 +1312,7 @@ func (s *EtcdServer) isLeader() bool {
 // MoveLeader transfers the leader to the given transferee.
 func (s *EtcdServer) MoveLeader(ctx context.Context, lead, transferee uint64) error {
 	if !s.cluster.IsMemberExist(types.ID(transferee)) || s.cluster.Member(types.ID(transferee)).IsLearner {
-		return ErrBadLeaderTransferee
+		return api.ErrBadLeaderTransferee
 	}
 
 	now := time.Now()
@@ -1416,7 +1330,7 @@ func (s *EtcdServer) MoveLeader(ctx context.Context, lead, transferee uint64) er
 	for s.Lead() != transferee {
 		select {
 		case <-ctx.Done(): // time out
-			return ErrTimeoutLeaderTransfer
+			return api.ErrTimeoutLeaderTransfer
 		case <-time.After(interval):
 		}
 	}
@@ -1455,7 +1369,7 @@ func (s *EtcdServer) TransferLeadership() error {
 
 	transferee, ok := longestConnected(s.r.transport, s.cluster.VotingMemberIDs())
 	if !ok {
-		return ErrUnhealthy
+		return api.ErrUnhealthy
 	}
 
 	tm := s.Cfg.ReqTimeout()
@@ -1586,9 +1500,9 @@ func (s *EtcdServer) mayAddMember(memb membership.Member) error {
 			"rejecting member add request; not enough healthy members",
 			zap.String("local-member-id", s.ID().String()),
 			zap.String("requested-member-add", fmt.Sprintf("%+v", memb)),
-			zap.Error(ErrNotEnoughStartedMembers),
+			zap.Error(api.ErrNotEnoughStartedMembers),
 		)
-		return ErrNotEnoughStartedMembers
+		return api.ErrNotEnoughStartedMembers
 	}
 
 	if !isConnectedFullySince(s.r.transport, time.Now().Add(-HealthInterval), s.ID(), s.cluster.VotingMembers()) {
@@ -1596,9 +1510,9 @@ func (s *EtcdServer) mayAddMember(memb membership.Member) error {
 			"rejecting member add request; local member has not been connected to all peers, reconfigure breaks active quorum",
 			zap.String("local-member-id", s.ID().String()),
 			zap.String("requested-member-add", fmt.Sprintf("%+v", memb)),
-			zap.Error(ErrUnhealthy),
+			zap.Error(api.ErrUnhealthy),
 		)
-		return ErrUnhealthy
+		return api.ErrUnhealthy
 	}
 
 	return nil
@@ -1631,7 +1545,7 @@ func (s *EtcdServer) PromoteMember(ctx context.Context, id uint64) ([]*membershi
 		learnerPromoteSucceed.Inc()
 		return resp, nil
 	}
-	if err != ErrNotLeader {
+	if err != api.ErrNotLeader {
 		learnerPromoteFailed.WithLabelValues(err.Error()).Inc()
 		return resp, err
 	}
@@ -1650,16 +1564,16 @@ func (s *EtcdServer) PromoteMember(ctx context.Context, id uint64) ([]*membershi
 				return resp, nil
 			}
 			// If member promotion failed, return early. Otherwise keep retry.
-			if err == ErrLearnerNotReady || err == membership.ErrIDNotFound || err == membership.ErrMemberNotLearner {
+			if err == api.ErrLearnerNotReady || err == membership.ErrIDNotFound || err == membership.ErrMemberNotLearner {
 				return nil, err
 			}
 		}
 	}
 
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, ErrTimeout
+		return nil, api.ErrTimeout
 	}
-	return nil, ErrCanceled
+	return nil, api.ErrCanceled
 }
 
 // promoteMember checks whether the to-be-promoted learner node is ready before sending the promote
@@ -1715,9 +1629,9 @@ func (s *EtcdServer) mayPromoteMember(id types.ID) error {
 			"rejecting member promote request; not enough healthy members",
 			zap.String("local-member-id", s.ID().String()),
 			zap.String("requested-member-remove-id", id.String()),
-			zap.Error(ErrNotEnoughStartedMembers),
+			zap.Error(api.ErrNotEnoughStartedMembers),
 		)
-		return ErrNotEnoughStartedMembers
+		return api.ErrNotEnoughStartedMembers
 	}
 
 	return nil
@@ -1731,7 +1645,7 @@ func (s *EtcdServer) isLearnerReady(id uint64) error {
 
 	// leader's raftStatus.Progress is not nil
 	if rs.Progress == nil {
-		return ErrNotLeader
+		return api.ErrNotLeader
 	}
 
 	var learnerMatch uint64
@@ -1750,7 +1664,7 @@ func (s *EtcdServer) isLearnerReady(id uint64) error {
 		leaderMatch := rs.Progress[leaderID].Match
 		// the learner's Match not caught up with leader yet
 		if float64(learnerMatch) < float64(leaderMatch)*readyPercent {
-			return ErrLearnerNotReady
+			return api.ErrLearnerNotReady
 		}
 	}
 
@@ -1774,9 +1688,9 @@ func (s *EtcdServer) mayRemoveMember(id types.ID) error {
 			"rejecting member remove request; not enough healthy members",
 			zap.String("local-member-id", s.ID().String()),
 			zap.String("requested-member-remove-id", id.String()),
-			zap.Error(ErrNotEnoughStartedMembers),
+			zap.Error(api.ErrNotEnoughStartedMembers),
 		)
-		return ErrNotEnoughStartedMembers
+		return api.ErrNotEnoughStartedMembers
 	}
 
 	// downed member is safe to remove since it's not part of the active quorum
@@ -1793,9 +1707,9 @@ func (s *EtcdServer) mayRemoveMember(id types.ID) error {
 			zap.String("local-member-id", s.ID().String()),
 			zap.String("requested-member-remove", id.String()),
 			zap.Int("active-peers", active),
-			zap.Error(ErrUnhealthy),
+			zap.Error(api.ErrUnhealthy),
 		)
-		return ErrUnhealthy
+		return api.ErrUnhealthy
 	}
 
 	return nil
@@ -1866,15 +1780,6 @@ func (s *EtcdServer) FirstCommitInTermNotify() <-chan struct{} {
 	return s.firstCommitInTermC
 }
 
-// RaftStatusGetter represents etcd server and Raft progress.
-type RaftStatusGetter interface {
-	ID() types.ID
-	Leader() types.ID
-	CommittedIndex() uint64
-	AppliedIndex() uint64
-	Term() uint64
-}
-
 func (s *EtcdServer) ID() types.ID { return s.id }
 
 func (s *EtcdServer) Leader() types.ID { return types.ID(s.getLead()) }
@@ -1925,7 +1830,7 @@ func (s *EtcdServer) configure(ctx context.Context, cc raftpb.ConfChange) ([]*me
 		return nil, s.parseProposeCtxErr(ctx.Err(), start)
 
 	case <-s.stopping:
-		return nil, ErrStopped
+		return nil, api.ErrStopped
 	}
 }
 
@@ -2044,7 +1949,7 @@ func (s *EtcdServer) publish(timeout time.Duration) {
 			)
 			return
 
-		case ErrStopped:
+		case api.ErrStopped:
 			lg.Warn(
 				"stopped publish because server is stopped",
 				zap.String("local-member-id", s.ID().String()),
@@ -2225,7 +2130,7 @@ func (s *EtcdServer) applyEntryNormal(e *raftpb.Entry) {
 		return
 	}
 
-	if ar.err != ErrNoSpace || len(s.alarmStore.Get(pb.AlarmType_NOSPACE)) > 0 {
+	if ar.err != api.ErrNoSpace || len(s.alarmStore.Get(pb.AlarmType_NOSPACE)) > 0 {
 		s.w.Trigger(id, ar)
 		return
 	}
@@ -2489,7 +2394,7 @@ func (s *EtcdServer) updateClusterVersionV2(ver string) {
 		lg.Info("cluster version is updated", zap.String("cluster-version", version.Cluster(ver)))
 		return
 
-	case ErrStopped:
+	case api.ErrStopped:
 		lg.Warn("aborting cluster version update; server is stopped", zap.Error(err))
 		return
 
@@ -2525,7 +2430,7 @@ func (s *EtcdServer) updateClusterVersionV3(ver string) {
 		lg.Info("cluster version is updated", zap.String("cluster-version", version.Cluster(ver)))
 		return
 
-	case ErrStopped:
+	case api.ErrStopped:
 		lg.Warn("aborting cluster version update; server is stopped", zap.Error(err))
 		return
 
@@ -2558,7 +2463,7 @@ func (s *EtcdServer) monitorDowngrade() {
 func (s *EtcdServer) parseProposeCtxErr(err error, start time.Time) error {
 	switch err {
 	case context.Canceled:
-		return ErrCanceled
+		return api.ErrCanceled
 
 	case context.DeadlineExceeded:
 		s.leadTimeMu.RLock()
@@ -2566,7 +2471,7 @@ func (s *EtcdServer) parseProposeCtxErr(err error, start time.Time) error {
 		s.leadTimeMu.RUnlock()
 		prevLeadLost := curLeadElected.Add(-2 * time.Duration(s.Cfg.ElectionTicks) * time.Duration(s.Cfg.TickMs) * time.Millisecond)
 		if start.After(prevLeadLost) && start.Before(curLeadElected) {
-			return ErrTimeoutDueToLeaderFail
+			return api.ErrTimeoutDueToLeaderFail
 		}
 		lead := types.ID(s.getLead())
 		switch lead {
@@ -2574,14 +2479,14 @@ func (s *EtcdServer) parseProposeCtxErr(err error, start time.Time) error {
 			// TODO: return error to specify it happens because the cluster does not have leader now
 		case s.ID():
 			if !isConnectedToQuorumSince(s.r.transport, start, s.ID(), s.cluster.Members()) {
-				return ErrTimeoutDueToConnectionLost
+				return api.ErrTimeoutDueToConnectionLost
 			}
 		default:
 			if !isConnectedSince(s.r.transport, start, lead) {
-				return ErrTimeoutDueToConnectionLost
+				return api.ErrTimeoutDueToConnectionLost
 			}
 		}
-		return ErrTimeout
+		return api.ErrTimeout
 
 	default:
 		return err
@@ -2633,6 +2538,14 @@ func (s *EtcdServer) GoAttach(f func()) {
 		defer s.wg.Done()
 		f()
 	}()
+}
+
+func (s *EtcdServer) Config() config.ServerConfig {
+	return s.Cfg
+}
+
+func (s *EtcdServer) BackendSize() int64 {
+	return s.Backend().Size()
 }
 
 func (s *EtcdServer) Alarms() []*pb.AlarmMember {

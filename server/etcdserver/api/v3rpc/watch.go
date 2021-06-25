@@ -25,7 +25,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/server/v3/auth"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/mvcc"
 
 	"go.uber.org/zap"
@@ -41,37 +41,46 @@ type watchServer struct {
 
 	maxRequestBytes int
 
-	sg        etcdserver.RaftStatusGetter
+	sg        api.RaftStatusGetter
 	watchable mvcc.WatchableKV
 	ag        AuthGetter
 }
 
+type WatchProvider interface {
+	api.RaftStatusGetter
+	AuthGetter
+	KVGetter
+	api.ServerConfig
+	api.Server
+}
+
 // NewWatchServer returns a new watch server.
-func NewWatchServer(s *etcdserver.EtcdServer) pb.WatchServer {
+func NewWatchServer(s WatchProvider) pb.WatchServer {
+	cfg := s.Config()
 	srv := &watchServer{
-		lg: s.Cfg.Logger,
+		lg: cfg.Logger,
 
 		clusterID: int64(s.Cluster().ID()),
 		memberID:  int64(s.ID()),
 
-		maxRequestBytes: int(s.Cfg.MaxRequestBytes + grpcOverheadBytes),
+		maxRequestBytes: int(cfg.MaxRequestBytes + grpcOverheadBytes),
 
 		sg:        s,
-		watchable: s.Watchable(),
+		watchable: s.KV(),
 		ag:        s,
 	}
 	if srv.lg == nil {
 		srv.lg = zap.NewNop()
 	}
-	if s.Cfg.WatchProgressNotifyInterval > 0 {
-		if s.Cfg.WatchProgressNotifyInterval < minWatchProgressInterval {
+	if cfg.WatchProgressNotifyInterval > 0 {
+		if cfg.WatchProgressNotifyInterval < minWatchProgressInterval {
 			srv.lg.Warn(
 				"adjusting watch progress notify interval to minimum period",
 				zap.Duration("min-watch-progress-notify-interval", minWatchProgressInterval),
 			)
-			s.Cfg.WatchProgressNotifyInterval = minWatchProgressInterval
+			cfg.WatchProgressNotifyInterval = minWatchProgressInterval
 		}
-		SetProgressReportInterval(s.Cfg.WatchProgressNotifyInterval)
+		SetProgressReportInterval(cfg.WatchProgressNotifyInterval)
 	}
 	return srv
 }
@@ -124,7 +133,7 @@ type serverWatchStream struct {
 
 	maxRequestBytes int
 
-	sg        etcdserver.RaftStatusGetter
+	sg        api.RaftStatusGetter
 	watchable mvcc.WatchableKV
 	ag        AuthGetter
 

@@ -24,9 +24,10 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/api/v3/version"
+	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/server/v3/auth"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	serverversion "go.etcd.io/etcd/server/v3/etcdserver/version"
 	"go.etcd.io/etcd/server/v3/mvcc"
 	"go.etcd.io/etcd/server/v3/mvcc/backend"
@@ -64,11 +65,12 @@ type AuthGetter interface {
 
 type ClusterStatusGetter interface {
 	IsLearner() bool
+	IsMemberExist(id types.ID) bool
 }
 
 type maintenanceServer struct {
 	lg  *zap.Logger
-	rg  etcdserver.RaftStatusGetter
+	rg  api.RaftStatusGetter
 	kg  KVGetter
 	bg  BackendGetter
 	a   Alarmer
@@ -78,8 +80,21 @@ type maintenanceServer struct {
 	d   Downgrader
 }
 
-func NewMaintenanceServer(s *etcdserver.EtcdServer) pb.MaintenanceServer {
-	srv := &maintenanceServer{lg: s.Cfg.Logger, rg: s, kg: s, bg: s, a: s, lt: s, hdr: newHeader(s), cs: s, d: s}
+type MaintenanceProvider interface {
+	api.RaftStatusGetter
+	KVGetter
+	BackendGetter
+	Alarmer
+	LeaderTransferrer
+	ClusterStatusGetter
+	Downgrader
+	api.ServerConfig
+	HeaderProvider
+	AuthGetter
+}
+
+func NewMaintenanceServer(s MaintenanceProvider) pb.MaintenanceServer {
+	srv := &maintenanceServer{lg: s.Config().Logger, rg: s, kg: s, bg: s, a: s, lt: s, hdr: newHeader(s), cs: s, d: s}
 	if srv.lg == nil {
 		srv.lg = zap.NewNop()
 	}
@@ -236,7 +251,7 @@ func (ms *maintenanceServer) Status(ctx context.Context, ar *pb.StatusRequest) (
 		IsLearner:        ms.cs.IsLearner(),
 	}
 	if resp.Leader == raft.None {
-		resp.Errors = append(resp.Errors, etcdserver.ErrNoLeader.Error())
+		resp.Errors = append(resp.Errors, api.ErrNoLeader.Error())
 	}
 	for _, a := range ms.a.Alarms() {
 		resp.Errors = append(resp.Errors, a.String())

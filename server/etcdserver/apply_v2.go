@@ -34,11 +34,11 @@ const v2Version = "v2"
 
 // ApplierV2 is the interface for processing V2 raft messages
 type ApplierV2 interface {
-	Delete(r *RequestV2) Response
-	Post(r *RequestV2) Response
-	Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) Response
-	QGet(r *RequestV2) Response
-	Sync(r *RequestV2) Response
+	Delete(r *RequestV2) api.Response
+	Post(r *RequestV2) api.Response
+	Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) api.Response
+	QGet(r *RequestV2) api.Response
+	Sync(r *RequestV2) api.Response
 }
 
 func NewApplierV2(lg *zap.Logger, s v2store.Store, c *membership.RaftCluster) ApplierV2 {
@@ -54,7 +54,7 @@ type applierV2store struct {
 	cluster *membership.RaftCluster
 }
 
-func (a *applierV2store) Delete(r *RequestV2) Response {
+func (a *applierV2store) Delete(r *RequestV2) api.Response {
 	switch {
 	case r.PrevIndex > 0 || r.PrevValue != "":
 		return toResponse(a.store.CompareAndDelete(r.Path, r.PrevValue, r.PrevIndex))
@@ -63,11 +63,11 @@ func (a *applierV2store) Delete(r *RequestV2) Response {
 	}
 }
 
-func (a *applierV2store) Post(r *RequestV2) Response {
+func (a *applierV2store) Post(r *RequestV2) api.Response {
 	return toResponse(a.store.Create(r.Path, r.Dir, r.Val, true, r.TTLOptions()))
 }
 
-func (a *applierV2store) Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) Response {
+func (a *applierV2store) Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) api.Response {
 	ttlOptions := r.TTLOptions()
 	exists, existsSet := pbutil.GetBool(r.PrevExist)
 	switch {
@@ -92,7 +92,7 @@ func (a *applierV2store) Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV
 				a.cluster.UpdateAttributes(id, attr, shouldApplyV3)
 			}
 			// return an empty response since there is no consumer.
-			return Response{}
+			return api.Response{}
 		}
 		// TODO remove v2 version set to avoid the conflict between v2 and v3 in etcd 3.6
 		if r.Path == membership.StoreClusterVersionKey() {
@@ -100,24 +100,24 @@ func (a *applierV2store) Put(r *RequestV2, shouldApplyV3 membership.ShouldApplyV
 				// persist to backend given v2store can be very stale
 				a.cluster.SetVersion(semver.Must(semver.NewVersion(r.Val)), api.UpdateCapability, shouldApplyV3)
 			}
-			return Response{}
+			return api.Response{}
 		}
 		return toResponse(a.store.Set(r.Path, r.Dir, r.Val, ttlOptions))
 	}
 }
 
-func (a *applierV2store) QGet(r *RequestV2) Response {
+func (a *applierV2store) QGet(r *RequestV2) api.Response {
 	return toResponse(a.store.Get(r.Path, r.Recursive, r.Sorted))
 }
 
-func (a *applierV2store) Sync(r *RequestV2) Response {
+func (a *applierV2store) Sync(r *RequestV2) api.Response {
 	a.store.DeleteExpiredKeys(time.Unix(0, r.Time))
-	return Response{}
+	return api.Response{}
 }
 
 // applyV2Request interprets r as a call to v2store.X
 // and returns a Response interpreted from v2store.Event
-func (s *EtcdServer) applyV2Request(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) (resp Response) {
+func (s *EtcdServer) applyV2Request(r *RequestV2, shouldApplyV3 membership.ShouldApplyV3) (resp api.Response) {
 	stringer := panicAlternativeStringer{
 		stringer:    r,
 		alternative: func() string { return fmt.Sprintf("id:%d,method:%s,path:%s", r.ID, r.Method, r.Path) },
@@ -141,7 +141,7 @@ func (s *EtcdServer) applyV2Request(r *RequestV2, shouldApplyV3 membership.Shoul
 		return s.applyV2.Sync(r)
 	default:
 		// This should never be reached, but just in case:
-		return Response{Err: ErrUnknownMethod}
+		return api.Response{Err: api.ErrUnknownMethod}
 	}
 }
 
@@ -154,6 +154,6 @@ func (r *RequestV2) TTLOptions() v2store.TTLOptionSet {
 	return ttlOptions
 }
 
-func toResponse(ev *v2store.Event, err error) Response {
-	return Response{Event: ev, Err: err}
+func toResponse(ev *v2store.Event, err error) api.Response {
+	return api.Response{Event: ev, Err: err}
 }

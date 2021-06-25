@@ -21,6 +21,7 @@ import (
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 )
 
 type quotaKVServer struct {
@@ -29,7 +30,7 @@ type quotaKVServer struct {
 }
 
 type quotaAlarmer struct {
-	q  etcdserver.Quota
+	q  api.Quota
 	a  Alarmer
 	id types.ID
 }
@@ -49,7 +50,14 @@ func (qa *quotaAlarmer) check(ctx context.Context, r interface{}) error {
 	return rpctypes.ErrGRPCNoSpace
 }
 
-func NewQuotaKVServer(s *etcdserver.EtcdServer) pb.KVServer {
+type QuotaKVServerProvider interface {
+	KVServerProvider
+	api.BackendStats
+	Alarmer
+	LeaseProvider
+}
+
+func NewQuotaKVServer(s QuotaKVServerProvider) pb.KVServer {
 	return &quotaKVServer{
 		NewKVServer(s),
 		quotaAlarmer{etcdserver.NewBackendQuota(s, "kv"), s, s.ID()},
@@ -82,7 +90,7 @@ func (s *quotaLeaseServer) LeaseGrant(ctx context.Context, cr *pb.LeaseGrantRequ
 	return s.LeaseServer.LeaseGrant(ctx, cr)
 }
 
-func NewQuotaLeaseServer(s *etcdserver.EtcdServer) pb.LeaseServer {
+func NewQuotaLeaseServer(s QuotaKVServerProvider) pb.LeaseServer {
 	return &quotaLeaseServer{
 		NewLeaseServer(s),
 		quotaAlarmer{etcdserver.NewBackendQuota(s, "lease"), s, s.ID()},

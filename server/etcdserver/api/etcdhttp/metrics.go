@@ -25,7 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/raft/v3"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.uber.org/zap"
 )
 
@@ -37,16 +37,31 @@ const (
 )
 
 // HandleMetricsHealth registers metrics and health handlers.
-func HandleMetricsHealth(lg *zap.Logger, mux *http.ServeMux, srv etcdserver.ServerV2) {
+func HandleMetricsHealth(lg *zap.Logger, mux *http.ServeMux, srv api.ServerV2) {
 	mux.Handle(PathMetrics, promhttp.Handler())
-	mux.Handle(PathHealth, NewHealthHandler(lg, func(excludedAlarms AlarmSet) Health { return checkV2Health(lg, srv, excludedAlarms) }))
+	mux.Handle(PathHealth, NewHealthHandler(lg, func(excludedAlarms AlarmSet) (h Health) {
+		if h = checkHealth(lg, srv, excludedAlarms); h.Health != "true" {
+			return
+		}
+		return checkV2Health(lg, srv, excludedAlarms)
+	}))
+}
+
+type MetricsHealthV3Provider interface {
+	HealthV3Provider
+	api.ServerV2
 }
 
 // HandleMetricsHealthForV3 registers metrics and health handlers. it checks health by using v3 range request
 // and its corresponding timeout.
-func HandleMetricsHealthForV3(lg *zap.Logger, mux *http.ServeMux, srv *etcdserver.EtcdServer) {
+func HandleMetricsHealthForV3(lg *zap.Logger, mux *http.ServeMux, srv MetricsHealthV3Provider) {
 	mux.Handle(PathMetrics, promhttp.Handler())
-	mux.Handle(PathHealth, NewHealthHandler(lg, func(excludedAlarms AlarmSet) Health { return checkV3Health(lg, srv, excludedAlarms) }))
+	mux.Handle(PathHealth, NewHealthHandler(lg, func(excludedAlarms AlarmSet) (h Health) {
+		if h = checkHealth(lg, srv, excludedAlarms); h.Health != "true" {
+			return
+		}
+		return checkV3Health(lg, srv, excludedAlarms)
+	}))
 }
 
 // HandlePrometheus registers prometheus handler on '/metrics'.
@@ -129,7 +144,7 @@ func getExcludedAlarms(r *http.Request) (alarms AlarmSet) {
 
 // TODO: etcdserver.ErrNoLeader in health API
 
-func checkHealth(lg *zap.Logger, srv etcdserver.ServerV2, excludedAlarms AlarmSet) Health {
+func checkHealth(lg *zap.Logger, srv api.ServerV2, excludedAlarms AlarmSet) Health {
 	h := Health{}
 	h.Health = "true"
 	as := srv.Alarms()
@@ -169,10 +184,7 @@ func checkHealth(lg *zap.Logger, srv etcdserver.ServerV2, excludedAlarms AlarmSe
 	return h
 }
 
-func checkV2Health(lg *zap.Logger, srv etcdserver.ServerV2, excludedAlarms AlarmSet) (h Health) {
-	if h = checkHealth(lg, srv, excludedAlarms); h.Health != "true" {
-		return
-	}
+func checkV2Health(lg *zap.Logger, srv api.ServerV2, excludedAlarms AlarmSet) (h Health) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	_, err := srv.Do(ctx, etcdserverpb.Request{Method: "QGET"})
 	cancel()
@@ -186,12 +198,15 @@ func checkV2Health(lg *zap.Logger, srv etcdserver.ServerV2, excludedAlarms Alarm
 	return
 }
 
-func checkV3Health(lg *zap.Logger, srv *etcdserver.EtcdServer, excludedAlarms AlarmSet) (h Health) {
-	if h = checkHealth(lg, srv, excludedAlarms); h.Health != "true" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), srv.Cfg.ReqTimeout())
-	_, err := srv.Range(ctx, &etcdserverpb.RangeRequest{KeysOnly: true, Limit: 1})
+type HealthV3Provider interface {
+	api.RaftKV
+	api.ServerConfig
+}
+
+func checkV3Health(lg *zap.Logger, s HealthV3Provider, excludedAlarms AlarmSet) (h Health) {
+	cfg := s.Config()
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ReqTimeout())
+	_, err := s.Range(ctx, &etcdserverpb.RangeRequest{KeysOnly: true, Limit: 1})
 	cancel()
 	if err != nil {
 		h.Health = "false"

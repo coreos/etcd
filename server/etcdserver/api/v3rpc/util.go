@@ -21,7 +21,7 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/server/v3/auth"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/lease"
 	"go.etcd.io/etcd/server/v3/mvcc"
@@ -31,38 +31,38 @@ import (
 )
 
 var toGRPCErrorMap = map[error]error{
-	membership.ErrIDRemoved:               rpctypes.ErrGRPCMemberNotFound,
-	membership.ErrIDNotFound:              rpctypes.ErrGRPCMemberNotFound,
-	membership.ErrIDExists:                rpctypes.ErrGRPCMemberExist,
-	membership.ErrPeerURLexists:           rpctypes.ErrGRPCPeerURLExist,
-	membership.ErrMemberNotLearner:        rpctypes.ErrGRPCMemberNotLearner,
-	membership.ErrTooManyLearners:         rpctypes.ErrGRPCTooManyLearners,
-	etcdserver.ErrNotEnoughStartedMembers: rpctypes.ErrMemberNotEnoughStarted,
-	etcdserver.ErrLearnerNotReady:         rpctypes.ErrGRPCLearnerNotReady,
+	membership.ErrIDRemoved:        rpctypes.ErrGRPCMemberNotFound,
+	membership.ErrIDNotFound:       rpctypes.ErrGRPCMemberNotFound,
+	membership.ErrIDExists:         rpctypes.ErrGRPCMemberExist,
+	membership.ErrPeerURLexists:    rpctypes.ErrGRPCPeerURLExist,
+	membership.ErrMemberNotLearner: rpctypes.ErrGRPCMemberNotLearner,
+	membership.ErrTooManyLearners:  rpctypes.ErrGRPCTooManyLearners,
+	api.ErrNotEnoughStartedMembers: rpctypes.ErrMemberNotEnoughStarted,
+	api.ErrLearnerNotReady:         rpctypes.ErrGRPCLearnerNotReady,
 
-	mvcc.ErrCompacted:             rpctypes.ErrGRPCCompacted,
-	mvcc.ErrFutureRev:             rpctypes.ErrGRPCFutureRev,
-	etcdserver.ErrRequestTooLarge: rpctypes.ErrGRPCRequestTooLarge,
-	etcdserver.ErrNoSpace:         rpctypes.ErrGRPCNoSpace,
-	etcdserver.ErrTooManyRequests: rpctypes.ErrTooManyRequests,
+	mvcc.ErrCompacted:      rpctypes.ErrGRPCCompacted,
+	mvcc.ErrFutureRev:      rpctypes.ErrGRPCFutureRev,
+	api.ErrRequestTooLarge: rpctypes.ErrGRPCRequestTooLarge,
+	api.ErrNoSpace:         rpctypes.ErrGRPCNoSpace,
+	api.ErrTooManyRequests: rpctypes.ErrTooManyRequests,
 
-	etcdserver.ErrNoLeader:                   rpctypes.ErrGRPCNoLeader,
-	etcdserver.ErrNotLeader:                  rpctypes.ErrGRPCNotLeader,
-	etcdserver.ErrLeaderChanged:              rpctypes.ErrGRPCLeaderChanged,
-	etcdserver.ErrStopped:                    rpctypes.ErrGRPCStopped,
-	etcdserver.ErrTimeout:                    rpctypes.ErrGRPCTimeout,
-	etcdserver.ErrTimeoutDueToLeaderFail:     rpctypes.ErrGRPCTimeoutDueToLeaderFail,
-	etcdserver.ErrTimeoutDueToConnectionLost: rpctypes.ErrGRPCTimeoutDueToConnectionLost,
-	etcdserver.ErrUnhealthy:                  rpctypes.ErrGRPCUnhealthy,
-	etcdserver.ErrKeyNotFound:                rpctypes.ErrGRPCKeyNotFound,
-	etcdserver.ErrCorrupt:                    rpctypes.ErrGRPCCorrupt,
-	etcdserver.ErrBadLeaderTransferee:        rpctypes.ErrGRPCBadLeaderTransferee,
+	api.ErrNoLeader:                   rpctypes.ErrGRPCNoLeader,
+	api.ErrNotLeader:                  rpctypes.ErrGRPCNotLeader,
+	api.ErrLeaderChanged:              rpctypes.ErrGRPCLeaderChanged,
+	api.ErrStopped:                    rpctypes.ErrGRPCStopped,
+	api.ErrTimeout:                    rpctypes.ErrGRPCTimeout,
+	api.ErrTimeoutDueToLeaderFail:     rpctypes.ErrGRPCTimeoutDueToLeaderFail,
+	api.ErrTimeoutDueToConnectionLost: rpctypes.ErrGRPCTimeoutDueToConnectionLost,
+	api.ErrUnhealthy:                  rpctypes.ErrGRPCUnhealthy,
+	api.ErrKeyNotFound:                rpctypes.ErrGRPCKeyNotFound,
+	api.ErrCorrupt:                    rpctypes.ErrGRPCCorrupt,
+	api.ErrBadLeaderTransferee:        rpctypes.ErrGRPCBadLeaderTransferee,
 
-	etcdserver.ErrClusterVersionUnavailable:     rpctypes.ErrGRPCClusterVersionUnavailable,
-	etcdserver.ErrWrongDowngradeVersionFormat:   rpctypes.ErrGRPCWrongDowngradeVersionFormat,
-	etcdserver.ErrInvalidDowngradeTargetVersion: rpctypes.ErrGRPCInvalidDowngradeTargetVersion,
-	etcdserver.ErrDowngradeInProcess:            rpctypes.ErrGRPCDowngradeInProcess,
-	etcdserver.ErrNoInflightDowngrade:           rpctypes.ErrGRPCNoInflightDowngrade,
+	api.ErrClusterVersionUnavailable:     rpctypes.ErrGRPCClusterVersionUnavailable,
+	api.ErrWrongDowngradeVersionFormat:   rpctypes.ErrGRPCWrongDowngradeVersionFormat,
+	api.ErrInvalidDowngradeTargetVersion: rpctypes.ErrGRPCInvalidDowngradeTargetVersion,
+	api.ErrDowngradeInProcess:            rpctypes.ErrGRPCDowngradeInProcess,
+	api.ErrNoInflightDowngrade:           rpctypes.ErrGRPCNoInflightDowngrade,
 
 	lease.ErrLeaseNotFound:    rpctypes.ErrGRPCLeaseNotFound,
 	lease.ErrLeaseExists:      rpctypes.ErrGRPCLeaseExist,

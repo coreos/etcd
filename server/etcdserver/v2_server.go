@@ -19,6 +19,7 @@ import (
 	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2store"
 )
@@ -26,12 +27,12 @@ import (
 type RequestV2 pb.Request
 
 type RequestV2Handler interface {
-	Post(ctx context.Context, r *RequestV2) (Response, error)
-	Put(ctx context.Context, r *RequestV2) (Response, error)
-	Delete(ctx context.Context, r *RequestV2) (Response, error)
-	QGet(ctx context.Context, r *RequestV2) (Response, error)
-	Get(ctx context.Context, r *RequestV2) (Response, error)
-	Head(ctx context.Context, r *RequestV2) (Response, error)
+	Post(ctx context.Context, r *RequestV2) (api.Response, error)
+	Put(ctx context.Context, r *RequestV2) (api.Response, error)
+	Delete(ctx context.Context, r *RequestV2) (api.Response, error)
+	QGet(ctx context.Context, r *RequestV2) (api.Response, error)
+	Get(ctx context.Context, r *RequestV2) (api.Response, error)
+	Head(ctx context.Context, r *RequestV2) (api.Response, error)
 }
 
 type reqV2HandlerEtcdServer struct {
@@ -48,56 +49,56 @@ func NewStoreRequestV2Handler(s v2store.Store, applier ApplierV2) RequestV2Handl
 	return &reqV2HandlerStore{s, applier}
 }
 
-func (a *reqV2HandlerStore) Post(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) Post(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.applier.Post(r), nil
 }
 
-func (a *reqV2HandlerStore) Put(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) Put(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.applier.Put(r, membership.ApplyBoth), nil
 }
 
-func (a *reqV2HandlerStore) Delete(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) Delete(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.applier.Delete(r), nil
 }
 
-func (a *reqV2HandlerStore) QGet(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) QGet(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.applier.QGet(r), nil
 }
 
-func (a *reqV2HandlerStore) Get(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) Get(ctx context.Context, r *RequestV2) (api.Response, error) {
 	if r.Wait {
 		wc, err := a.store.Watch(r.Path, r.Recursive, r.Stream, r.Since)
-		return Response{Watcher: wc}, err
+		return api.Response{Watcher: wc}, err
 	}
 	ev, err := a.store.Get(r.Path, r.Recursive, r.Sorted)
-	return Response{Event: ev}, err
+	return api.Response{Event: ev}, err
 }
 
-func (a *reqV2HandlerStore) Head(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerStore) Head(ctx context.Context, r *RequestV2) (api.Response, error) {
 	ev, err := a.store.Get(r.Path, r.Recursive, r.Sorted)
-	return Response{Event: ev}, err
+	return api.Response{Event: ev}, err
 }
 
-func (a *reqV2HandlerEtcdServer) Post(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerEtcdServer) Post(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.processRaftRequest(ctx, r)
 }
 
-func (a *reqV2HandlerEtcdServer) Put(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerEtcdServer) Put(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.processRaftRequest(ctx, r)
 }
 
-func (a *reqV2HandlerEtcdServer) Delete(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerEtcdServer) Delete(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.processRaftRequest(ctx, r)
 }
 
-func (a *reqV2HandlerEtcdServer) QGet(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerEtcdServer) QGet(ctx context.Context, r *RequestV2) (api.Response, error) {
 	return a.processRaftRequest(ctx, r)
 }
 
-func (a *reqV2HandlerEtcdServer) processRaftRequest(ctx context.Context, r *RequestV2) (Response, error) {
+func (a *reqV2HandlerEtcdServer) processRaftRequest(ctx context.Context, r *RequestV2) (api.Response, error) {
 	data, err := ((*pb.Request)(r)).Marshal()
 	if err != nil {
-		return Response{}, err
+		return api.Response{}, err
 	}
 	ch := a.s.w.Register(r.ID)
 
@@ -108,18 +109,18 @@ func (a *reqV2HandlerEtcdServer) processRaftRequest(ctx context.Context, r *Requ
 
 	select {
 	case x := <-ch:
-		resp := x.(Response)
+		resp := x.(api.Response)
 		return resp, resp.Err
 	case <-ctx.Done():
 		proposalsFailed.Inc()
 		a.s.w.Trigger(r.ID, nil) // GC wait
-		return Response{}, a.s.parseProposeCtxErr(ctx.Err(), start)
+		return api.Response{}, a.s.parseProposeCtxErr(ctx.Err(), start)
 	case <-a.s.stopping:
 	}
-	return Response{}, ErrStopped
+	return api.Response{}, api.ErrStopped
 }
 
-func (s *EtcdServer) Do(ctx context.Context, r pb.Request) (Response, error) {
+func (s *EtcdServer) Do(ctx context.Context, r pb.Request) (api.Response, error) {
 	r.ID = s.reqIDGen.Next()
 	h := &reqV2HandlerEtcdServer{
 		reqV2HandlerStore: reqV2HandlerStore{
@@ -139,7 +140,7 @@ func (s *EtcdServer) Do(ctx context.Context, r pb.Request) (Response, error) {
 // Quorum == true, r will be sent through consensus before performing its
 // respective operation. Do will block until an action is performed or there is
 // an error.
-func (r *RequestV2) Handle(ctx context.Context, v2api RequestV2Handler) (Response, error) {
+func (r *RequestV2) Handle(ctx context.Context, v2api RequestV2Handler) (api.Response, error) {
 	if r.Method == "GET" && r.Quorum {
 		r.Method = "QGET"
 	}
@@ -157,7 +158,7 @@ func (r *RequestV2) Handle(ctx context.Context, v2api RequestV2Handler) (Respons
 	case "HEAD":
 		return v2api.Head(ctx, r)
 	}
-	return Response{}, ErrUnknownMethod
+	return api.Response{}, api.ErrUnknownMethod
 }
 
 func (r *RequestV2) String() string {

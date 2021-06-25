@@ -27,6 +27,7 @@ import (
 
 	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/types"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 
 	"github.com/coreos/go-semver/semver"
@@ -303,12 +304,12 @@ func promoteMemberHTTP(ctx context.Context, url string, id uint64, peerRt http.R
 	}
 
 	if resp.StatusCode == http.StatusRequestTimeout {
-		return nil, ErrTimeout
+		return nil, api.ErrTimeout
 	}
 	if resp.StatusCode == http.StatusPreconditionFailed {
 		// both ErrMemberNotLearner and ErrLearnerNotReady have same http status code
-		if strings.Contains(string(b), ErrLearnerNotReady.Error()) {
-			return nil, ErrLearnerNotReady
+		if strings.Contains(string(b), api.ErrLearnerNotReady.Error()) {
+			return nil, api.ErrLearnerNotReady
 		}
 		if strings.Contains(string(b), membership.ErrMemberNotLearner.Error()) {
 			return nil, membership.ErrMemberNotLearner
@@ -362,7 +363,7 @@ func getDowngradeEnabled(lg *zap.Logger, m *membership.Member, rt http.RoundTrip
 	)
 
 	for _, u := range m.PeerURLs {
-		addr := u + DowngradeEnabledPath
+		addr := u + api.DowngradeEnabledPath
 		resp, err = cc.Get(addr)
 		if err != nil {
 			lg.Warn(
@@ -406,7 +407,7 @@ func convertToClusterVersion(v string) (*semver.Version, error) {
 		// allow input version format Major.Minor
 		ver, err = semver.NewVersion(v + ".0")
 		if err != nil {
-			return nil, ErrWrongDowngradeVersionFormat
+			return nil, api.ErrWrongDowngradeVersionFormat
 		}
 	}
 	// cluster version only keeps major.minor, remove patch version

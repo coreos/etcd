@@ -20,7 +20,7 @@ import (
 	"path"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2error"
 
 	"go.uber.org/zap"
@@ -116,7 +116,7 @@ func (s *store) detectAuth() bool {
 	return u
 }
 
-func (s *store) requestResource(res string, quorum bool) (etcdserver.Response, error) {
+func (s *store) requestResource(res string, quorum bool) (api.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 	p := path.Join(StorePermsPrefix, res)
@@ -132,22 +132,22 @@ func (s *store) requestResource(res string, quorum bool) (etcdserver.Response, e
 	return s.server.Do(ctx, rr)
 }
 
-func (s *store) updateResource(res string, value interface{}) (etcdserver.Response, error) {
+func (s *store) updateResource(res string, value interface{}) (api.Response, error) {
 	return s.setResource(res, value, true)
 }
-func (s *store) createResource(res string, value interface{}) (etcdserver.Response, error) {
+func (s *store) createResource(res string, value interface{}) (api.Response, error) {
 	return s.setResource(res, value, false)
 }
-func (s *store) setResource(res string, value interface{}, prevexist bool) (etcdserver.Response, error) {
+func (s *store) setResource(res string, value interface{}, prevexist bool) (api.Response, error) {
 	err := s.ensureAuthDirectories()
 	if err != nil {
-		return etcdserver.Response{}, err
+		return api.Response{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 	data, err := json.Marshal(value)
 	if err != nil {
-		return etcdserver.Response{}, err
+		return api.Response{}, err
 	}
 	p := path.Join(StorePermsPrefix, res)
 	rr := etcdserverpb.Request{

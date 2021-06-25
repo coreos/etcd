@@ -16,22 +16,27 @@ package v3rpc
 
 import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 )
 
 type header struct {
 	clusterID int64
 	memberID  int64
-	sg        etcdserver.RaftStatusGetter
+	sg        api.RaftStatusGetter
 	rev       func() int64
 }
 
-func newHeader(s *etcdserver.EtcdServer) header {
+type HeaderProvider interface {
+	api.ServerV3
+	KVGetter
+}
+
+func newHeader(hg HeaderProvider) header {
 	return header{
-		clusterID: int64(s.Cluster().ID()),
-		memberID:  int64(s.ID()),
-		sg:        s,
-		rev:       func() int64 { return s.KV().Rev() },
+		clusterID: int64(hg.Cluster().ID()),
+		memberID:  int64(hg.ID()),
+		sg:        hg,
+		rev:       func() int64 { return hg.KV().Rev() },
 	}
 }
 

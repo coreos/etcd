@@ -30,6 +30,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
+
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/membershippb"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
@@ -42,6 +45,7 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/auth"
 	"go.etcd.io/etcd/server/v3/config"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
@@ -53,8 +57,6 @@ import (
 	"go.etcd.io/etcd/server/v3/mock/mockwait"
 	"go.etcd.io/etcd/server/v3/mvcc"
 	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 )
 
 // TestDoLocalAction tests requests which do not need to go through raft to be applied,
@@ -63,17 +65,17 @@ func TestDoLocalAction(t *testing.T) {
 	tests := []struct {
 		req pb.Request
 
-		wresp    Response
+		wresp    api.Response
 		werr     error
 		wactions []testutil.Action
 	}{
 		{
 			pb.Request{Method: "GET", ID: 1, Wait: true},
-			Response{Watcher: v2store.NewNopWatcher()}, nil, []testutil.Action{{Name: "Watch"}},
+			api.Response{Watcher: v2store.NewNopWatcher()}, nil, []testutil.Action{{Name: "Watch"}},
 		},
 		{
 			pb.Request{Method: "GET", ID: 1},
-			Response{Event: &v2store.Event{}}, nil,
+			api.Response{Event: &v2store.Event{}}, nil,
 			[]testutil.Action{
 				{
 					Name:   "Get",
@@ -83,7 +85,7 @@ func TestDoLocalAction(t *testing.T) {
 		},
 		{
 			pb.Request{Method: "HEAD", ID: 1},
-			Response{Event: &v2store.Event{}}, nil,
+			api.Response{Event: &v2store.Event{}}, nil,
 			[]testutil.Action{
 				{
 					Name:   "Get",
@@ -93,7 +95,7 @@ func TestDoLocalAction(t *testing.T) {
 		},
 		{
 			pb.Request{Method: "BADMETHOD", ID: 1},
-			Response{}, ErrUnknownMethod, []testutil.Action{},
+			api.Response{}, api.ErrUnknownMethod, []testutil.Action{},
 		},
 	}
 	for i, tt := range tests {
@@ -164,8 +166,8 @@ func TestDoBadLocalAction(t *testing.T) {
 		if err != storeErr {
 			t.Fatalf("#%d: err = %+v, want %+v", i, err, storeErr)
 		}
-		if !reflect.DeepEqual(resp, Response{}) {
-			t.Errorf("#%d: resp = %+v, want %+v", i, resp, Response{})
+		if !reflect.DeepEqual(resp, api.Response{}) {
+			t.Errorf("#%d: resp = %+v, want %+v", i, resp, api.Response{})
 		}
 		gaction := st.Action()
 		if !reflect.DeepEqual(gaction, tt.wactions) {
@@ -245,13 +247,13 @@ func TestApplyRequest(t *testing.T) {
 	tests := []struct {
 		req pb.Request
 
-		wresp    Response
+		wresp    api.Response
 		wactions []testutil.Action
 	}{
 		// POST ==> Create
 		{
 			pb.Request{Method: "POST", ID: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Create",
@@ -262,7 +264,7 @@ func TestApplyRequest(t *testing.T) {
 		// POST ==> Create, with expiration
 		{
 			pb.Request{Method: "POST", ID: 1, Expiration: 1337},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Create",
@@ -273,7 +275,7 @@ func TestApplyRequest(t *testing.T) {
 		// POST ==> Create, with dir
 		{
 			pb.Request{Method: "POST", ID: 1, Dir: true},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Create",
@@ -284,7 +286,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT ==> Set
 		{
 			pb.Request{Method: "PUT", ID: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Set",
@@ -295,7 +297,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT ==> Set, with dir
 		{
 			pb.Request{Method: "PUT", ID: 1, Dir: true},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Set",
@@ -306,7 +308,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevExist=true ==> Update
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevExist: pbutil.Boolp(true)},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Update",
@@ -317,7 +319,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevExist=false ==> Create
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevExist: pbutil.Boolp(false)},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Create",
@@ -328,7 +330,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevExist=true *and* PrevIndex set ==> CompareAndSwap
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevExist: pbutil.Boolp(true), PrevIndex: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndSwap",
@@ -339,7 +341,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevExist=false *and* PrevIndex set ==> Create
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevExist: pbutil.Boolp(false), PrevIndex: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Create",
@@ -350,7 +352,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevIndex set ==> CompareAndSwap
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevIndex: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndSwap",
@@ -361,7 +363,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevValue set ==> CompareAndSwap
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevValue: "bar"},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndSwap",
@@ -372,7 +374,7 @@ func TestApplyRequest(t *testing.T) {
 		// PUT with PrevIndex and PrevValue set ==> CompareAndSwap
 		{
 			pb.Request{Method: "PUT", ID: 1, PrevIndex: 1, PrevValue: "bar"},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndSwap",
@@ -383,7 +385,7 @@ func TestApplyRequest(t *testing.T) {
 		// DELETE ==> Delete
 		{
 			pb.Request{Method: "DELETE", ID: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Delete",
@@ -394,7 +396,7 @@ func TestApplyRequest(t *testing.T) {
 		// DELETE with PrevIndex set ==> CompareAndDelete
 		{
 			pb.Request{Method: "DELETE", ID: 1, PrevIndex: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndDelete",
@@ -405,7 +407,7 @@ func TestApplyRequest(t *testing.T) {
 		// DELETE with PrevValue set ==> CompareAndDelete
 		{
 			pb.Request{Method: "DELETE", ID: 1, PrevValue: "bar"},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndDelete",
@@ -416,7 +418,7 @@ func TestApplyRequest(t *testing.T) {
 		// DELETE with PrevIndex *and* PrevValue set ==> CompareAndDelete
 		{
 			pb.Request{Method: "DELETE", ID: 1, PrevIndex: 5, PrevValue: "bar"},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "CompareAndDelete",
@@ -427,7 +429,7 @@ func TestApplyRequest(t *testing.T) {
 		// QGET ==> Get
 		{
 			pb.Request{Method: "QGET", ID: 1},
-			Response{Event: &v2store.Event{}},
+			api.Response{Event: &v2store.Event{}},
 			[]testutil.Action{
 				{
 					Name:   "Get",
@@ -438,7 +440,7 @@ func TestApplyRequest(t *testing.T) {
 		// SYNC ==> DeleteExpiredKeys
 		{
 			pb.Request{Method: "SYNC", ID: 1},
-			Response{},
+			api.Response{},
 			[]testutil.Action{
 				{
 					Name:   "DeleteExpiredKeys",
@@ -448,7 +450,7 @@ func TestApplyRequest(t *testing.T) {
 		},
 		{
 			pb.Request{Method: "SYNC", ID: 1, Time: 12345},
-			Response{},
+			api.Response{},
 			[]testutil.Action{
 				{
 					Name:   "DeleteExpiredKeys",
@@ -459,7 +461,7 @@ func TestApplyRequest(t *testing.T) {
 		// Unknown method - error
 		{
 			pb.Request{Method: "BADMETHOD", ID: 1},
-			Response{Err: ErrUnknownMethod},
+			api.Response{Err: api.ErrUnknownMethod},
 			[]testutil.Action{},
 		},
 	}
@@ -806,7 +808,7 @@ func TestDoProposal(t *testing.T) {
 			t.Fatalf("#%d: err = %v, want nil", i, err)
 		}
 		// resp.Index is set in Do() based on the raft state; may either be 0 or 1
-		wresp := Response{Event: &v2store.Event{}, Index: resp.Index}
+		wresp := api.Response{Event: &v2store.Event{}, Index: resp.Index}
 		if !reflect.DeepEqual(resp, wresp) {
 			t.Errorf("#%d: resp = %v, want %v", i, resp, wresp)
 		}
@@ -829,8 +831,8 @@ func TestDoProposalCancelled(t *testing.T) {
 	cancel()
 	_, err := srv.Do(ctx, pb.Request{Method: "PUT"})
 
-	if err != ErrCanceled {
-		t.Fatalf("err = %v, want %v", err, ErrCanceled)
+	if err != api.ErrCanceled {
+		t.Fatalf("err = %v, want %v", err, api.ErrCanceled)
 	}
 	w := []testutil.Action{{Name: "Register"}, {Name: "Trigger"}}
 	if !reflect.DeepEqual(wt.Action(), w) {
@@ -852,8 +854,8 @@ func TestDoProposalTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 0)
 	_, err := srv.Do(ctx, pb.Request{Method: "PUT"})
 	cancel()
-	if err != ErrTimeout {
-		t.Fatalf("err = %v, want %v", err, ErrTimeout)
+	if err != api.ErrTimeout {
+		t.Fatalf("err = %v, want %v", err, api.ErrTimeout)
 	}
 }
 
@@ -871,8 +873,8 @@ func TestDoProposalStopped(t *testing.T) {
 	srv.stopping = make(chan struct{})
 	close(srv.stopping)
 	_, err := srv.Do(context.Background(), pb.Request{Method: "PUT", ID: 1})
-	if err != ErrStopped {
-		t.Errorf("err = %v, want %v", err, ErrStopped)
+	if err != api.ErrStopped {
+		t.Errorf("err = %v, want %v", err, api.ErrStopped)
 	}
 }
 
@@ -1477,7 +1479,7 @@ func TestPublish(t *testing.T) {
 	n := newNodeRecorder()
 	ch := make(chan interface{}, 1)
 	// simulate that request has gone through consensus
-	ch <- Response{}
+	ch <- api.Response{}
 	w := wait.NewWithResponse(ch)
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := &EtcdServer{
@@ -1721,7 +1723,7 @@ func TestUpdateVersion(t *testing.T) {
 	n := newNodeRecorder()
 	ch := make(chan interface{}, 1)
 	// simulate that request has gone through consensus
-	ch <- Response{}
+	ch <- api.Response{}
 	w := wait.NewWithResponse(ch)
 	ctx, cancel := context.WithCancel(context.TODO())
 	srv := &EtcdServer{
@@ -1756,7 +1758,7 @@ func TestUpdateVersion(t *testing.T) {
 	if r.Method != "PUT" {
 		t.Errorf("method = %s, want PUT", r.Method)
 	}
-	if wpath := path.Join(StoreClusterPrefix, "version"); r.Path != wpath {
+	if wpath := path.Join(api.StoreClusterPrefix, "version"); r.Path != wpath {
 		t.Errorf("path = %s, want %s", r.Path, wpath)
 	}
 	if r.Val != "2.0.0" {

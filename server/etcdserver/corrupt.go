@@ -28,6 +28,7 @@ import (
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/pkg/v3/traceutil"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/mvcc"
 
 	"go.uber.org/zap"
@@ -310,34 +311,32 @@ type applierV3Corrupt struct {
 func newApplierV3Corrupt(a applierV3) *applierV3Corrupt { return &applierV3Corrupt{a} }
 
 func (a *applierV3Corrupt) Put(ctx context.Context, txn mvcc.TxnWrite, p *pb.PutRequest) (*pb.PutResponse, *traceutil.Trace, error) {
-	return nil, nil, ErrCorrupt
+	return nil, nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) Range(ctx context.Context, txn mvcc.TxnRead, p *pb.RangeRequest) (*pb.RangeResponse, error) {
-	return nil, ErrCorrupt
+	return nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) DeleteRange(txn mvcc.TxnWrite, p *pb.DeleteRangeRequest) (*pb.DeleteRangeResponse, error) {
-	return nil, ErrCorrupt
+	return nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) Txn(ctx context.Context, rt *pb.TxnRequest) (*pb.TxnResponse, *traceutil.Trace, error) {
-	return nil, nil, ErrCorrupt
+	return nil, nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) Compaction(compaction *pb.CompactionRequest) (*pb.CompactionResponse, <-chan struct{}, *traceutil.Trace, error) {
-	return nil, nil, nil, ErrCorrupt
+	return nil, nil, nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) LeaseGrant(lc *pb.LeaseGrantRequest) (*pb.LeaseGrantResponse, error) {
-	return nil, ErrCorrupt
+	return nil, api.ErrCorrupt
 }
 
 func (a *applierV3Corrupt) LeaseRevoke(lc *pb.LeaseRevokeRequest) (*pb.LeaseRevokeResponse, error) {
-	return nil, ErrCorrupt
+	return nil, api.ErrCorrupt
 }
-
-const PeerHashKVPath = "/members/hashkv"
 
 type hashKVHandler struct {
 	lg     *zap.Logger
@@ -354,7 +353,7 @@ func (h *hashKVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path != PeerHashKVPath {
+	if r.URL.Path != api.PeerHashKVPath {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
@@ -403,7 +402,7 @@ func (s *EtcdServer) getPeerHashKVHTTP(ctx context.Context, url string, rev int6
 	if err != nil {
 		return nil, err
 	}
-	requestUrl := url + PeerHashKVPath
+	requestUrl := url + api.PeerHashKVPath
 	req, err := http.NewRequest(http.MethodGet, requestUrl, bytes.NewReader(hashReqBytes))
 	if err != nil {
 		return nil, err

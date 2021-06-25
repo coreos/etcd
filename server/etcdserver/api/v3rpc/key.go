@@ -21,12 +21,12 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/pkg/v3/adt"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 )
 
 type kvServer struct {
 	hdr header
-	kv  etcdserver.RaftKV
+	kv  api.RaftKV
 	// maxTxnOps is the max operations per txn.
 	// e.g suppose maxTxnOps = 128.
 	// Txn.Success can have at most 128 operations,
@@ -34,8 +34,14 @@ type kvServer struct {
 	maxTxnOps uint
 }
 
-func NewKVServer(s *etcdserver.EtcdServer) pb.KVServer {
-	return &kvServer{hdr: newHeader(s), kv: s, maxTxnOps: s.Cfg.MaxTxnOps}
+type KVServerProvider interface {
+	HeaderProvider
+	api.RaftKV
+	api.ServerConfig
+}
+
+func NewKVServer(s KVServerProvider) pb.KVServer {
+	return &kvServer{hdr: newHeader(s), kv: s, maxTxnOps: s.Config().MaxTxnOps}
 }
 
 func (s *kvServer) Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeResponse, error) {

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2error"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2store"
 
@@ -30,8 +30,8 @@ import (
 
 type fakeDoer struct{}
 
-func (fakeDoer) Do(context.Context, etcdserverpb.Request) (etcdserver.Response, error) {
-	return etcdserver.Response{}, nil
+func (fakeDoer) Do(context.Context, etcdserverpb.Request) (api.Response, error) {
+	return api.Response{}, nil
 }
 
 func TestCheckPassword(t *testing.T) {
@@ -155,17 +155,17 @@ func TestMergeRole(t *testing.T) {
 }
 
 type testDoer struct {
-	get               []etcdserver.Response
-	put               []etcdserver.Response
+	get               []api.Response
+	put               []api.Response
 	getindex          int
 	putindex          int
 	explicitlyEnabled bool
 }
 
-func (td *testDoer) Do(_ context.Context, req etcdserverpb.Request) (etcdserver.Response, error) {
+func (td *testDoer) Do(_ context.Context, req etcdserverpb.Request) (api.Response, error) {
 	if td.explicitlyEnabled && (req.Path == StorePermsPrefix+"/enabled") {
 		t := "true"
-		return etcdserver.Response{
+		return api.Response{
 			Event: &v2store.Event{
 				Action: v2store.Get,
 				Node: &v2store.NodeExtern{
@@ -179,7 +179,7 @@ func (td *testDoer) Do(_ context.Context, req etcdserverpb.Request) (etcdserver.
 		res := td.get[td.getindex]
 		if res.Event == nil {
 			td.getindex++
-			return etcdserver.Response{}, &v2error.Error{
+			return api.Response{}, &v2error.Error{
 				ErrorCode: v2error.EcodeKeyNotFound,
 			}
 		}
@@ -190,19 +190,19 @@ func (td *testDoer) Do(_ context.Context, req etcdserverpb.Request) (etcdserver.
 		res := td.put[td.putindex]
 		if res.Event == nil {
 			td.putindex++
-			return etcdserver.Response{}, &v2error.Error{
+			return api.Response{}, &v2error.Error{
 				ErrorCode: v2error.EcodeNodeExist,
 			}
 		}
 		td.putindex++
 		return res, nil
 	}
-	return etcdserver.Response{}, nil
+	return api.Response{}, nil
 }
 
 func TestAllUsers(t *testing.T) {
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -235,7 +235,7 @@ func TestAllUsers(t *testing.T) {
 func TestGetAndDeleteUser(t *testing.T) {
 	data := `{"user": "cat", "roles" : ["animal"]}`
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -266,7 +266,7 @@ func TestGetAndDeleteUser(t *testing.T) {
 
 func TestAllRoles(t *testing.T) {
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -300,7 +300,7 @@ func TestAllRoles(t *testing.T) {
 func TestGetAndDeleteRole(t *testing.T) {
 	data := `{"role": "animal"}`
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -331,7 +331,7 @@ func TestGetAndDeleteRole(t *testing.T) {
 
 func TestEnsure(t *testing.T) {
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Set,
@@ -382,7 +382,7 @@ func TestCreateAndUpdateUser(t *testing.T) {
 	olduser := `{"user": "cat", "roles" : ["animal"]}`
 	newuser := `{"user": "cat", "roles" : ["animal", "pet"]}`
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: nil,
 			},
@@ -405,7 +405,7 @@ func TestCreateAndUpdateUser(t *testing.T) {
 				},
 			},
 		},
-		put: []etcdserver.Response{
+		put: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Update,
@@ -459,7 +459,7 @@ func TestUpdateRole(t *testing.T) {
 	oldrole := `{"role": "animal", "permissions" : {"kv": {"read": ["/animal"], "write": []}}}`
 	newrole := `{"role": "animal", "permissions" : {"kv": {"read": ["/animal"], "write": ["/animal"]}}}`
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -470,7 +470,7 @@ func TestUpdateRole(t *testing.T) {
 				},
 			},
 		},
-		put: []etcdserver.Response{
+		put: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Update,
@@ -499,7 +499,7 @@ func TestUpdateRole(t *testing.T) {
 func TestCreateRole(t *testing.T) {
 	role := `{"role": "animal", "permissions" : {"kv": {"read": ["/animal"], "write": []}}}`
 	d := &testDoer{
-		put: []etcdserver.Response{
+		put: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Create,
@@ -538,7 +538,7 @@ func TestEnableAuth(t *testing.T) {
 	trueval := "true"
 	falseval := "false"
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -561,7 +561,7 @@ func TestEnableAuth(t *testing.T) {
 				Event: nil,
 			},
 		},
-		put: []etcdserver.Response{
+		put: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Create,
@@ -594,7 +594,7 @@ func TestDisableAuth(t *testing.T) {
 	trueval := "true"
 	falseval := "false"
 	d := &testDoer{
-		get: []etcdserver.Response{
+		get: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Get,
@@ -614,7 +614,7 @@ func TestDisableAuth(t *testing.T) {
 				},
 			},
 		},
-		put: []etcdserver.Response{
+		put: []api.Response{
 			{
 				Event: &v2store.Event{
 					Action: v2store.Update,

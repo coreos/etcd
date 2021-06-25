@@ -22,7 +22,6 @@ import (
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
-	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -43,13 +42,17 @@ type streamsMap struct {
 	streams map[grpc.ServerStream]struct{}
 }
 
-func newUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
+type InterceptorProvider interface {
+	api.Server
+	api.RaftStatusGetter
+}
+
+func newUnaryInterceptor(s InterceptorProvider) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if !api.IsCapabilityEnabled(api.V3rpcCapability) {
 			return nil, rpctypes.ErrGRPCNotCapable
 		}
-
-		if s.IsMemberExist(s.ID()) && s.IsLearner() && !isRPCSupportedForLearner(req) {
+		if s.Cluster().IsMemberExist(s.ID()) && s.Cluster().IsLocalMemberLearner() && !isRPCSupportedForLearner(req) {
 			return nil, rpctypes.ErrGPRCNotSupportedForLearner
 		}
 
@@ -72,11 +75,11 @@ func newUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
 	}
 }
 
-func newLogUnaryInterceptor(s *etcdserver.EtcdServer) grpc.UnaryServerInterceptor {
+func newLogUnaryInterceptor(s api.ServerConfig) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		startTime := time.Now()
 		resp, err := handler(ctx, req)
-		lg := s.Logger()
+		lg := s.Config().Logger
 		if lg != nil { // acquire stats if debug level is enabled or request is expensive
 			defer logUnaryRequestStats(ctx, lg, info, startTime, req, resp)
 		}
@@ -207,7 +210,13 @@ func logExpensiveRequestStats(lg *zap.Logger, startTime time.Time, duration time
 	)
 }
 
-func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor {
+type StreamInterceptorProvider interface {
+	LeaderProvider
+	api.Server
+	ClusterStatusGetter
+}
+
+func newStreamInterceptor(s StreamInterceptorProvider) grpc.StreamServerInterceptor {
 	smap := monitorLeader(s)
 
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -303,13 +312,22 @@ type serverStreamWithCtx struct {
 
 func (ssc serverStreamWithCtx) Context() context.Context { return ssc.ctx }
 
-func monitorLeader(s *etcdserver.EtcdServer) *streamsMap {
+type LeaderProvider interface {
+	api.ServerConfig
+	api.RaftStatusGetter
+
+	GoAttach(f func())
+	StoppingNotify() <-chan struct{}
+}
+
+func monitorLeader(s LeaderProvider) *streamsMap {
 	smap := &streamsMap{
 		streams: make(map[grpc.ServerStream]struct{}),
 	}
 
 	s.GoAttach(func() {
-		election := time.Duration(s.Cfg.TickMs) * time.Duration(s.Cfg.ElectionTicks) * time.Millisecond
+		cfg := s.Config()
+		election := time.Duration(cfg.TickMs) * time.Duration(cfg.ElectionTicks) * time.Millisecond
 		noLeaderCnt := 0
 
 		for {

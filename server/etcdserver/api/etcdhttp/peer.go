@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/rafthttp"
@@ -37,13 +36,13 @@ const (
 )
 
 // NewPeerHandler generates an http.Handler to handle etcd peer requests.
-func NewPeerHandler(lg *zap.Logger, s etcdserver.ServerPeerV2) http.Handler {
+func NewPeerHandler(lg *zap.Logger, s api.ServerPeerV2) http.Handler {
 	return newPeerHandler(lg, s, s.RaftHandler(), s.LeaseHandler(), s.HashKVHandler(), s.DowngradeEnabledHandler())
 }
 
 func newPeerHandler(
 	lg *zap.Logger,
-	s etcdserver.Server,
+	s api.Server,
 	raftHandler http.Handler,
 	leaseHandler http.Handler,
 	hashKVHandler http.Handler,
@@ -66,10 +65,10 @@ func newPeerHandler(
 		mux.Handle(leasehttp.LeaseInternalPrefix, leaseHandler)
 	}
 	if downgradeEnabledHandler != nil {
-		mux.Handle(etcdserver.DowngradeEnabledPath, downgradeEnabledHandler)
+		mux.Handle(api.DowngradeEnabledPath, downgradeEnabledHandler)
 	}
 	if hashKVHandler != nil {
-		mux.Handle(etcdserver.PeerHashKVPath, hashKVHandler)
+		mux.Handle(api.PeerHashKVPath, hashKVHandler)
 	}
 	mux.HandleFunc(versionPath, versionHandler(s.Cluster(), serveVersion))
 	return mux
@@ -87,7 +86,7 @@ type peerMembersHandler struct {
 	cluster api.Cluster
 }
 
-func newPeerMemberPromoteHandler(lg *zap.Logger, s etcdserver.Server) http.Handler {
+func newPeerMemberPromoteHandler(lg *zap.Logger, s api.Server) http.Handler {
 	return &peerMemberPromoteHandler{
 		lg:      lg,
 		cluster: s.Cluster(),
@@ -98,7 +97,7 @@ func newPeerMemberPromoteHandler(lg *zap.Logger, s etcdserver.Server) http.Handl
 type peerMemberPromoteHandler struct {
 	lg      *zap.Logger
 	cluster api.Cluster
-	server  etcdserver.Server
+	server  api.Server
 }
 
 func (h *peerMembersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +141,7 @@ func (h *peerMemberPromoteHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 			http.Error(w, err.Error(), http.StatusNotFound)
 		case membership.ErrMemberNotLearner:
 			http.Error(w, err.Error(), http.StatusPreconditionFailed)
-		case etcdserver.ErrLearnerNotReady:
+		case api.ErrLearnerNotReady:
 			http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		default:
 			WriteError(h.lg, w, r, err)

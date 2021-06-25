@@ -14,7 +14,7 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
 	"go.uber.org/zap"
 )
@@ -37,11 +37,11 @@ func (s *fakeServerV2) Leader() types.ID {
 	}
 	return types.ID(raft.None)
 }
-func (s *fakeServerV2) Do(ctx context.Context, r pb.Request) (etcdserver.Response, error) {
+func (s *fakeServerV2) Do(ctx context.Context, r pb.Request) (api.Response, error) {
 	if s.health == "true" {
-		return etcdserver.Response{}, nil
+		return api.Response{}, nil
 	}
-	return etcdserver.Response{}, fmt.Errorf("fail health check")
+	return api.Response{}, fmt.Errorf("fail health check")
 }
 func (s *fakeServerV2) ClientCertAuthEnabled() bool { return false }
 

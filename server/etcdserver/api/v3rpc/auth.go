@@ -18,14 +18,14 @@ import (
 	"context"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 )
 
 type AuthServer struct {
-	authenticator etcdserver.Authenticator
+	authenticator api.Authenticator
 }
 
-func NewAuthServer(s *etcdserver.EtcdServer) *AuthServer {
+func NewAuthServer(s api.Authenticator) *AuthServer {
 	return &AuthServer{authenticator: s}
 }
 

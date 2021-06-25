@@ -29,7 +29,6 @@ import (
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/etcdhttp"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
@@ -52,7 +51,7 @@ const (
 )
 
 // NewClientHandler generates a muxed http.Handler with the given parameters to serve etcd client requests.
-func NewClientHandler(lg *zap.Logger, server etcdserver.ServerPeer, timeout time.Duration) http.Handler {
+func NewClientHandler(lg *zap.Logger, server api.ServerPeer, timeout time.Duration) http.Handler {
 	if lg == nil {
 		lg = zap.NewNop()
 	}
@@ -63,7 +62,7 @@ func NewClientHandler(lg *zap.Logger, server etcdserver.ServerPeer, timeout time
 	return requestLogger(lg, mux)
 }
 
-func handleV2(lg *zap.Logger, mux *http.ServeMux, server etcdserver.ServerV2, timeout time.Duration) {
+func handleV2(lg *zap.Logger, mux *http.ServeMux, server api.ServerV2, timeout time.Duration) {
 	sec := v2auth.NewStore(lg, server, timeout)
 	kh := &keysHandler{
 		lg:                    lg,
@@ -112,7 +111,7 @@ func handleV2(lg *zap.Logger, mux *http.ServeMux, server etcdserver.ServerV2, ti
 type keysHandler struct {
 	lg                    *zap.Logger
 	sec                   v2auth.Store
-	server                etcdserver.ServerV2
+	server                api.ServerV2
 	cluster               api.Cluster
 	timeout               time.Duration
 	clientCertAuthEnabled bool
@@ -144,7 +143,7 @@ func (h *keysHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.server.Do(ctx, rr)
 	if err != nil {
-		err = trimErrorPrefix(err, etcdserver.StoreKeysPrefix)
+		err = trimErrorPrefix(err, api.StoreKeysPrefix)
 		writeKeyError(h.lg, w, err)
 		reportRequestFailed(rr, err)
 		return
@@ -180,7 +179,7 @@ func (h *machinesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type membersHandler struct {
 	lg                    *zap.Logger
 	sec                   v2auth.Store
-	server                etcdserver.ServerV2
+	server                api.ServerV2
 	cluster               api.Cluster
 	timeout               time.Duration
 	clock                 clockwork.Clock
@@ -361,7 +360,7 @@ func parseKeyRequest(r *http.Request, clock clockwork.Clock) (etcdserverpb.Reque
 			"incorrect key prefix",
 		)
 	}
-	p := path.Join(etcdserver.StoreKeysPrefix, r.URL.Path[len(keysPrefix):])
+	p := path.Join(api.StoreKeysPrefix, r.URL.Path[len(keysPrefix):])
 
 	var pIdx, wIdx uint64
 	if pIdx, err = getUint64(r.Form, "prevIndex"); err != nil {
@@ -529,7 +528,7 @@ func parseKeyRequest(r *http.Request, clock clockwork.Clock) (etcdserverpb.Reque
 // writeKeyEvent trims the prefix of key path in a single Event under
 // StoreKeysPrefix, serializes it and writes the resulting JSON to the given
 // ResponseWriter, along with the appropriate headers.
-func writeKeyEvent(w http.ResponseWriter, resp etcdserver.Response, noValueOnSuccess bool) error {
+func writeKeyEvent(w http.ResponseWriter, resp api.Response, noValueOnSuccess bool) error {
 	ev := resp.Event
 	if ev == nil {
 		return errors.New("cannot write empty Event")
@@ -543,7 +542,7 @@ func writeKeyEvent(w http.ResponseWriter, resp etcdserver.Response, noValueOnSuc
 		w.WriteHeader(http.StatusCreated)
 	}
 
-	ev = trimEventPrefix(ev, etcdserver.StoreKeysPrefix)
+	ev = trimEventPrefix(ev, api.StoreKeysPrefix)
 	if noValueOnSuccess &&
 		(ev.Action == v2store.Set || ev.Action == v2store.CompareAndSwap ||
 			ev.Action == v2store.Create || ev.Action == v2store.Update) {
@@ -569,7 +568,7 @@ func writeKeyError(lg *zap.Logger, w http.ResponseWriter, err error) {
 		e.WriteTo(w)
 	default:
 		switch err {
-		case etcdserver.ErrTimeoutDueToLeaderFail, etcdserver.ErrTimeoutDueToConnectionLost:
+		case api.ErrTimeoutDueToLeaderFail, api.ErrTimeoutDueToConnectionLost:
 			if lg != nil {
 				lg.Warn(
 					"v2 response error",
@@ -589,7 +588,7 @@ func writeKeyError(lg *zap.Logger, w http.ResponseWriter, err error) {
 	}
 }
 
-func handleKeyWatch(ctx context.Context, lg *zap.Logger, w http.ResponseWriter, resp etcdserver.Response, stream bool) {
+func handleKeyWatch(ctx context.Context, lg *zap.Logger, w http.ResponseWriter, resp api.Response, stream bool) {
 	wa := resp.Watcher
 	defer wa.Remove()
 	ech := wa.EventChan()
@@ -622,7 +621,7 @@ func handleKeyWatch(ctx context.Context, lg *zap.Logger, w http.ResponseWriter, 
 				// send to the client in time. Then we simply end streaming.
 				return
 			}
-			ev = trimEventPrefix(ev, etcdserver.StoreKeysPrefix)
+			ev = trimEventPrefix(ev, api.StoreKeysPrefix)
 			if err := json.NewEncoder(w).Encode(ev); err != nil {
 				// Should never be reached
 				lg.Warn("failed to encode event", zap.Error(err))

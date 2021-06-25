@@ -282,7 +282,7 @@ func (a *applierV3backend) Put(ctx context.Context, txn mvcc.TxnWrite, p *pb.Put
 	if p.IgnoreValue || p.IgnoreLease {
 		if rr == nil || len(rr.KVs) == 0 {
 			// ignore_{lease,value} flag expects previous key-value pair
-			return nil, nil, ErrKeyNotFound
+			return nil, nil, api.ErrKeyNotFound
 		}
 	}
 	if p.IgnoreValue {
@@ -778,18 +778,18 @@ type applierV3Capped struct {
 func newApplierV3Capped(base applierV3) applierV3 { return &applierV3Capped{applierV3: base} }
 
 func (a *applierV3Capped) Put(ctx context.Context, txn mvcc.TxnWrite, p *pb.PutRequest) (*pb.PutResponse, *traceutil.Trace, error) {
-	return nil, nil, ErrNoSpace
+	return nil, nil, api.ErrNoSpace
 }
 
 func (a *applierV3Capped) Txn(ctx context.Context, r *pb.TxnRequest) (*pb.TxnResponse, *traceutil.Trace, error) {
 	if a.q.Cost(r) > 0 {
-		return nil, nil, ErrNoSpace
+		return nil, nil, api.ErrNoSpace
 	}
 	return a.applierV3.Txn(ctx, r)
 }
 
 func (a *applierV3Capped) LeaseGrant(lc *pb.LeaseGrantRequest) (*pb.LeaseGrantResponse, error) {
-	return nil, ErrNoSpace
+	return nil, api.ErrNoSpace
 }
 
 func (a *applierV3backend) AuthEnable() (*pb.AuthEnableResponse, error) {
@@ -949,10 +949,10 @@ func (a *applierV3backend) DowngradeInfoSet(r *membershippb.DowngradeInfoSetRequ
 
 type quotaApplierV3 struct {
 	applierV3
-	q Quota
+	q api.Quota
 }
 
-func newQuotaApplierV3(s *EtcdServer, app applierV3) applierV3 {
+func newQuotaApplierV3(s QuotaProvider, app applierV3) applierV3 {
 	return &quotaApplierV3{app, NewBackendQuota(s, "v3-applier")}
 }
 
@@ -960,7 +960,7 @@ func (a *quotaApplierV3) Put(ctx context.Context, txn mvcc.TxnWrite, p *pb.PutRe
 	ok := a.q.Available(p)
 	resp, trace, err := a.applierV3.Put(ctx, txn, p)
 	if err == nil && !ok {
-		err = ErrNoSpace
+		err = api.ErrNoSpace
 	}
 	return resp, trace, err
 }
@@ -969,7 +969,7 @@ func (a *quotaApplierV3) Txn(ctx context.Context, rt *pb.TxnRequest) (*pb.TxnRes
 	ok := a.q.Available(rt)
 	resp, trace, err := a.applierV3.Txn(ctx, rt)
 	if err == nil && !ok {
-		err = ErrNoSpace
+		err = api.ErrNoSpace
 	}
 	return resp, trace, err
 }
@@ -978,7 +978,7 @@ func (a *quotaApplierV3) LeaseGrant(lc *pb.LeaseGrantRequest) (*pb.LeaseGrantRes
 	ok := a.q.Available(lc)
 	resp, err := a.applierV3.LeaseGrant(lc)
 	if err == nil && !ok {
-		err = ErrNoSpace
+		err = api.ErrNoSpace
 	}
 	return resp, err
 }
@@ -1058,7 +1058,7 @@ func (a *applierV3backend) checkRequestPut(rv mvcc.ReadView, reqOp *pb.RequestOp
 			return err
 		}
 		if rr == nil || len(rr.KVs) == 0 {
-			return ErrKeyNotFound
+			return api.ErrKeyNotFound
 		}
 	}
 	if lease.LeaseID(req.Lease) != lease.NoLease {

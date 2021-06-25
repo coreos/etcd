@@ -33,7 +33,6 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3/raftpb"
-	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2error"
@@ -101,7 +100,7 @@ func (s *fakeServer) LeaderChangedNotify() <-chan struct{} { return nil }
 func (s *fakeServer) Cluster() api.Cluster                 { return nil }
 func (s *fakeServer) ClusterVersion() *semver.Version      { return nil }
 func (s *fakeServer) RaftHandler() http.Handler            { return nil }
-func (s *fakeServer) Do(ctx context.Context, r etcdserverpb.Request) (rr etcdserver.Response, err error) {
+func (s *fakeServer) Do(ctx context.Context, r etcdserverpb.Request) (rr api.Response, err error) {
 	return
 }
 func (s *fakeServer) ClientCertAuthEnabled() bool { return false }
@@ -111,9 +110,9 @@ type serverRecorder struct {
 	actions []action
 }
 
-func (s *serverRecorder) Do(_ context.Context, r etcdserverpb.Request) (etcdserver.Response, error) {
+func (s *serverRecorder) Do(_ context.Context, r etcdserverpb.Request) (api.Response, error) {
 	s.actions = append(s.actions, action{name: "Do", params: []interface{}{r}})
-	return etcdserver.Response{}, nil
+	return api.Response{}, nil
 }
 func (s *serverRecorder) Process(_ context.Context, m raftpb.Message) error {
 	s.actions = append(s.actions, action{name: "Process", params: []interface{}{m}})
@@ -158,10 +157,10 @@ func (fr *flushingRecorder) Flush() {
 // It returns the given response from any Do calls, and nil error
 type resServer struct {
 	fakeServer
-	res etcdserver.Response
+	res api.Response
 }
 
-func (rs *resServer) Do(_ context.Context, _ etcdserverpb.Request) (etcdserver.Response, error) {
+func (rs *resServer) Do(_ context.Context, _ etcdserverpb.Request) (api.Response, error) {
 	return rs.res, nil
 }
 func (rs *resServer) Process(_ context.Context, _ raftpb.Message) error { return nil }
@@ -416,7 +415,7 @@ func TestGoodParseRequest(t *testing.T) {
 			mustNewRequest(t, "foo"),
 			etcdserverpb.Request{
 				Method: "GET",
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -430,7 +429,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "PUT",
 				Val:    "some_value",
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -444,7 +443,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				PrevIndex: 98765,
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -458,7 +457,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				Recursive: true,
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -472,7 +471,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "PUT",
 				Sorted: true,
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -486,7 +485,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "PUT",
 				Quorum: true,
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -496,7 +495,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "GET",
 				Wait:   true,
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -505,7 +504,7 @@ func TestGoodParseRequest(t *testing.T) {
 			mustNewRequest(t, "foo?ttl="),
 			etcdserverpb.Request{
 				Method:     "GET",
-				Path:       path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:       path.Join(api.StoreKeysPrefix, "/foo"),
 				Expiration: 0,
 			},
 			false,
@@ -515,7 +514,7 @@ func TestGoodParseRequest(t *testing.T) {
 			mustNewRequest(t, "foo?ttl=5678"),
 			etcdserverpb.Request{
 				Method:     "GET",
-				Path:       path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:       path.Join(api.StoreKeysPrefix, "/foo"),
 				Expiration: fc.Now().Add(5678 * time.Second).UnixNano(),
 			},
 			false,
@@ -525,7 +524,7 @@ func TestGoodParseRequest(t *testing.T) {
 			mustNewRequest(t, "foo?ttl=0"),
 			etcdserverpb.Request{
 				Method:     "GET",
-				Path:       path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:       path.Join(api.StoreKeysPrefix, "/foo"),
 				Expiration: fc.Now().UnixNano(),
 			},
 			false,
@@ -536,7 +535,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "GET",
 				Dir:    true,
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -546,7 +545,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method: "GET",
 				Dir:    false,
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -560,7 +559,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				PrevExist: boolp(true),
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -574,7 +573,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				PrevExist: boolp(false),
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -594,7 +593,7 @@ func TestGoodParseRequest(t *testing.T) {
 				PrevExist: boolp(true),
 				PrevValue: "previous value",
 				Val:       "some value",
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -608,7 +607,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				PrevValue: "woof",
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -624,7 +623,7 @@ func TestGoodParseRequest(t *testing.T) {
 			etcdserverpb.Request{
 				Method:    "PUT",
 				PrevValue: "miaow",
-				Path:      path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:      path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			false,
 		},
@@ -637,7 +636,7 @@ func TestGoodParseRequest(t *testing.T) {
 			),
 			etcdserverpb.Request{
 				Method: "PUT",
-				Path:   path.Join(etcdserver.StoreKeysPrefix, "/foo"),
+				Path:   path.Join(api.StoreKeysPrefix, "/foo"),
 			},
 			true,
 		},
@@ -897,7 +896,7 @@ func TestServeMembersUpdate(t *testing.T) {
 func TestServeMembersFail(t *testing.T) {
 	tests := []struct {
 		req    *http.Request
-		server etcdserver.ServerV2
+		server api.ServerV2
 
 		wcode int
 	}{
@@ -1177,7 +1176,7 @@ func TestServeMembersFail(t *testing.T) {
 func TestWriteEvent(t *testing.T) {
 	// nil event should not panic
 	rec := httptest.NewRecorder()
-	writeKeyEvent(rec, etcdserver.Response{}, false)
+	writeKeyEvent(rec, api.Response{}, false)
 	h := rec.Header()
 	if len(h) > 0 {
 		t.Fatalf("unexpected non-empty headers: %#v", h)
@@ -1223,7 +1222,7 @@ func TestWriteEvent(t *testing.T) {
 
 	for i, tt := range tests {
 		rw := httptest.NewRecorder()
-		resp := etcdserver.Response{Event: tt.ev, Term: 5, Index: 100}
+		resp := api.Response{Event: tt.ev, Term: 5, Index: 100}
 		writeKeyEvent(rw, resp, tt.noValue)
 		if gct := rw.Header().Get("Content-Type"); gct != "application/json" {
 			t.Errorf("case %d: bad Content-Type: got %q, want application/json", i, gct)
@@ -1439,7 +1438,7 @@ func TestServeStoreStats(t *testing.T) {
 func TestBadServeKeys(t *testing.T) {
 	testBadCases := []struct {
 		req    *http.Request
-		server etcdserver.ServerV2
+		server api.ServerV2
 
 		wcode int
 		wbody string
@@ -1499,7 +1498,7 @@ func TestBadServeKeys(t *testing.T) {
 			// non-event/watcher response from etcdserver.Server
 			mustNewRequest(t, "foo"),
 			&resServer{
-				res: etcdserver.Response{},
+				res: api.Response{},
 			},
 
 			http.StatusInternalServerError,
@@ -1558,7 +1557,7 @@ func TestServeKeysGood(t *testing.T) {
 		},
 	}
 	server := &resServer{
-		res: etcdserver.Response{
+		res: api.Response{
 			Event: &v2store.Event{
 				Action: v2store.Get,
 				Node:   &v2store.NodeExtern{},
@@ -1583,13 +1582,13 @@ func TestServeKeysGood(t *testing.T) {
 func TestServeKeysEvent(t *testing.T) {
 	tests := []struct {
 		req   *http.Request
-		rsp   etcdserver.Response
+		rsp   api.Response
 		wcode int
 		event *v2store.Event
 	}{
 		{
 			mustNewRequest(t, "foo"),
-			etcdserver.Response{
+			api.Response{
 				Event: &v2store.Event{
 					Action: v2store.Get,
 					Node:   &v2store.NodeExtern{},
@@ -1607,7 +1606,7 @@ func TestServeKeysEvent(t *testing.T) {
 				"foo",
 				url.Values{"noValueOnSuccess": []string{"true"}},
 			),
-			etcdserver.Response{
+			api.Response{
 				Event: &v2store.Event{
 					Action: v2store.CompareAndSwap,
 					Node:   &v2store.NodeExtern{},
@@ -1661,7 +1660,7 @@ func TestServeKeysWatch(t *testing.T) {
 		echan: ec,
 	}
 	server := &resServer{
-		res: etcdserver.Response{
+		res: api.Response{
 			Watcher: dw,
 		},
 	}
@@ -1793,7 +1792,7 @@ func TestHandleWatch(t *testing.T) {
 		}
 		tt.doToChan(wa.echan)
 
-		resp := etcdserver.Response{Term: 5, Index: 100, Watcher: wa}
+		resp := api.Response{Term: 5, Index: 100, Watcher: wa}
 		handleKeyWatch(tt.getCtx(), zap.NewExample(), rw, resp, false)
 
 		wcode := http.StatusOK
@@ -1838,7 +1837,7 @@ func TestHandleWatchStreaming(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		resp := etcdserver.Response{Watcher: wa}
+		resp := api.Response{Watcher: wa}
 		handleKeyWatch(ctx, zap.NewExample(), rw, resp, true)
 		close(done)
 	}()

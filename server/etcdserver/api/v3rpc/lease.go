@@ -20,7 +20,7 @@ import (
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
-	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/lease"
 
 	"go.uber.org/zap"
@@ -29,11 +29,17 @@ import (
 type LeaseServer struct {
 	lg  *zap.Logger
 	hdr header
-	le  etcdserver.Lessor
+	le  api.Lessor
 }
 
-func NewLeaseServer(s *etcdserver.EtcdServer) pb.LeaseServer {
-	srv := &LeaseServer{lg: s.Cfg.Logger, le: s, hdr: newHeader(s)}
+type LeaseProvider interface {
+	api.ServerConfig
+	api.Lessor
+	HeaderProvider
+}
+
+func NewLeaseServer(s LeaseProvider) pb.LeaseServer {
+	srv := &LeaseServer{lg: s.Config().Logger, le: s, hdr: newHeader(s)}
 	if srv.lg == nil {
 		srv.lg = zap.NewNop()
 	}

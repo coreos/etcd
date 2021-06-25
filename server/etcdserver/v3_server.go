@@ -27,6 +27,7 @@ import (
 	"go.etcd.io/etcd/pkg/v3/traceutil"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/server/v3/auth"
+	"go.etcd.io/etcd/server/v3/etcdserver/api"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/lease"
 	"go.etcd.io/etcd/server/v3/lease/leasehttp"
@@ -46,51 +47,6 @@ const (
 	traceThreshold                   = 100 * time.Millisecond
 	readIndexRetryTime               = 500 * time.Millisecond
 )
-
-type RaftKV interface {
-	Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeResponse, error)
-	Put(ctx context.Context, r *pb.PutRequest) (*pb.PutResponse, error)
-	DeleteRange(ctx context.Context, r *pb.DeleteRangeRequest) (*pb.DeleteRangeResponse, error)
-	Txn(ctx context.Context, r *pb.TxnRequest) (*pb.TxnResponse, error)
-	Compact(ctx context.Context, r *pb.CompactionRequest) (*pb.CompactionResponse, error)
-}
-
-type Lessor interface {
-	// LeaseGrant sends LeaseGrant request to raft and apply it after committed.
-	LeaseGrant(ctx context.Context, r *pb.LeaseGrantRequest) (*pb.LeaseGrantResponse, error)
-	// LeaseRevoke sends LeaseRevoke request to raft and apply it after committed.
-	LeaseRevoke(ctx context.Context, r *pb.LeaseRevokeRequest) (*pb.LeaseRevokeResponse, error)
-
-	// LeaseRenew renews the lease with given ID. The renewed TTL is returned. Or an error
-	// is returned.
-	LeaseRenew(ctx context.Context, id lease.LeaseID) (int64, error)
-
-	// LeaseTimeToLive retrieves lease information.
-	LeaseTimeToLive(ctx context.Context, r *pb.LeaseTimeToLiveRequest) (*pb.LeaseTimeToLiveResponse, error)
-
-	// LeaseLeases lists all leases.
-	LeaseLeases(ctx context.Context, r *pb.LeaseLeasesRequest) (*pb.LeaseLeasesResponse, error)
-}
-
-type Authenticator interface {
-	AuthEnable(ctx context.Context, r *pb.AuthEnableRequest) (*pb.AuthEnableResponse, error)
-	AuthDisable(ctx context.Context, r *pb.AuthDisableRequest) (*pb.AuthDisableResponse, error)
-	AuthStatus(ctx context.Context, r *pb.AuthStatusRequest) (*pb.AuthStatusResponse, error)
-	Authenticate(ctx context.Context, r *pb.AuthenticateRequest) (*pb.AuthenticateResponse, error)
-	UserAdd(ctx context.Context, r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse, error)
-	UserDelete(ctx context.Context, r *pb.AuthUserDeleteRequest) (*pb.AuthUserDeleteResponse, error)
-	UserChangePassword(ctx context.Context, r *pb.AuthUserChangePasswordRequest) (*pb.AuthUserChangePasswordResponse, error)
-	UserGrantRole(ctx context.Context, r *pb.AuthUserGrantRoleRequest) (*pb.AuthUserGrantRoleResponse, error)
-	UserGet(ctx context.Context, r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse, error)
-	UserRevokeRole(ctx context.Context, r *pb.AuthUserRevokeRoleRequest) (*pb.AuthUserRevokeRoleResponse, error)
-	RoleAdd(ctx context.Context, r *pb.AuthRoleAddRequest) (*pb.AuthRoleAddResponse, error)
-	RoleGrantPermission(ctx context.Context, r *pb.AuthRoleGrantPermissionRequest) (*pb.AuthRoleGrantPermissionResponse, error)
-	RoleGet(ctx context.Context, r *pb.AuthRoleGetRequest) (*pb.AuthRoleGetResponse, error)
-	RoleRevokePermission(ctx context.Context, r *pb.AuthRoleRevokePermissionRequest) (*pb.AuthRoleRevokePermissionResponse, error)
-	RoleDelete(ctx context.Context, r *pb.AuthRoleDeleteRequest) (*pb.AuthRoleDeleteResponse, error)
-	UserList(ctx context.Context, r *pb.AuthUserListRequest) (*pb.AuthUserListResponse, error)
-	RoleList(ctx context.Context, r *pb.AuthRoleListRequest) (*pb.AuthRoleListResponse, error)
-}
 
 func (s *EtcdServer) Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeResponse, error) {
 	trace := traceutil.New("range",
@@ -309,9 +265,9 @@ func (s *EtcdServer) LeaseRenew(ctx context.Context, id lease.LeaseID) (int64, e
 	}
 
 	if cctx.Err() == context.DeadlineExceeded {
-		return -1, ErrTimeout
+		return -1, api.ErrTimeout
 	}
-	return -1, ErrCanceled
+	return -1, api.ErrCanceled
 }
 
 func (s *EtcdServer) LeaseTimeToLive(ctx context.Context, r *pb.LeaseTimeToLiveRequest) (*pb.LeaseTimeToLiveResponse, error) {
@@ -356,9 +312,9 @@ func (s *EtcdServer) LeaseTimeToLive(ctx context.Context, r *pb.LeaseTimeToLiveR
 	}
 
 	if cctx.Err() == context.DeadlineExceeded {
-		return nil, ErrTimeout
+		return nil, api.ErrTimeout
 	}
-	return nil, ErrCanceled
+	return nil, api.ErrCanceled
 }
 
 func (s *EtcdServer) LeaseLeases(ctx context.Context, r *pb.LeaseLeasesRequest) (*pb.LeaseLeasesResponse, error) {
@@ -379,13 +335,13 @@ func (s *EtcdServer) waitLeader(ctx context.Context) (*membership.Member, error)
 		case <-time.After(dur):
 			leader = s.cluster.Member(s.Leader())
 		case <-s.stopping:
-			return nil, ErrStopped
+			return nil, api.ErrStopped
 		case <-ctx.Done():
-			return nil, ErrNoLeader
+			return nil, api.ErrNoLeader
 		}
 	}
 	if leader == nil || len(leader.PeerURLs) == 0 {
-		return nil, ErrNoLeader
+		return nil, api.ErrNoLeader
 	}
 	return leader, nil
 }
@@ -644,7 +600,7 @@ func (s *EtcdServer) processInternalRaftRequestOnce(ctx context.Context, r pb.In
 	ai := s.getAppliedIndex()
 	ci := s.getCommittedIndex()
 	if ci > ai+maxGapBetweenApplyAndCommitIndex {
-		return nil, ErrTooManyRequests
+		return nil, api.ErrTooManyRequests
 	}
 
 	r.Header = &pb.RequestHeader{
@@ -669,7 +625,7 @@ func (s *EtcdServer) processInternalRaftRequestOnce(ctx context.Context, r pb.In
 	}
 
 	if len(data) > int(s.Cfg.MaxRequestBytes) {
-		return nil, ErrRequestTooLarge
+		return nil, api.ErrRequestTooLarge
 	}
 
 	id := r.ID
@@ -699,7 +655,7 @@ func (s *EtcdServer) processInternalRaftRequestOnce(ctx context.Context, r pb.In
 		s.w.Trigger(id, nil) // GC wait
 		return nil, s.parseProposeCtxErr(cctx.Err(), start)
 	case <-s.done:
-		return nil, ErrStopped
+		return nil, api.ErrStopped
 	}
 }
 
@@ -760,7 +716,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 }
 
 func isStopped(err error) bool {
-	return err == raft.ErrStopped || err == ErrStopped
+	return err == raft.ErrStopped || err == api.ErrStopped
 }
 
 func (s *EtcdServer) requestCurrentIndex(leaderChangedNotifier <-chan struct{}, requestId uint64) (uint64, error) {
@@ -801,7 +757,7 @@ func (s *EtcdServer) requestCurrentIndex(leaderChangedNotifier <-chan struct{}, 
 		case <-leaderChangedNotifier:
 			readIndexFailed.Inc()
 			// return a retryable error.
-			return 0, ErrLeaderChanged
+			return 0, api.ErrLeaderChanged
 		case <-firstCommitInTermNotifier:
 			firstCommitInTermNotifier = s.FirstCommitInTermNotify()
 			lg.Info("first commit in current term: resending ReadIndex request")
@@ -829,9 +785,9 @@ func (s *EtcdServer) requestCurrentIndex(leaderChangedNotifier <-chan struct{}, 
 				zap.Duration("timeout", s.Cfg.ReqTimeout()),
 			)
 			slowReadIndex.Inc()
-			return 0, ErrTimeout
+			return 0, api.ErrTimeout
 		case <-s.stopping:
-			return 0, ErrStopped
+			return 0, api.ErrStopped
 		}
 	}
 }
@@ -882,7 +838,7 @@ func (s *EtcdServer) linearizableReadNotify(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.done:
-		return ErrStopped
+		return api.ErrStopped
 	}
 }
 
@@ -907,7 +863,7 @@ func (s *EtcdServer) Downgrade(ctx context.Context, r *pb.DowngradeRequest) (*pb
 	case pb.DowngradeRequest_CANCEL:
 		return s.downgradeCancel(ctx)
 	default:
-		return nil, ErrUnknownMethod
+		return nil, api.ErrUnknownMethod
 	}
 }
 
@@ -928,19 +884,19 @@ func (s *EtcdServer) downgradeValidate(ctx context.Context, v string) (*pb.Downg
 
 	cv := s.ClusterVersion()
 	if cv == nil {
-		return nil, ErrClusterVersionUnavailable
+		return nil, api.ErrClusterVersionUnavailable
 	}
 	resp.Version = cv.String()
 
 	allowedTargetVersion := membership.AllowedDowngradeVersion(cv)
 	if !targetVersion.Equal(*allowedTargetVersion) {
-		return nil, ErrInvalidDowngradeTargetVersion
+		return nil, api.ErrInvalidDowngradeTargetVersion
 	}
 
 	downgradeInfo := s.cluster.DowngradeInfo()
 	if downgradeInfo.Enabled {
 		// Todo: return the downgrade status along with the error msg
-		return nil, ErrDowngradeInProcess
+		return nil, api.ErrDowngradeInProcess
 	}
 	return resp, nil
 }
@@ -978,7 +934,7 @@ func (s *EtcdServer) downgradeCancel(ctx context.Context) (*pb.DowngradeResponse
 
 	downgradeInfo := s.cluster.DowngradeInfo()
 	if !downgradeInfo.Enabled {
-		return nil, ErrNoInflightDowngrade
+		return nil, api.ErrNoInflightDowngrade
 	}
 
 	raftRequest := membershippb.DowngradeInfoSetRequest{Enabled: false}

@@ -32,9 +32,9 @@ import (
 	_ "github.com/mdempsky/unconvert"
 	_ "github.com/mgechev/revive"
 	_ "github.com/mikefarah/yq/v3"
+	_ "go.etcd.io/protodoc"
 	_ "gotest.tools"
 	_ "gotest.tools/gotestsum"
-	_ "go.etcd.io/protodoc"
 	_ "honnef.co/go/tools/cmd/staticcheck"
 	_ "mvdan.cc/unparam"
 )
