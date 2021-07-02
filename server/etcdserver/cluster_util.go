@@ -162,9 +162,10 @@ func getVersions(lg *zap.Logger, cl *membership.RaftCluster, local types.ID, rt 
 }
 
 // allowedVersionRange decides the available version range of the cluster that local server can join in;
-// if the downgrade enabled status is true, the version window is [oneMinorHigher, oneMinorHigher]
-// if the downgrade is not enabled, the version window is [MinClusterVersion, localVersion]
-func allowedVersionRange(downgradeEnabled bool) (minV *semver.Version, maxV *semver.Version) {
+// if the downgrade enabled status is true, the version window is [oneMinorHigherThanLocalVersion, oneMinorHigherThanLocalVersion]
+// otherwise, if the unsafeDowngrade enabled status is true, the version window is [MinClusterVersion, oneMinorHigherThanLocalVersion],
+// if the both downgrade and unsafeDowngrade is not enabled, the version window is [MinClusterVersion, localVersion]
+func allowedVersionRange(downgradeEnabled bool, unsafeDowngradeEnabled bool) (minV *semver.Version, maxV *semver.Version) {
 	minV = semver.Must(semver.NewVersion(version.MinClusterVersion))
 	maxV = semver.Must(semver.NewVersion(version.Version))
 	maxV = &semver.Version{Major: maxV.Major, Minor: maxV.Minor}
@@ -173,7 +174,14 @@ func allowedVersionRange(downgradeEnabled bool) (minV *semver.Version, maxV *sem
 		// Todo: handle the case that downgrading from higher major version(e.g. downgrade from v4.0 to v3.x)
 		maxV.Minor = maxV.Minor + 1
 		minV = &semver.Version{Major: maxV.Major, Minor: maxV.Minor}
+		return minV, maxV
 	}
+
+	// if unsafeDowngrade is enabled, allow one minor version down
+	if unsafeDowngradeEnabled {
+		maxV.Minor = maxV.Minor + 1
+	}
+
 	return minV, maxV
 }
 
@@ -183,9 +191,9 @@ func allowedVersionRange(downgradeEnabled bool) (minV *semver.Version, maxV *sem
 // cluster version in the range of [MinV, MaxV] and no known members has a cluster version
 // out of the range.
 // We set this rule since when the local member joins, another member might be offline.
-func isCompatibleWithCluster(lg *zap.Logger, cl *membership.RaftCluster, local types.ID, rt http.RoundTripper) bool {
+func isCompatibleWithCluster(lg *zap.Logger, cl *membership.RaftCluster, local types.ID, rt http.RoundTripper, unsafeAllowClusterVersionDowngrade bool) bool {
 	vers := getVersions(lg, cl, local, rt)
-	minV, maxV := allowedVersionRange(getDowngradeEnabledFromRemotePeers(lg, cl, local, rt))
+	minV, maxV := allowedVersionRange(getDowngradeEnabledFromRemotePeers(lg, cl, local, rt), unsafeAllowClusterVersionDowngrade)
 	return isCompatibleWithVers(lg, vers, local, minV, maxV)
 }
 
@@ -218,12 +226,13 @@ func isCompatibleWithVers(lg *zap.Logger, vers map[string]*version.Versions, loc
 			)
 			return false
 		}
+
 		if maxV.LessThan(*clusterv) {
 			lg.Warn(
 				"cluster version of remote member is not compatible; too high",
 				zap.String("remote-member-id", id),
 				zap.String("remote-member-cluster-version", clusterv.String()),
-				zap.String("minimum-cluster-version-supported", minV.String()),
+				zap.String("maximum-cluster-version-supported", maxV.String()),
 			)
 			return false
 		}

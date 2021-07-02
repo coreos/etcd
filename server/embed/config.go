@@ -89,6 +89,10 @@ const (
 	// v2 API is disabled by default.
 	DefaultEnableV2 = false
 
+	// DefaultUnsafeAllowClusterVersionDowngrade is the default value for "unsafe-allow-cluster-version-downgrade" flag.
+	// unsafe allow cluster version downgrade is disabled by default
+	DefaultUnsafeAllowClusterVersionDowngrade = false
+
 	// maxElectionMs specifies the maximum value of election timeout.
 	// More details are listed in ../Documentation/tuning.md#time-parameters.
 	maxElectionMs = 50000
@@ -394,6 +398,12 @@ type Config struct {
 	// ExperimentalTxnModeWriteWithSharedBuffer enables write transaction to use a shared buffer in its readonly check operations.
 	ExperimentalTxnModeWriteWithSharedBuffer bool `json:"experimental-txn-mode-write-with-shared-buffer"`
 
+	// UnsafeAllowClusterVersionDowngrade is "true" to allow cluster version downgrade.
+	// "false" by default, since newer minor versions may introduce incompatible feature changes.
+	// For instance, lease checkpointer request to 3.4 will fail the remaining 3.3 nodes.
+	// But, if one does not use "lease checkpointer" feature, it can be safe to run 3.3 along with 3.4.
+	UnsafeAllowClusterVersionDowngrade bool `json:"unsafe-allow-cluster-version-downgrade"`
+
 	// V2Deprecation describes phase of API & Storage V2 support
 	V2Deprecation config.V2DeprecationEnum `json:"v2-deprecation"`
 }
@@ -493,6 +503,8 @@ func NewConfig() *Config {
 		ExperimentalDowngradeCheckTime:           DefaultDowngradeCheckTime,
 		ExperimentalMemoryMlock:                  false,
 		ExperimentalTxnModeWriteWithSharedBuffer: true,
+
+		UnsafeAllowClusterVersionDowngrade: DefaultUnsafeAllowClusterVersionDowngrade,
 
 		V2Deprecation: config.V2_DEPR_DEFAULT,
 	}

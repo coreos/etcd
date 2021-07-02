@@ -38,7 +38,7 @@ func isValidDowngrade(verFrom *semver.Version, verTo *semver.Version) bool {
 }
 
 // mustDetectDowngrade will detect unexpected downgrade when the local server is recovered.
-func mustDetectDowngrade(lg *zap.Logger, cv *semver.Version, d *DowngradeInfo) {
+func mustDetectDowngrade(lg *zap.Logger, cv *semver.Version, d *DowngradeInfo, unsafeAllowDowngrade bool) {
 	lv := semver.Must(semver.NewVersion(version.Version))
 	// only keep major.minor version for comparison against cluster version
 	lv = &semver.Version{Major: lv.Major, Minor: lv.Minor}
@@ -63,14 +63,25 @@ func mustDetectDowngrade(lg *zap.Logger, cv *semver.Version, d *DowngradeInfo) {
 		)
 	}
 
+	// if downgrade is enabled, and it's one minor version down
+	// safe to not fail (e.g., local version 3.4, cluster version 3.5)
 	// if the cluster disables downgrade, check local version against determined cluster version.
 	// the validation passes when local version is not less than cluster version
 	if cv != nil && lv.LessThan(*cv) {
-		lg.Fatal(
-			"invalid downgrade; server version is lower than determined cluster version",
-			zap.String("current-server-version", version.Version),
-			zap.String("determined-cluster-version", version.Cluster(cv.String())),
-		)
+		if unsafeAllowDowngrade && isValidDowngrade(cv, lv) {
+			lg.Warn("allowing unsafe downgrade; local server version is lower than determined cluster version",
+				zap.String("current-server-version", version.Version),
+				zap.String("determined-cluster-version", version.Cluster(cv.String())),
+				zap.String("target-cluster-version", version.Cluster(lv.String())),
+			)
+			// overwrite the cluster version with local version determined by the etcd binary version
+			*cv = *lv
+		} else {
+			lg.Fatal("invalid downgrade, not allowed; local server version is lower than determined cluster version",
+				zap.String("current-server-version", version.Version),
+				zap.String("determined-cluster-version", version.Cluster(cv.String())),
+			)
+		}
 	}
 }
 

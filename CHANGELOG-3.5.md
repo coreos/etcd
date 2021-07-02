@@ -123,6 +123,7 @@ Note that any `etcd_debugging_*` metrics are experimental and subject to change.
 - [`etcd --backend-bbolt-freelist-type`] flag is now stable.
   - `etcd --experimental-backend-bbolt-freelist-type` has been deprecated.
 - Support [downgrade API](https://github.com/etcd-io/etcd/pull/11715).
+- Add [`etcd --unsafe-allow-cluster-version-downgrade`](https://github.com/etcd-io/etcd/pull/13022) for not failing cluster version downgrade.
 - Deprecate v2 apply on cluster version. [Use v3 request to set cluster version and recover cluster version from v3 backend](https://github.com/etcd-io/etcd/pull/11427).
 - [Use v2 api to update cluster version to support mixed version cluster during upgrade](https://github.com/etcd-io/etcd/pull/12988).
 - [Fix corruption bug in defrag](https://github.com/etcd-io/etcd/pull/11613).

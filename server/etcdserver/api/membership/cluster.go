@@ -53,6 +53,9 @@ type RaftCluster struct {
 	v2store v2store.Store
 	be      backend.Backend
 
+	// Readonly field after initialization
+	unsafeAllowDowngrade bool
+
 	sync.Mutex // guards the fields below
 	version    *semver.Version
 	members    map[types.ID]*Member
@@ -269,7 +272,7 @@ func (c *RaftCluster) Recover(onSet func(*zap.Logger, *semver.Version)) {
 	if c.downgradeInfo != nil {
 		d = &DowngradeInfo{Enabled: c.downgradeInfo.Enabled, TargetVersion: c.downgradeInfo.TargetVersion}
 	}
-	mustDetectDowngrade(c.lg, c.version, d)
+	mustDetectDowngrade(c.lg, c.version, d, c.unsafeAllowDowngrade)
 	onSet(c.lg, c.version)
 
 	for _, m := range c.members {
@@ -537,7 +540,7 @@ func (c *RaftCluster) SetVersion(ver *semver.Version, onSet func(*zap.Logger, *s
 	}
 	oldVer := c.version
 	c.version = ver
-	mustDetectDowngrade(c.lg, c.version, c.downgradeInfo)
+	mustDetectDowngrade(c.lg, c.version, c.downgradeInfo, c.unsafeAllowDowngrade)
 	if c.v2store != nil {
 		mustSaveClusterVersionToStore(c.lg, c.v2store, ver)
 	}
@@ -549,6 +552,10 @@ func (c *RaftCluster) SetVersion(ver *semver.Version, onSet func(*zap.Logger, *s
 	}
 	ClusterVersionMetrics.With(prometheus.Labels{"cluster_version": version.Cluster(ver.String())}).Set(1)
 	onSet(c.lg, ver)
+}
+
+func (c *RaftCluster) AllowUnsafeDowngrade() {
+	c.unsafeAllowDowngrade = true
 }
 
 func (c *RaftCluster) IsReadyToAddVotingMember() bool {

@@ -40,16 +40,18 @@ func TestMustDetectDowngrade(t *testing.T) {
 	downgradeDisabled := &DowngradeInfo{Enabled: false}
 
 	tests := []struct {
-		name           string
-		clusterVersion *semver.Version
-		downgrade      *DowngradeInfo
-		success        bool
-		message        string
+		name                 string
+		clusterVersion       *semver.Version
+		downgrade            *DowngradeInfo
+		unsafeAllowDowngrade bool
+		success              bool
+		message              string
 	}{
 		{
 			"Succeeded when downgrade is disabled and cluster version is nil",
 			nil,
 			downgradeDisabled,
+			false,
 			true,
 			"",
 		},
@@ -57,6 +59,7 @@ func TestMustDetectDowngrade(t *testing.T) {
 			"Succeeded when downgrade is disabled and cluster version is one minor lower",
 			oneMinorLower,
 			downgradeDisabled,
+			false,
 			true,
 			"",
 		},
@@ -64,20 +67,31 @@ func TestMustDetectDowngrade(t *testing.T) {
 			"Succeeded when downgrade is disabled and cluster version is server version",
 			lv,
 			downgradeDisabled,
+			false,
 			true,
 			"",
+		},
+		{
+			"Succeed when downgrade is disabled, unsafeDowngrade is enabled and cluster version is one minor higher",
+			oneMinorHigher,
+			downgradeDisabled,
+			true,
+			true,
+			"allowing unsafe downgrade; local server version is lower than determined cluster version",
 		},
 		{
 			"Failed when downgrade is disabled and server version is lower than determined cluster version ",
 			oneMinorHigher,
 			downgradeDisabled,
 			false,
-			"invalid downgrade; server version is lower than determined cluster version",
+			false,
+			"invalid downgrade, not allowed; local server version is lower than determined cluster version",
 		},
 		{
 			"Succeeded when downgrade is enabled and cluster version is nil",
 			nil,
 			downgradeEnabledEqualVersion,
+			false,
 			true,
 			"",
 		},
@@ -85,6 +99,7 @@ func TestMustDetectDowngrade(t *testing.T) {
 			"Failed when downgrade is enabled and server version is target version",
 			lv,
 			downgradeEnabledEqualVersion,
+			false,
 			true,
 			"cluster is downgrading to target version",
 		},
@@ -93,6 +108,7 @@ func TestMustDetectDowngrade(t *testing.T) {
 			lv,
 			downgradeEnabledLowerVersion,
 			false,
+			false,
 			"invalid downgrade; server version is not allowed to join when downgrade is enabled",
 		},
 		{
@@ -100,13 +116,14 @@ func TestMustDetectDowngrade(t *testing.T) {
 			nil,
 			downgradeEnabledHigherVersion,
 			false,
+			false,
 			"invalid downgrade; server version is not allowed to join when downgrade is enabled",
 		},
-
 		{
 			"Failed when downgrade is enabled and local version is out of range",
 			lv,
 			downgradeEnabledHigherVersion,
+			false,
 			false,
 			"invalid downgrade; server version is not allowed to join when downgrade is enabled",
 		},
@@ -122,7 +139,7 @@ func TestMustDetectDowngrade(t *testing.T) {
 		lcfg.ErrorOutputPaths = []string{logPath}
 		lg, _ := lcfg.Build()
 
-		mustDetectDowngrade(lg, tests[iint].clusterVersion, tests[iint].downgrade)
+		mustDetectDowngrade(lg, tests[iint].clusterVersion, tests[iint].downgrade, tests[iint].unsafeAllowDowngrade)
 		return
 	}
 

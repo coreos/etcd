@@ -146,19 +146,36 @@ func TestDecideAllowedVersionRange(t *testing.T) {
 	localV = &semver.Version{Major: localV.Major, Minor: localV.Minor}
 
 	tests := []struct {
-		name             string
-		downgradeEnabled bool
-		expectedMinV     *semver.Version
-		expectedMaxV     *semver.Version
+		name                   string
+		downgradeEnabled       bool
+		unsafeDowngradeEnabled bool
+		expectedMinV           *semver.Version
+		expectedMaxV           *semver.Version
 	}{
 		{
 			"When cluster enables downgrade",
+			true,
+			false,
+			&semver.Version{Major: localV.Major, Minor: localV.Minor + 1},
+			&semver.Version{Major: localV.Major, Minor: localV.Minor + 1},
+		},
+		{
+			"When cluster enables downgrade and unsafeDowngrade",
+			true,
 			true,
 			&semver.Version{Major: localV.Major, Minor: localV.Minor + 1},
 			&semver.Version{Major: localV.Major, Minor: localV.Minor + 1},
 		},
 		{
+			"When cluster disables downgrade and enables unsafeDowngrade",
+			false,
+			true,
+			minClusterV,
+			&semver.Version{Major: localV.Major, Minor: localV.Minor + 1},
+		},
+		{
 			"When cluster disables downgrade",
+			false,
 			false,
 			minClusterV,
 			localV,
@@ -167,7 +184,7 @@ func TestDecideAllowedVersionRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			minV, maxV := allowedVersionRange(tt.downgradeEnabled)
+			minV, maxV := allowedVersionRange(tt.downgradeEnabled, tt.unsafeDowngradeEnabled)
 			if !minV.Equal(*tt.expectedMinV) {
 				t.Errorf("Expected minV is %v; Got %v", tt.expectedMinV.String(), minV.String())
 			}

@@ -292,6 +292,7 @@ func newConfig() *config {
 
 	// unsafe
 	fs.BoolVar(&cfg.ec.UnsafeNoFsync, "unsafe-no-fsync", false, "Disables fsync, unsafe, will cause data loss.")
+	fs.BoolVar(&cfg.ec.UnsafeAllowClusterVersionDowngrade, "unsafe-allow-cluster-version-downgrade", embed.DefaultUnsafeAllowClusterVersionDowngrade, "true to allow cluster version downgrade, because newer minor versions may introduce incompatible feature changes like lease checkpointer introduced in v3.4")
 	fs.BoolVar(&cfg.ec.ForceNewCluster, "force-new-cluster", false, "Force to create a new one member cluster.")
 
 	// ignored

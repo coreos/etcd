@@ -184,6 +184,12 @@ type ServerConfig struct {
 	// consider running defrag during bootstrap. Needs to be set to non-zero value to take effect.
 	ExperimentalBootstrapDefragThresholdMegabytes uint `json:"experimental-bootstrap-defrag-threshold-megabytes"`
 
+	// UnsafeAllowClusterVersionDowngrade is "true" to allow cluster version downgrade.
+	// "false" by default, since newer minor versions may introduce incompatible feature changes.
+	// For instance, lease checkpointer request to 3.4 will fail the remaining 3.3 nodes.
+	// But, if one does not use "lease checkpointer" feature, it can be safe to run 3.3 along with 3.4.
+	UnsafeAllowClusterVersionDowngrade bool `json:"unsafe-allow-cluster-version-downgrade"`
+
 	// V2Deprecation defines a phase of v2store deprecation process.
 	V2Deprecation V2DeprecationEnum `json:"v2-deprecation"`
 }

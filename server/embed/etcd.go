@@ -224,7 +224,8 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		ExperimentalMemoryMlock:                  cfg.ExperimentalMemoryMlock,
 		ExperimentalTxnModeWriteWithSharedBuffer: cfg.ExperimentalTxnModeWriteWithSharedBuffer,
 		ExperimentalBootstrapDefragThresholdMegabytes: cfg.ExperimentalBootstrapDefragThresholdMegabytes,
-		V2Deprecation: cfg.V2DeprecationEffective(),
+		UnsafeAllowClusterVersionDowngrade:            cfg.UnsafeAllowClusterVersionDowngrade,
+		V2Deprecation:                                 cfg.V2DeprecationEffective(),
 	}
 
 	if srvcfg.ExperimentalEnableDistributedTracing {
