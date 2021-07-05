@@ -31,19 +31,19 @@ const (
 	MemberRaftAttributesSuffix = "raftAttributes"
 )
 
-type membershipStore struct {
+type membershipBackend struct {
 	lg *zap.Logger
 	be backend.Backend
 }
 
-func NewMembershipStore(lg *zap.Logger, be backend.Backend) *membershipStore {
-	return &membershipStore{
+func NewMembershipBackend(lg *zap.Logger, be backend.Backend) *membershipBackend {
+	return &membershipBackend{
 		lg: lg,
 		be: be,
 	}
 }
 
-func (s *membershipStore) MustSaveMemberToBackend(m *membership.Member) {
+func (s *membershipBackend) MustSaveMemberToBackend(m *membership.Member) {
 	mkey := BackendMemberKey(m.ID)
 	mvalue, err := json.Marshal(m)
 	if err != nil {
@@ -58,7 +58,7 @@ func (s *membershipStore) MustSaveMemberToBackend(m *membership.Member) {
 
 // TrimClusterFromBackend removes all information about cluster (versions)
 // from the v3 backend.
-func (s *membershipStore) TrimClusterFromBackend() error {
+func (s *membershipBackend) TrimClusterFromBackend() error {
 	tx := s.be.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
@@ -66,7 +66,7 @@ func (s *membershipStore) TrimClusterFromBackend() error {
 	return nil
 }
 
-func (s *membershipStore) MustDeleteMemberFromBackend(id types.ID) {
+func (s *membershipBackend) MustDeleteMemberFromBackend(id types.ID) {
 	mkey := BackendMemberKey(id)
 
 	tx := s.be.BatchTx()
@@ -76,7 +76,7 @@ func (s *membershipStore) MustDeleteMemberFromBackend(id types.ID) {
 	tx.UnsafePut(MembersRemoved, mkey, []byte("removed"))
 }
 
-func (s *membershipStore) MustReadMembersFromBackend() (map[types.ID]*membership.Member, map[types.ID]bool) {
+func (s *membershipBackend) MustReadMembersFromBackend() (map[types.ID]*membership.Member, map[types.ID]bool) {
 	members, removed, err := s.readMembersFromBackend()
 	if err != nil {
 		s.lg.Panic("couldn't read members from backend", zap.Error(err))
@@ -84,7 +84,7 @@ func (s *membershipStore) MustReadMembersFromBackend() (map[types.ID]*membership
 	return members, removed
 }
 
-func (s *membershipStore) readMembersFromBackend() (map[types.ID]*membership.Member, map[types.ID]bool, error) {
+func (s *membershipBackend) readMembersFromBackend() (map[types.ID]*membership.Member, map[types.ID]bool, error) {
 	members := make(map[types.ID]*membership.Member)
 	removed := make(map[types.ID]bool)
 
@@ -117,7 +117,7 @@ func (s *membershipStore) readMembersFromBackend() (map[types.ID]*membership.Mem
 
 // TrimMembershipFromBackend removes all information about members &
 // removed_members from the v3 backend.
-func (s *membershipStore) TrimMembershipFromBackend() error {
+func (s *membershipBackend) TrimMembershipFromBackend() error {
 	s.lg.Info("Trimming membership information from the backend...")
 	tx := s.be.BatchTx()
 	tx.Lock()
@@ -141,7 +141,7 @@ func (s *membershipStore) TrimMembershipFromBackend() error {
 
 // MustSaveClusterVersionToBackend saves cluster version to backend.
 // The field is populated since etcd v3.5.
-func (s *membershipStore) MustSaveClusterVersionToBackend(ver *semver.Version) {
+func (s *membershipBackend) MustSaveClusterVersionToBackend(ver *semver.Version) {
 	ckey := ClusterClusterVersionKeyName
 
 	tx := s.be.BatchTx()
@@ -152,7 +152,7 @@ func (s *membershipStore) MustSaveClusterVersionToBackend(ver *semver.Version) {
 
 // MustSaveDowngradeToBackend saves downgrade info to backend.
 // The field is populated since etcd v3.5.
-func (s *membershipStore) MustSaveDowngradeToBackend(downgrade *membership.DowngradeInfo) {
+func (s *membershipBackend) MustSaveDowngradeToBackend(downgrade *membership.DowngradeInfo) {
 	dkey := ClusterDowngradeKeyName
 	dvalue, err := json.Marshal(downgrade)
 	if err != nil {
@@ -164,7 +164,7 @@ func (s *membershipStore) MustSaveDowngradeToBackend(downgrade *membership.Downg
 	tx.UnsafePut(Cluster, dkey, dvalue)
 }
 
-func (s *membershipStore) MustCreateBackendBuckets() {
+func (s *membershipBackend) MustCreateBackendBuckets() {
 	tx := s.be.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
@@ -183,7 +183,7 @@ func mustParseMemberIDFromBytes(lg *zap.Logger, key []byte) types.ID {
 
 // ClusterVersionFromBackend reads cluster version from backend.
 // The field is populated since etcd v3.5.
-func (s *membershipStore) ClusterVersionFromBackend() *semver.Version {
+func (s *membershipBackend) ClusterVersionFromBackend() *semver.Version {
 	ckey := ClusterClusterVersionKeyName
 	tx := s.be.ReadTx()
 	tx.RLock()
@@ -203,7 +203,7 @@ func (s *membershipStore) ClusterVersionFromBackend() *semver.Version {
 
 // DowngradeInfoFromBackend reads downgrade info from backend.
 // The field is populated since etcd v3.5.
-func (s *membershipStore) DowngradeInfoFromBackend() *membership.DowngradeInfo {
+func (s *membershipBackend) DowngradeInfoFromBackend() *membership.DowngradeInfo {
 	dkey := ClusterDowngradeKeyName
 	tx := s.be.ReadTx()
 	tx.Lock()

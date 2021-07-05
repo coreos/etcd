@@ -464,7 +464,7 @@ func bootstrapExistingClusterNoWAL(cfg config.ServerConfig, prt http.RoundTrippe
 	remotes := existingCluster.Members()
 	cl.SetID(types.ID(0), existingCluster.ID())
 	cl.SetStore(st)
-	cl.SetBackend(buckets.NewMembershipStore(cfg.Logger, be))
+	cl.SetBackend(buckets.NewMembershipBackend(cfg.Logger, be))
 	br := bootstrapRaftFromCluster(cfg, cl, nil)
 	cl.SetID(br.wal.id, existingCluster.ID())
 	return &bootstrappedServer{
@@ -504,7 +504,7 @@ func bootstrapNewClusterNoWAL(cfg config.ServerConfig, prt http.RoundTripper, st
 		}
 	}
 	cl.SetStore(st)
-	cl.SetBackend(buckets.NewMembershipStore(cfg.Logger, be))
+	cl.SetBackend(buckets.NewMembershipBackend(cfg.Logger, be))
 	br := bootstrapRaftFromCluster(cfg, cl, cl.MemberIDs())
 	cl.SetID(br.wal.id, cl.ID())
 	return &bootstrappedServer{
@@ -594,7 +594,7 @@ func bootstrapWithWAL(cfg config.ServerConfig, st v2store.Store, be backend.Back
 	}
 
 	r.raft.cl.SetStore(st)
-	r.raft.cl.SetBackend(buckets.NewMembershipStore(cfg.Logger, be))
+	r.raft.cl.SetBackend(buckets.NewMembershipBackend(cfg.Logger, be))
 	r.raft.cl.Recover(api.UpdateCapability)
 	if r.raft.cl.Version() != nil && !r.raft.cl.Version().LessThan(semver.Version{Major: 3}) && !beExist {
 		bepath := cfg.BackendPath()
@@ -1353,7 +1353,7 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, apply *apply) {
 
 	lg.Info("restored v2 store")
 
-	s.cluster.SetBackend(buckets.NewMembershipStore(lg, newbe))
+	s.cluster.SetBackend(buckets.NewMembershipBackend(lg, newbe))
 
 	lg.Info("restoring cluster configuration")
 
