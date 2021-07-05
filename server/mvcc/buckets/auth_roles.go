@@ -20,6 +20,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func UnsafeCreateAuthRolesBucket(tx backend.BatchTx) {
+	tx.UnsafeCreateBucket(AuthRoles)
+}
+
 func UnsafeGetRole(lg *zap.Logger, tx backend.BatchTx, roleName string) *authpb.Role {
 	_, vs := tx.UnsafeRange(AuthRoles, []byte(roleName), nil, 0)
 	if len(vs) == 0 {

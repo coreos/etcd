@@ -20,6 +20,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func UnsafeCreateAuthUsersBucket(tx backend.BatchTx) {
+	tx.UnsafeCreateBucket(AuthUsers)
+}
+
 func UnsafeGetUser(lg *zap.Logger, tx backend.BatchTx, username string) *authpb.User {
 	_, vs := tx.UnsafeRange(AuthUsers, []byte(username), nil, 0)
 	if len(vs) == 0 {
