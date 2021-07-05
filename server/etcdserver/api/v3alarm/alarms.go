@@ -21,13 +21,19 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
-
 	"go.uber.org/zap"
 )
 
 type BackendGetter interface {
 	Backend() backend.Backend
+}
+
+type AlarmBackend interface {
+	CreateAlarmBucket()
+	MustPutAlarm(member *pb.AlarmMember)
+	MustDeleteAlarm(alarm *pb.AlarmMember)
+	GetAllAlarms() ([]*pb.AlarmMember, error)
+	ForceCommit()
 }
 
 type alarmSet map[types.ID]*pb.AlarmMember
@@ -38,14 +44,14 @@ type AlarmStore struct {
 	mu    sync.Mutex
 	types map[pb.AlarmType]alarmSet
 
-	bg BackendGetter
+	be AlarmBackend
 }
 
-func NewAlarmStore(lg *zap.Logger, bg BackendGetter) (*AlarmStore, error) {
+func NewAlarmStore(lg *zap.Logger, be AlarmBackend) (*AlarmStore, error) {
 	if lg == nil {
 		lg = zap.NewNop()
 	}
-	ret := &AlarmStore{lg: lg, types: make(map[pb.AlarmType]alarmSet), bg: bg}
+	ret := &AlarmStore{lg: lg, types: make(map[pb.AlarmType]alarmSet), be: be}
 	err := ret.restore()
 	return ret, err
 }
@@ -59,7 +65,7 @@ func (a *AlarmStore) Activate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 		return m
 	}
 
-	buckets.MustPutAlarm(a.lg, a.bg.Backend().BatchTx(), newAlarm)
+	a.be.MustPutAlarm(newAlarm)
 	return newAlarm
 }
 
@@ -79,7 +85,7 @@ func (a *AlarmStore) Deactivate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 
 	delete(t, id)
 
-	buckets.MustDeleteAlarm(a.lg, a.bg.Backend().BatchTx(), m)
+	a.be.MustDeleteAlarm(m)
 	return m
 }
 
@@ -101,20 +107,15 @@ func (a *AlarmStore) Get(at pb.AlarmType) (ret []*pb.AlarmMember) {
 }
 
 func (a *AlarmStore) restore() error {
-	b := a.bg.Backend()
-	tx := b.BatchTx()
-
-	tx.Lock()
-	buckets.UnsafeCreateAlarmBucket(tx)
-	ms, err := buckets.UnsafeGetAllAlarms(tx)
-	tx.Unlock()
+	a.be.CreateAlarmBucket()
+	ms, err := a.be.GetAllAlarms()
 	if err != nil {
 		return err
 	}
 	for _, m := range ms {
 		a.addToMap(m)
 	}
-	b.ForceCommit()
+	a.be.ForceCommit()
 	return err
 }
 

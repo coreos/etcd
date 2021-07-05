@@ -20,41 +20,65 @@ import (
 	"go.uber.org/zap"
 )
 
-func UnsafeCreateAlarmBucket(tx backend.BatchTx) {
+type alarmBackend struct {
+	lg *zap.Logger
+	be backend.Backend
+}
+
+func NewAlarmBackend(lg *zap.Logger, be backend.Backend) *alarmBackend {
+	return &alarmBackend{
+		lg: lg,
+		be: be,
+	}
+}
+
+func (s *alarmBackend) CreateAlarmBucket() {
+	tx := s.be.BatchTx()
+	tx.Lock()
+	defer tx.Unlock()
 	tx.UnsafeCreateBucket(Alarm)
 }
 
-func MustPutAlarm(lg *zap.Logger, tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
+func (s *alarmBackend) MustPutAlarm(alarm *etcdserverpb.AlarmMember) {
+	tx := s.be.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
-	MustUnsafePutAlarm(lg, tx, alarm)
+	s.mustUnsafePutAlarm(tx, alarm)
 }
 
-func MustUnsafePutAlarm(lg *zap.Logger, tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
+func (s *alarmBackend) mustUnsafePutAlarm(tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
 	v, err := alarm.Marshal()
 	if err != nil {
-		lg.Panic("failed to marshal alarm member", zap.Error(err))
+		s.lg.Panic("failed to marshal alarm member", zap.Error(err))
 	}
 
 	tx.UnsafePut(Alarm, v, nil)
 }
 
-func MustDeleteAlarm(lg *zap.Logger, tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
+func (s *alarmBackend) MustDeleteAlarm(alarm *etcdserverpb.AlarmMember) {
+	tx := s.be.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
-	MustUnsafeDeleteAlarm(lg, tx, alarm)
+	s.mustUnsafeDeleteAlarm(tx, alarm)
 }
 
-func MustUnsafeDeleteAlarm(lg *zap.Logger, tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
+func (s *alarmBackend) mustUnsafeDeleteAlarm(tx backend.BatchTx, alarm *etcdserverpb.AlarmMember) {
 	v, err := alarm.Marshal()
 	if err != nil {
-		lg.Panic("failed to marshal alarm member", zap.Error(err))
+		s.lg.Panic("failed to marshal alarm member", zap.Error(err))
 	}
 
 	tx.UnsafeDelete(Alarm, v)
 }
 
-func UnsafeGetAllAlarms(tx backend.ReadTx) ([]*etcdserverpb.AlarmMember, error) {
+func (s *alarmBackend) GetAllAlarms() ([]*etcdserverpb.AlarmMember, error) {
+	tx := s.be.ReadTx()
+	tx.Lock()
+	defer tx.Unlock()
+	return s.unsafeGetAllAlarms(tx)
+}
+
+func (s *alarmBackend) unsafeGetAllAlarms(tx backend.ReadTx) ([]*etcdserverpb.AlarmMember, error) {
 	ms := []*etcdserverpb.AlarmMember{}
 	err := tx.UnsafeForEach(Alarm, func(k, v []byte) error {
 		var m etcdserverpb.AlarmMember
@@ -65,4 +89,8 @@ func UnsafeGetAllAlarms(tx backend.ReadTx) ([]*etcdserverpb.AlarmMember, error) 
 		return nil
 	})
 	return ms, err
+}
+
+func (s alarmBackend) ForceCommit() {
+	s.be.ForceCommit()
 }
