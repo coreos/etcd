@@ -27,9 +27,6 @@ import (
 	"go.etcd.io/etcd/api/v3/authpb"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
-
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/metadata"
@@ -46,25 +43,21 @@ func dummyIndexWaiter(index uint64) <-chan struct{} {
 // TestNewAuthStoreRevision ensures newly auth store
 // keeps the old revision when there are no changes.
 func TestNewAuthStoreRevision(t *testing.T) {
-	b, tPath := betesting.NewDefaultTmpBackend(t)
-
 	tp, err := NewTokenProvider(zap.NewExample(), tokenTypeSimple, dummyIndexWaiter, simpleTokenTTLDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
-	as := NewAuthStore(zap.NewExample(), b, tp, bcrypt.MinCost)
+	be := newBackendMock()
+	as := NewAuthStore(zap.NewExample(), be, tp, bcrypt.MinCost)
 	err = enableAuthAndCreateRoot(as)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := as.Revision()
 	as.Close()
-	b.Close()
 
 	// no changes to commit
-	b2 := backend.NewDefaultBackend(tPath)
-	defer b2.Close()
-	as = NewAuthStore(zap.NewExample(), b2, tp, bcrypt.MinCost)
+	as = NewAuthStore(zap.NewExample(), be, tp, bcrypt.MinCost)
 	defer as.Close()
 	new := as.Revision()
 
@@ -75,9 +68,6 @@ func TestNewAuthStoreRevision(t *testing.T) {
 
 // TestNewAuthStoreBryptCost ensures that NewAuthStore uses default when given bcrypt-cost is invalid
 func TestNewAuthStoreBcryptCost(t *testing.T) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	defer betesting.Close(t, b)
-
 	tp, err := NewTokenProvider(zap.NewExample(), tokenTypeSimple, dummyIndexWaiter, simpleTokenTTLDefault)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +75,7 @@ func TestNewAuthStoreBcryptCost(t *testing.T) {
 
 	invalidCosts := [2]int{bcrypt.MinCost - 1, bcrypt.MaxCost + 1}
 	for _, invalidCost := range invalidCosts {
-		as := NewAuthStore(zap.NewExample(), b, tp, invalidCost)
+		as := NewAuthStore(zap.NewExample(), newBackendMock(), tp, invalidCost)
 		defer as.Close()
 		if as.BcryptCost() != bcrypt.DefaultCost {
 			t.Fatalf("expected DefaultCost when bcryptcost is invalid")
@@ -99,13 +89,11 @@ func encodePassword(s string) string {
 }
 
 func setupAuthStore(t *testing.T) (store *authStore, teardownfunc func(t *testing.T)) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-
 	tp, err := NewTokenProvider(zap.NewExample(), tokenTypeSimple, dummyIndexWaiter, simpleTokenTTLDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
-	as := NewAuthStore(zap.NewExample(), b, tp, bcrypt.MinCost)
+	as := NewAuthStore(zap.NewExample(), newBackendMock(), tp, bcrypt.MinCost)
 	err = enableAuthAndCreateRoot(as)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +112,6 @@ func setupAuthStore(t *testing.T) (store *authStore, teardownfunc func(t *testin
 	}
 
 	tearDown := func(_ *testing.T) {
-		b.Close()
 		as.Close()
 	}
 	return as, tearDown
@@ -693,14 +680,11 @@ func TestIsAuthEnabled(t *testing.T) {
 
 // TestAuthRevisionRace ensures that access to authStore.revision is thread-safe.
 func TestAuthInfoFromCtxRace(t *testing.T) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	defer betesting.Close(t, b)
-
 	tp, err := NewTokenProvider(zap.NewExample(), tokenTypeSimple, dummyIndexWaiter, simpleTokenTTLDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
-	as := NewAuthStore(zap.NewExample(), b, tp, bcrypt.MinCost)
+	as := NewAuthStore(zap.NewExample(), newBackendMock(), tp, bcrypt.MinCost)
 	defer as.Close()
 
 	donec := make(chan struct{})
@@ -846,15 +830,12 @@ func TestHammerSimpleAuthenticate(t *testing.T) {
 
 // TestRolesOrder tests authpb.User.Roles is sorted
 func TestRolesOrder(t *testing.T) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	defer betesting.Close(t, b)
-
 	tp, err := NewTokenProvider(zap.NewExample(), tokenTypeSimple, dummyIndexWaiter, simpleTokenTTLDefault)
 	defer tp.disable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	as := NewAuthStore(zap.NewExample(), b, tp, bcrypt.MinCost)
+	as := NewAuthStore(zap.NewExample(), newBackendMock(), tp, bcrypt.MinCost)
 	defer as.Close()
 	err = enableAuthAndCreateRoot(as)
 	if err != nil {
@@ -903,14 +884,11 @@ func TestAuthInfoFromCtxWithRootJWT(t *testing.T) {
 
 // testAuthInfoFromCtxWithRoot ensures "WithRoot" properly embeds token in the context.
 func testAuthInfoFromCtxWithRoot(t *testing.T, opts string) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	defer betesting.Close(t, b)
-
 	tp, err := NewTokenProvider(zap.NewExample(), opts, dummyIndexWaiter, simpleTokenTTLDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
-	as := NewAuthStore(zap.NewExample(), b, tp, bcrypt.MinCost)
+	as := NewAuthStore(zap.NewExample(), newBackendMock(), tp, bcrypt.MinCost)
 	defer as.Close()
 
 	if err = enableAuthAndCreateRoot(as); err != nil {
@@ -990,4 +968,114 @@ func TestUserChangePasswordWithOldLog(t *testing.T) {
 	if err != ErrUserNotFound {
 		t.Fatalf("expected %v, got %v", ErrUserNotFound, err)
 	}
+}
+
+type backendMock struct {
+	users    map[string]*authpb.User
+	roles    map[string]*authpb.Role
+	enabled  bool
+	revision uint64
+}
+
+func newBackendMock() *backendMock {
+	return &backendMock{
+		users: make(map[string]*authpb.User),
+		roles: make(map[string]*authpb.Role),
+	}
+}
+
+func (b *backendMock) CreateAuthBuckets() {
+}
+
+func (b *backendMock) ForceCommit() {
+}
+
+func (b *backendMock) BatchTx() AuthBatchTx {
+	return &txMock{be: b}
+}
+
+func (b *backendMock) GetUser(s string) *authpb.User {
+	return b.users[s]
+}
+
+func (b *backendMock) GetAllUsers() []*authpb.User {
+	return b.BatchTx().UnsafeGetAllUsers()
+}
+
+func (b *backendMock) GetRole(s string) *authpb.Role {
+	return b.roles[s]
+}
+
+func (b *backendMock) GetAllRoles() []*authpb.Role {
+	return b.BatchTx().UnsafeGetAllRoles()
+}
+
+var _ AuthBackend = (*backendMock)(nil)
+
+type txMock struct {
+	be *backendMock
+}
+
+var _ AuthBatchTx = (*txMock)(nil)
+
+func (t txMock) UnsafeReadAuthEnabled() bool {
+	return t.be.enabled
+}
+
+func (t txMock) UnsafeReadAuthRevision() uint64 {
+	return t.be.revision
+}
+
+func (t txMock) UnsafeGetUser(s string) *authpb.User {
+	return t.be.users[s]
+}
+
+func (t txMock) UnsafeGetRole(s string) *authpb.Role {
+	return t.be.roles[s]
+}
+
+func (t txMock) UnsafeGetAllUsers() []*authpb.User {
+	users := []*authpb.User{}
+	for _, u := range t.be.users {
+		users = append(users, u)
+	}
+	return users
+}
+
+func (t txMock) UnsafeGetAllRoles() []*authpb.Role {
+	roles := []*authpb.Role{}
+	for _, r := range t.be.roles {
+		roles = append(roles, r)
+	}
+	return roles
+}
+
+func (t txMock) Lock() {
+}
+
+func (t txMock) Unlock() {
+}
+
+func (t txMock) UnsafeSaveAuthEnabled(enabled bool) {
+	t.be.enabled = enabled
+}
+
+func (t txMock) UnsafeSaveAuthRevision(rev uint64) {
+	t.be.revision = rev
+}
+
+func (t txMock) UnsafePutUser(user *authpb.User) {
+	t.be.users[string(user.Name)] = user
+}
+
+func (t txMock) UnsafeDeleteUser(s string) {
+	delete(t.be.users, s)
+}
+
+func (t txMock) UnsafePutRole(role *authpb.Role) {
+	t.be.roles[string(role.Name)] = role
+}
+
+func (t txMock) UnsafeDeleteRole(s string) {
+	delete(t.be.roles, s)
 }

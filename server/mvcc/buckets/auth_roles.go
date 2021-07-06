@@ -24,8 +24,15 @@ func UnsafeCreateAuthRolesBucket(tx backend.BatchTx) {
 	tx.UnsafeCreateBucket(AuthRoles)
 }
 
-func UnsafeGetRole(lg *zap.Logger, tx backend.BatchTx, roleName string) *authpb.Role {
-	_, vs := tx.UnsafeRange(AuthRoles, []byte(roleName), nil, 0)
+func (abe *authBackend) GetRole(roleName string) *authpb.Role {
+	tx := abe.BatchTx()
+	tx.Lock()
+	defer tx.Unlock()
+	return tx.UnsafeGetRole(roleName)
+}
+
+func (atx *authBatchTx) UnsafeGetRole(roleName string) *authpb.Role {
+	_, vs := atx.tx.UnsafeRange(AuthRoles, []byte(roleName), nil, 0)
 	if len(vs) == 0 {
 		return nil
 	}
@@ -33,13 +40,20 @@ func UnsafeGetRole(lg *zap.Logger, tx backend.BatchTx, roleName string) *authpb.
 	role := &authpb.Role{}
 	err := role.Unmarshal(vs[0])
 	if err != nil {
-		lg.Panic("failed to unmarshal 'authpb.Role'", zap.Error(err))
+		atx.lg.Panic("failed to unmarshal 'authpb.Role'", zap.Error(err))
 	}
 	return role
 }
 
-func UnsafeGetAllRoles(lg *zap.Logger, tx backend.BatchTx) []*authpb.Role {
-	_, vs := tx.UnsafeRange(AuthRoles, []byte{0}, []byte{0xff}, -1)
+func (abe *authBackend) GetAllRoles() []*authpb.Role {
+	tx := abe.BatchTx()
+	tx.Lock()
+	defer tx.Unlock()
+	return tx.UnsafeGetAllRoles()
+}
+
+func (atx *authBatchTx) UnsafeGetAllRoles() []*authpb.Role {
+	_, vs := atx.tx.UnsafeRange(AuthRoles, []byte{0}, []byte{0xff}, -1)
 	if len(vs) == 0 {
 		return nil
 	}
@@ -49,26 +63,26 @@ func UnsafeGetAllRoles(lg *zap.Logger, tx backend.BatchTx) []*authpb.Role {
 		role := &authpb.Role{}
 		err := role.Unmarshal(vs[i])
 		if err != nil {
-			lg.Panic("failed to unmarshal 'authpb.Role'", zap.Error(err))
+			atx.lg.Panic("failed to unmarshal 'authpb.Role'", zap.Error(err))
 		}
 		roles[i] = role
 	}
 	return roles
 }
 
-func UnsafePutRole(lg *zap.Logger, tx backend.BatchTx, role *authpb.Role) {
+func (atx *authBatchTx) UnsafePutRole(role *authpb.Role) {
 	b, err := role.Marshal()
 	if err != nil {
-		lg.Panic(
+		atx.lg.Panic(
 			"failed to marshal 'authpb.Role'",
 			zap.String("role-name", string(role.Name)),
 			zap.Error(err),
 		)
 	}
 
-	tx.UnsafePut(AuthRoles, role.Name, b)
+	atx.tx.UnsafePut(AuthRoles, role.Name, b)
 }
 
-func UnsafeDeleteRole(tx backend.BatchTx, rolename string) {
-	tx.UnsafeDelete(AuthRoles, []byte(rolename))
+func (atx *authBatchTx) UnsafeDeleteRole(rolename string) {
+	atx.tx.UnsafeDelete(AuthRoles, []byte(rolename))
 }
