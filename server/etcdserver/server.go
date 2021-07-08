@@ -297,7 +297,7 @@ type EtcdServer struct {
 	*AccessController
 
 	// Ensure that storage version is updated only once.
-	storageVersionUpdated sync.Once
+	migrateStoreSchema sync.Once
 }
 
 type backendHooks struct {
@@ -606,7 +606,7 @@ func bootstrapWithWAL(cfg config.ServerConfig, st v2store.Store, be backend.Back
 }
 
 func bootstrapStorageSchema(lg *zap.Logger, be backend.Backend) {
-	err := serverversion.UpdateStorageVersion(lg, be.BatchTx())
+	err := serverversion.Migrate(lg, be.BatchTx(), serverversion.V3_6)
 	if err != nil {
 		// Can fail as it requires all fields to be set. Fields introduced in v3.5 will be set only after snapshot.
 		lg.Warn("failed to update storage version, will try again after first wal snapshot", zap.Error(err))
@@ -2423,10 +2423,10 @@ func (s *EtcdServer) snapshot(snapi uint64, confState raftpb.ConfState) {
 			"saved snapshot",
 			zap.Uint64("snapshot-index", snap.Metadata.Index),
 		)
-		s.storageVersionUpdated.Do(func() {
-			// Update storage schema after snapshot as fields introduced in v3.5 should be set.
-			// Remove in v3.7
-			err := serverversion.UpdateStorageVersion(s.lg, s.be.BatchTx())
+		// Update storage schema after snapshot as fields introduced in v3.5 should be set.
+		// Remove in v3.7
+		s.migrateStoreSchema.Do(func() {
+			err := serverversion.Migrate(s.lg, s.be.BatchTx(), serverversion.V3_6)
 			if err != nil {
 				s.lg.Warn("failed to update storage version", zap.Error(err))
 			}
