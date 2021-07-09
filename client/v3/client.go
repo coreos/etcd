@@ -54,7 +54,9 @@ type Client struct {
 	cfg      Config
 	creds    grpccredentials.TransportCredentials
 	resolver *resolver.EtcdManualResolver
-	mu       *sync.RWMutex
+
+	epMu      *sync.RWMutex
+	endpoints []string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -160,18 +162,18 @@ func (c *Client) Ctx() context.Context { return c.ctx }
 // Endpoints lists the registered endpoints for the client.
 func (c *Client) Endpoints() []string {
 	// copy the slice; protect original endpoints from being changed
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	eps := make([]string, len(c.cfg.Endpoints))
-	copy(eps, c.cfg.Endpoints)
+	c.epMu.RLock()
+	defer c.epMu.RUnlock()
+	eps := make([]string, len(c.endpoints))
+	copy(eps, c.endpoints)
 	return eps
 }
 
 // SetEndpoints updates client's endpoints.
 func (c *Client) SetEndpoints(eps ...string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cfg.Endpoints = eps
+	c.epMu.Lock()
+	defer c.epMu.Unlock()
+	c.endpoints = eps
 
 	c.resolver.SetEndpoints(eps)
 }
@@ -344,7 +346,7 @@ func newClient(cfg *Config) (*Client, error) {
 		creds:    creds,
 		ctx:      ctx,
 		cancel:   cancel,
-		mu:       new(sync.RWMutex),
+		epMu:     new(sync.RWMutex),
 		callOpts: defaultCallOpts,
 		lgMu:     new(sync.RWMutex),
 	}
@@ -390,6 +392,8 @@ func newClient(cfg *Config) (*Client, error) {
 		client.cancel()
 		return nil, fmt.Errorf("at least one Endpoint is required in client config")
 	}
+	client.SetEndpoints(cfg.Endpoints...)
+
 	// Use a provided endpoint target so that for https:// without any tls config given, then
 	// grpc will assume the certificate server name is the endpoint host.
 	conn, err := client.dialWithBalancer()
