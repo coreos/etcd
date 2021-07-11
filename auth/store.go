@@ -400,6 +400,9 @@ func (as *authStore) Recover(be backend.Backend) {
 
 	as.enabledMu.Lock()
 	as.enabled = enabled
+	if enabled {
+		as.tokenProvider.enable()
+	}
 	as.enabledMu.Unlock()
 }
 

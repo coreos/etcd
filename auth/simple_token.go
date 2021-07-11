@@ -159,6 +159,11 @@ func (t *tokenSimple) invalidateUser(username string) {
 }
 
 func (t *tokenSimple) enable() {
+	t.simpleTokensMu.Lock()
+	defer t.simpleTokensMu.Unlock()
+	if t.simpleTokenKeeper != nil { // already enabled
+		return
+	}
 	if t.simpleTokenTTL <= 0 {
 		t.simpleTokenTTL = simpleTokenTTLDefault
 	}
