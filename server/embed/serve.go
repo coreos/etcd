@@ -58,9 +58,10 @@ type serveCtx struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	userHandlers    map[string]http.Handler
-	serviceRegister func(*grpc.Server)
-	serversC        chan *servers
+	userHandlers        map[string]http.Handler
+	userFallbackHandler http.Handler
+	serviceRegister     func(*grpc.Server)
+	serversC            chan *servers
 }
 
 type servers struct {
@@ -284,9 +285,33 @@ func (sctx *serveCtx) createMux(gwmux *gw.ServeMux, handler http.Handler) *http.
 			),
 		)
 	}
-	if handler != nil {
-		httpmux.Handle("/", handler)
+
+	fallbackHandler := handler
+	if sctx.userFallbackHandler != nil {
+		if handler != nil {
+			if m, ok := handler.(*http.ServeMux); ok {
+				fallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// userFallbackHandler takes a lower priority
+					if h, p := m.Handler(r); p != "" {
+						h.ServeHTTP(w, r)
+					} else {
+						sctx.userFallbackHandler.ServeHTTP(w, r)
+					}
+				})
+			} else {
+				// when handler is not a http.ServeMux, it should be treated as the
+				// exclusive handler of the exact "/" pattern
+				fallbackHandler = handler
+			}
+		} else {
+			fallbackHandler = sctx.userFallbackHandler
+		}
 	}
+
+	if fallbackHandler != nil {
+		httpmux.Handle("/", fallbackHandler)
+	}
+
 	return httpmux
 }
 

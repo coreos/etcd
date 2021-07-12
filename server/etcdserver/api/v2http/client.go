@@ -97,7 +97,6 @@ func handleV2(lg *zap.Logger, mux *http.ServeMux, server etcdserver.ServerV2, ti
 		cluster:               server.Cluster(),
 		clientCertAuthEnabled: server.ClientCertAuthEnabled(),
 	}
-	mux.HandleFunc("/", http.NotFound)
 	mux.Handle(keysPrefix, kh)
 	mux.Handle(keysPrefix+"/", kh)
 	mux.HandleFunc(statsPrefix+"/store", sh.serveStore)

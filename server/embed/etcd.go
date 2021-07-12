@@ -669,7 +669,11 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 			)
 		}(u)
 		for k := range cfg.UserHandlers {
-			sctx.userHandlers[k] = cfg.UserHandlers[k]
+			if k == "/" {
+				sctx.userFallbackHandler = cfg.UserHandlers[k]
+			} else {
+				sctx.userHandlers[k] = cfg.UserHandlers[k]
+			}
 		}
 		sctx.serviceRegister = cfg.ServiceRegister
 		if cfg.EnablePprof || cfg.LogLevel == "debug" {
