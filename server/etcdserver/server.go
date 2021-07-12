@@ -1172,6 +1172,20 @@ func (s *EtcdServer) run() {
 					}
 					lid := lease.ID
 					s.GoAttach(func() {
+						// If the cpu and disk io latency is high, the old leader may still revoke the lease after becoming the follower.
+						// the root cause is that etcdserver processing log entries will be blocked due to high cpu and disk io latency, which makes it impossible to clear the lease and update the membership in time.
+						// this PR solves this issue by get the leader identity directly from the raft state machine.
+						// more detail info please see issue https://github.com/etcd-io/etcd/issues/12528
+						// s.isLeader() is not enough, because etcdserver asynchronously obtains the Ready data structure from the Raft state machine to update the leader's identity.
+						if !s.isLeader() || !s.isLeaderInRaftStateMachine() {
+							lg.Warn(
+								"ignore older leader revoke lease request",
+								zap.String("lease-id", fmt.Sprintf("%016x", lease.ID)),
+								zap.Bool("is-leader", s.isLeader()),
+								zap.Bool("is-leader-in-raft-state-machine", s.isLeaderInRaftStateMachine()),
+							)
+							return
+						}
 						ctx := s.authStore.WithRoot(s.ctx)
 						_, lerr := s.LeaseRevoke(ctx, &pb.LeaseRevokeRequest{ID: int64(lid)})
 						if lerr == nil {
@@ -1433,6 +1447,12 @@ func (s *EtcdServer) hasMultipleVotingMembers() bool {
 
 func (s *EtcdServer) isLeader() bool {
 	return uint64(s.ID()) == s.Lead()
+}
+
+func (s *EtcdServer) isLeaderInRaftStateMachine() bool {
+	rs := s.raftStatus()
+	// leader's raftStatus.Progress is not nil
+	return rs.Progress != nil
 }
 
 // MoveLeader transfers the leader to the given transferee.
@@ -2690,6 +2710,8 @@ func (s *EtcdServer) IsMemberExist(id types.ID) bool {
 }
 
 // raftStatus returns the raft status of this etcd node.
+// raftStatus is thread-safe, because s.r.Node is only updated when the EtcdServer struct is created,
+// and get the current status of the raft state machine through chan.
 func (s *EtcdServer) raftStatus() raft.Status {
 	return s.r.Node.Status()
 }
