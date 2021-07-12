@@ -379,3 +379,48 @@ func TestLogRotation(t *testing.T) {
 		})
 	}
 }
+
+func TestLogFormat(t *testing.T) {
+	tests := []struct {
+		name       string
+		LogFormat  string
+		wantErr    bool
+		wantErrMsg error
+	}{
+		{
+			name: "default",
+		},
+		{
+			name:      "json",
+			LogFormat: "json",
+		},
+		{
+			name:      "console",
+			LogFormat: "console",
+		},
+		{
+			name:       "unsupported",
+			LogFormat:  "xml",
+			wantErr:    true,
+			wantErrMsg: errors.New("--log-format=xml is not supported"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewConfig()
+			if tt.LogFormat != "" {
+				cfg.LogFormat = tt.LogFormat
+			}
+			err := cfg.Validate()
+			if err != nil && !tt.wantErr {
+				t.Errorf("test %q, unexpected error %v", tt.name, err)
+			}
+			if err != nil && tt.wantErr && tt.wantErrMsg.Error() != err.Error() {
+				t.Errorf("test %q, expected error: %+v, got: %+v", tt.name, tt.wantErrMsg, err)
+			}
+			if err == nil && tt.wantErr {
+				t.Errorf("test %q, expected error, got nil", tt.name)
+			}
+		})
+	}
+}

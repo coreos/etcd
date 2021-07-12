@@ -73,6 +73,7 @@ func TestEmbedEtcd(t *testing.T) {
 	for i := range tests {
 		tests[i].cfg = *embed.NewConfig()
 		tests[i].cfg.Logger = "zap"
+		tests[i].cfg.LogFormat = "json"
 		tests[i].cfg.LogOutputs = []string{"/dev/null"}
 	}
 
@@ -199,6 +200,7 @@ func newEmbedURLs(secure bool, n int) (urls []url.URL) {
 
 func setupEmbedCfg(cfg *embed.Config, curls []url.URL, purls []url.URL) {
 	cfg.Logger = "zap"
+	cfg.LogFormat = "json"
 	cfg.LogOutputs = []string{"/dev/null"}
 
 	cfg.ClusterState = "new"

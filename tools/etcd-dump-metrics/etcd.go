@@ -40,6 +40,7 @@ func newEmbedURLs(n int) (urls []url.URL) {
 
 func setupEmbedCfg(cfg *embed.Config, curls, purls, ics []url.URL) {
 	cfg.Logger = "zap"
+	cfg.LogFormat = "json"
 	cfg.LogOutputs = []string{"/dev/null"}
 	// []string{"stderr"} to enable server logging
 

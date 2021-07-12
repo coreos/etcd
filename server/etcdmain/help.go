@@ -192,6 +192,8 @@ Profiling and Monitoring:
 Logging:
   --logger 'zap'
     Currently only supports 'zap' for structured logging.
+  --log-format 'json'
+    LogFormat configures format of logs. Only supports json, console.
   --log-outputs 'default'
     Specify 'stdout' or 'stderr' to skip journald logging even when running under systemd, or list of comma separated output targets.
   --log-level 'info'
