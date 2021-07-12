@@ -16,6 +16,7 @@ package schedule
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -56,6 +57,8 @@ type fifo struct {
 
 	finishCond *sync.Cond
 	donec      chan struct{}
+
+	todo chan struct{}
 }
 
 // NewFIFOScheduler returns a Scheduler that schedules jobs in FIFO
@@ -64,6 +67,7 @@ func NewFIFOScheduler() Scheduler {
 	f := &fifo{
 		resume: make(chan struct{}, 1),
 		donec:  make(chan struct{}, 1),
+		todo:   make(chan struct{}, 1),
 	}
 	f.finishCond = sync.NewCond(&f.mu)
 	f.ctx, f.cancel = context.WithCancel(context.Background())
@@ -125,7 +129,6 @@ func (f *fifo) Stop() {
 }
 
 func (f *fifo) run() {
-	// TODO: recover from job panic?
 	defer func() {
 		close(f.donec)
 		close(f.resume)
@@ -154,7 +157,23 @@ func (f *fifo) run() {
 				return
 			}
 		} else {
-			todo(f.ctx)
+			go func() {
+				defer func() {
+					f.todo <- struct{}{}
+				}()
+
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("job execution failed : %s\n", r)
+					}
+				}()
+
+				todo(f.ctx)
+			}()
+
+			select {
+			case <-f.todo:
+			}
 			f.finishCond.L.Lock()
 			f.finished++
 			f.pendings = f.pendings[1:]
