@@ -17,6 +17,7 @@ package command
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -160,6 +161,47 @@ func (p *printerUnsupported) EndpointStatus([]epStatus) { p.p(nil) }
 func (p *printerUnsupported) EndpointHashKV([]epHashKV) { p.p(nil) }
 
 func (p *printerUnsupported) MoveLeader(leader, target uint64, r v3.MoveLeaderResponse) { p.p(nil) }
+
+func makeHeaderTable(h *pb.ResponseHeader) (hdr []string, rows [][]string) {
+	hdr = []string{"Cluster ID", "Member ID", "Revision", "Raft Term"}
+
+	rows = append(rows, []string{
+		strconv.FormatUint(h.ClusterId, 10),
+		strconv.FormatUint(h.MemberId, 10),
+		strconv.FormatInt(h.Revision, 10),
+		strconv.FormatUint(h.RaftTerm, 10),
+	})
+
+	return hdr, rows
+}
+
+func makeGetTable(r v3.GetResponse) (hdr []string, rows [][]string) {
+	hdr = []string{"Key", "Create Revision", "Mod Revision", "Version", "Value", "Lease"}
+
+	for _, kv := range r.Kvs {
+		rows = append(rows, []string{
+			string(kv.Key),
+			strconv.FormatInt(kv.CreateRevision, 10),
+			strconv.FormatInt(kv.ModRevision, 10),
+			strconv.FormatInt(kv.Version, 10),
+			string(kv.Value),
+			strconv.FormatInt(kv.Lease, 10),
+		})
+	}
+
+	return hdr, rows
+}
+
+func makeGetFooterTable(r v3.GetResponse) (hdr []string, rows [][]string) {
+	hdr = []string{"More", "Count"}
+
+	rows = append(rows, []string{
+		strconv.FormatBool(r.More),
+		strconv.FormatInt(r.Count, 10),
+	})
+
+	return hdr, rows
+}
 
 func makeMemberListTable(r v3.MemberListResponse) (hdr []string, rows [][]string) {
 	hdr = []string{"ID", "Status", "Name", "Peer Addrs", "Client Addrs", "Is Learner"}

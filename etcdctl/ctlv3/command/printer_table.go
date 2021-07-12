@@ -24,6 +24,35 @@ import (
 
 type tablePrinter struct{ printer }
 
+func (tp *tablePrinter) Get(r v3.GetResponse) {
+	hdr, rows := makeHeaderTable(r.Header)
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader(hdr)
+	for _, row := range rows {
+		table.Append(row)
+	}
+	table.SetAlignment(tablewriter.ALIGN_RIGHT)
+	table.Render()
+
+	hdr, rows = makeGetTable(r)
+	table = tablewriter.NewWriter(os.Stdout)
+	table.SetHeader(hdr)
+	for _, row := range rows {
+		table.Append(row)
+	}
+	table.SetAlignment(tablewriter.ALIGN_RIGHT)
+	table.Render()
+
+	hdr, rows = makeGetFooterTable(r)
+	table = tablewriter.NewWriter(os.Stdout)
+	table.SetHeader(hdr)
+	for _, row := range rows {
+		table.Append(row)
+	}
+	table.SetAlignment(tablewriter.ALIGN_RIGHT)
+	table.Render()
+}
+
 func (tp *tablePrinter) MemberList(r v3.MemberListResponse) {
 	hdr, rows := makeMemberListTable(r)
 	table := tablewriter.NewWriter(os.Stdout)
