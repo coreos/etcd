@@ -458,7 +458,10 @@ func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int
 			currentRev = rev.main
 			if ok {
 				if isTombstone(rkv.key) {
-					if err := ki.tombstone(lg, rev.main, rev.sub); err != nil {
+					ki.mu.Lock()
+					err := ki.tombstone(lg, rev.main, rev.sub)
+					ki.mu.Unlock()
+					if err != nil {
 						lg.Warn("tombstone encountered error", zap.Error(err))
 					}
 					continue

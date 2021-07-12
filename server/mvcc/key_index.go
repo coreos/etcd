@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/google/btree"
 	"go.uber.org/zap"
@@ -68,6 +69,7 @@ var (
 // generations:
 //    {empty} -> key SHOULD be removed.
 type keyIndex struct {
+	mu          sync.Mutex
 	key         []byte
 	modified    revision // the main rev of the last modification
 	generations []generation
