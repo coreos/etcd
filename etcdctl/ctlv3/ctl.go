@@ -91,6 +91,7 @@ func init() {
 		command.NewSnapshotCommand(),
 		command.NewMakeMirrorCommand(),
 		command.NewLockCommand(),
+		command.NewTryLockCommand(),
 		command.NewElectCommand(),
 		command.NewAuthCommand(),
 		command.NewUserCommand(),

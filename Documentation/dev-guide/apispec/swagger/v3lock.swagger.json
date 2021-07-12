@@ -44,6 +44,39 @@
         ]
       }
     },
+    "/v3/lock/trylock": {
+      "post": {
+        "summary": "TryLock acquires a distributed shared lock on a given named lock.\nOn success, it will return a unique key that exists so long as the\nlock is held by the caller. This key can be used in conjunction with\ntransactions to safely ensure updates to etcd only occur while holding\nlock ownership. The lock is held until Unlock is called on the key or the\nlease associate with the owner expires.\nOn failure, it will retry within the timeout period or return\nimmediately when timeout is 0.",
+        "operationId": "Lock_TryLock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v3lockpbTryLockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v3lockpbTryLockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lock"
+        ]
+      }
+    },
     "/v3/lock/unlock": {
       "post": {
         "summary": "Unlock takes a key returned by Lock and releases the hold on lock. The\nnext Lock caller waiting for the lock will then be woken up and given\nownership of the lock.",
@@ -153,6 +186,38 @@
       }
     },
     "v3lockpbLockResponse": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "#/definitions/etcdserverpbResponseHeader"
+        },
+        "key": {
+          "type": "string",
+          "format": "byte",
+          "description": "key is a key that will exist on etcd for the duration that the Lock caller\nowns the lock. Users should not modify this key or the lock may exhibit\nundefined behavior."
+        }
+      }
+    },
+    "v3lockpbTryLockRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "format": "byte",
+          "description": "name is the identifier for the distributed shared lock to be acquired."
+        },
+        "lease": {
+          "type": "string",
+          "format": "int64",
+          "description": "lease is the ID of the lease that will be attached to ownership of the\nlock. If the lease expires or is revoked and currently holds the lock,\nthe lock is automatically released. Calls to Lock with the same lease will\nbe treated as a single acquisition; locking twice with the same lease is a\nno-op."
+        },
+        "timeout": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v3lockpbTryLockResponse": {
       "type": "object",
       "properties": {
         "header": {

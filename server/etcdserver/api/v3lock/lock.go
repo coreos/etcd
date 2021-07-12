@@ -16,6 +16,7 @@ package v3lock
 
 import (
 	"context"
+	"time"
 
 	"go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -53,4 +54,28 @@ func (ls *lockServer) Unlock(ctx context.Context, req *v3lockpb.UnlockRequest) (
 		return nil, err
 	}
 	return &v3lockpb.UnlockResponse{Header: resp.Header}, nil
+}
+
+func (ls *lockServer) TryLock(ctx context.Context, req *v3lockpb.TryLockRequest) (*v3lockpb.TryLockResponse, error) {
+	s, err := concurrency.NewSession(
+		ls.c,
+		concurrency.WithLease(clientv3.LeaseID(req.Lease)),
+		concurrency.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.Orphan()
+	m := concurrency.NewMutex(s, string(req.Name))
+	if req.Timeout == 0 {
+		if err = m.TryLock(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		if err = m.TryLockTimeout(ctx, time.Duration(req.Timeout)); err != nil {
+			return nil, err
+		}
+	}
+
+	return &v3lockpb.TryLockResponse{Header: m.Header(), Key: []byte(m.Key())}, nil
 }

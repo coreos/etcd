@@ -244,38 +244,171 @@ func (m *UnlockResponse) GetHeader() *etcdserverpb.ResponseHeader {
 	return nil
 }
 
+type TryLockRequest struct {
+	// name is the identifier for the distributed shared lock to be acquired.
+	Name []byte `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// lease is the ID of the lease that will be attached to ownership of the
+	// lock. If the lease expires or is revoked and currently holds the lock,
+	// the lock is automatically released. Calls to Lock with the same lease will
+	// be treated as a single acquisition; locking twice with the same lease is a
+	// no-op.
+	Lease                int64    `protobuf:"varint,2,opt,name=lease,proto3" json:"lease,omitempty"`
+	Timeout              int64    `protobuf:"varint,3,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *TryLockRequest) Reset()         { *m = TryLockRequest{} }
+func (m *TryLockRequest) String() string { return proto.CompactTextString(m) }
+func (*TryLockRequest) ProtoMessage()    {}
+func (*TryLockRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_52389b3e2f253201, []int{4}
+}
+func (m *TryLockRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TryLockRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TryLockRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TryLockRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TryLockRequest.Merge(m, src)
+}
+func (m *TryLockRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *TryLockRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_TryLockRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TryLockRequest proto.InternalMessageInfo
+
+func (m *TryLockRequest) GetName() []byte {
+	if m != nil {
+		return m.Name
+	}
+	return nil
+}
+
+func (m *TryLockRequest) GetLease() int64 {
+	if m != nil {
+		return m.Lease
+	}
+	return 0
+}
+
+func (m *TryLockRequest) GetTimeout() int64 {
+	if m != nil {
+		return m.Timeout
+	}
+	return 0
+}
+
+type TryLockResponse struct {
+	Header *etcdserverpb.ResponseHeader `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	// key is a key that will exist on etcd for the duration that the Lock caller
+	// owns the lock. Users should not modify this key or the lock may exhibit
+	// undefined behavior.
+	Key                  []byte   `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *TryLockResponse) Reset()         { *m = TryLockResponse{} }
+func (m *TryLockResponse) String() string { return proto.CompactTextString(m) }
+func (*TryLockResponse) ProtoMessage()    {}
+func (*TryLockResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_52389b3e2f253201, []int{5}
+}
+func (m *TryLockResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TryLockResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TryLockResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TryLockResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TryLockResponse.Merge(m, src)
+}
+func (m *TryLockResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *TryLockResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_TryLockResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TryLockResponse proto.InternalMessageInfo
+
+func (m *TryLockResponse) GetHeader() *etcdserverpb.ResponseHeader {
+	if m != nil {
+		return m.Header
+	}
+	return nil
+}
+
+func (m *TryLockResponse) GetKey() []byte {
+	if m != nil {
+		return m.Key
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*LockRequest)(nil), "v3lockpb.LockRequest")
 	proto.RegisterType((*LockResponse)(nil), "v3lockpb.LockResponse")
 	proto.RegisterType((*UnlockRequest)(nil), "v3lockpb.UnlockRequest")
 	proto.RegisterType((*UnlockResponse)(nil), "v3lockpb.UnlockResponse")
+	proto.RegisterType((*TryLockRequest)(nil), "v3lockpb.TryLockRequest")
+	proto.RegisterType((*TryLockResponse)(nil), "v3lockpb.TryLockResponse")
 }
 
 func init() { proto.RegisterFile("v3lock.proto", fileDescriptor_52389b3e2f253201) }
 
 var fileDescriptor_52389b3e2f253201 = []byte{
-	// 330 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x29, 0x33, 0xce, 0xc9,
-	0x4f, 0xce, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x80, 0xf0, 0x0a, 0x92, 0xa4, 0x44,
-	0xd2, 0xf3, 0xd3, 0xf3, 0xc1, 0x82, 0xfa, 0x20, 0x16, 0x44, 0x5e, 0x4a, 0x3e, 0xb5, 0x24, 0x39,
-	0x45, 0x3f, 0xb1, 0x20, 0x53, 0x1f, 0xc4, 0x28, 0x4e, 0x2d, 0x2a, 0x4b, 0x2d, 0x2a, 0x48, 0xd2,
-	0x2f, 0x2a, 0x48, 0x86, 0x2a, 0x90, 0x49, 0xcf, 0xcf, 0x4f, 0xcf, 0x49, 0x05, 0x2b, 0x49, 0xcc,
-	0xcb, 0xcb, 0x2f, 0x49, 0x2c, 0xc9, 0xcc, 0xcf, 0x2b, 0x86, 0xc8, 0x2a, 0x99, 0x73, 0x71, 0xfb,
-	0xe4, 0x27, 0x67, 0x07, 0xa5, 0x16, 0x96, 0xa6, 0x16, 0x97, 0x08, 0x09, 0x71, 0xb1, 0xe4, 0x25,
-	0xe6, 0xa6, 0x4a, 0x30, 0x2a, 0x30, 0x6a, 0xf0, 0x04, 0x81, 0xd9, 0x42, 0x22, 0x5c, 0xac, 0x39,
-	0xa9, 0x89, 0xc5, 0xa9, 0x12, 0x4c, 0x0a, 0x8c, 0x1a, 0xcc, 0x41, 0x10, 0x8e, 0x52, 0x18, 0x17,
-	0x0f, 0x44, 0x63, 0x71, 0x41, 0x7e, 0x5e, 0x71, 0xaa, 0x90, 0x09, 0x17, 0x5b, 0x46, 0x6a, 0x62,
-	0x4a, 0x6a, 0x11, 0x58, 0x2f, 0xb7, 0x91, 0x8c, 0x1e, 0xb2, 0x7b, 0xf4, 0x60, 0xea, 0x3c, 0xc0,
-	0x6a, 0x82, 0xa0, 0x6a, 0x85, 0x04, 0xb8, 0x98, 0xb3, 0x53, 0x2b, 0xc1, 0x26, 0xf3, 0x04, 0x81,
-	0x98, 0x4a, 0x8a, 0x5c, 0xbc, 0xa1, 0x79, 0x39, 0x48, 0x4e, 0x82, 0x2a, 0x61, 0x44, 0x28, 0x71,
-	0xe3, 0xe2, 0x83, 0x29, 0xa1, 0xc4, 0x72, 0xa3, 0x0d, 0x8c, 0x5c, 0x2c, 0x20, 0x3f, 0x08, 0xf9,
-	0x43, 0x69, 0x51, 0x3d, 0x58, 0x60, 0xeb, 0x21, 0x05, 0x8a, 0x94, 0x18, 0xba, 0x30, 0xc4, 0x34,
-	0x25, 0x89, 0xa6, 0xcb, 0x4f, 0x26, 0x33, 0x09, 0x29, 0xf1, 0xea, 0x97, 0x19, 0xeb, 0x83, 0x14,
-	0x80, 0x09, 0x2b, 0x46, 0x2d, 0xa1, 0x70, 0x2e, 0x36, 0x88, 0x0b, 0x85, 0xc4, 0x11, 0x7a, 0x51,
-	0xbc, 0x25, 0x25, 0x81, 0x29, 0x01, 0x35, 0x56, 0x0a, 0x6c, 0xac, 0x88, 0x12, 0x3f, 0xdc, 0xd8,
-	0xd2, 0x3c, 0xa8, 0xc1, 0x4e, 0x02, 0x27, 0x1e, 0xc9, 0x31, 0x5e, 0x78, 0x24, 0xc7, 0xf8, 0xe0,
-	0x91, 0x1c, 0xe3, 0x8c, 0xc7, 0x72, 0x0c, 0x49, 0x6c, 0xe0, 0x78, 0x34, 0x06, 0x04, 0x00, 0x00,
-	0xff, 0xff, 0x4a, 0x4d, 0xca, 0xbb, 0x36, 0x02, 0x00, 0x00,
+	// 393 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x92, 0x4f, 0x4f, 0xea, 0x40,
+	0x10, 0xc0, 0xdf, 0x02, 0x0f, 0x5e, 0x86, 0xf2, 0x27, 0x1b, 0x78, 0xd6, 0x4a, 0x2a, 0xee, 0x89,
+	0x78, 0x68, 0x13, 0x30, 0x31, 0xf1, 0xe8, 0xc1, 0x78, 0x30, 0x31, 0x69, 0x50, 0x63, 0x3c, 0x95,
+	0xb2, 0xa9, 0x84, 0xd2, 0xad, 0xed, 0x42, 0xc2, 0xd5, 0xbb, 0x27, 0x2f, 0x7e, 0x24, 0x8f, 0x26,
+	0x7e, 0x01, 0x83, 0x7e, 0x10, 0xd3, 0xed, 0x16, 0x8a, 0x7a, 0x52, 0x2f, 0xed, 0xec, 0xcc, 0x6f,
+	0x7e, 0xdd, 0x9d, 0x2e, 0x28, 0xb3, 0x9e, 0xc7, 0x9c, 0xb1, 0x11, 0x84, 0x8c, 0x33, 0xfc, 0x2f,
+	0x59, 0x05, 0x03, 0xad, 0xe1, 0x32, 0x97, 0x89, 0xa4, 0x19, 0x47, 0x49, 0x5d, 0xdb, 0xa6, 0xdc,
+	0x19, 0x9a, 0x76, 0x30, 0x32, 0xe3, 0x20, 0xa2, 0xe1, 0x8c, 0x86, 0xc1, 0xc0, 0x0c, 0x03, 0x47,
+	0x02, 0x2d, 0x97, 0x31, 0xd7, 0xa3, 0x02, 0xb1, 0x7d, 0x9f, 0x71, 0x9b, 0x8f, 0x98, 0x1f, 0x25,
+	0x55, 0xb2, 0x0f, 0xe5, 0x13, 0xe6, 0x8c, 0x2d, 0x7a, 0x33, 0xa5, 0x11, 0xc7, 0x18, 0x0a, 0xbe,
+	0x3d, 0xa1, 0x2a, 0x6a, 0xa3, 0x8e, 0x62, 0x89, 0x18, 0x37, 0xe0, 0xaf, 0x47, 0xed, 0x88, 0xaa,
+	0xb9, 0x36, 0xea, 0xe4, 0xad, 0x64, 0x41, 0xce, 0x41, 0x49, 0x1a, 0xa3, 0x80, 0xf9, 0x11, 0xc5,
+	0x7b, 0x50, 0xbc, 0xa6, 0xf6, 0x90, 0x86, 0xa2, 0xb7, 0xdc, 0x6d, 0x19, 0xd9, 0xfd, 0x18, 0x29,
+	0x77, 0x2c, 0x18, 0x4b, 0xb2, 0xb8, 0x0e, 0xf9, 0x31, 0x9d, 0x0b, 0xb3, 0x62, 0xc5, 0x21, 0xd9,
+	0x81, 0xca, 0x99, 0xef, 0x65, 0xb6, 0x24, 0x11, 0xb4, 0x42, 0x8e, 0xa0, 0x9a, 0x22, 0x3f, 0xf9,
+	0x38, 0xe9, 0x43, 0xb5, 0x1f, 0xce, 0xbf, 0x75, 0x7c, 0xac, 0x42, 0x89, 0x8f, 0x26, 0x94, 0x4d,
+	0xb9, 0x9a, 0x17, 0xf9, 0x74, 0x49, 0x2e, 0xa1, 0xb6, 0xb4, 0xfe, 0xee, 0x6c, 0xba, 0x77, 0x39,
+	0x28, 0xc4, 0x62, 0x7c, 0x2a, 0xdf, 0x4d, 0x23, 0xbd, 0x1d, 0x46, 0xe6, 0x18, 0xda, 0xff, 0x8f,
+	0xe9, 0xc4, 0x4f, 0xd4, 0xdb, 0xe7, 0xb7, 0xfb, 0x1c, 0x26, 0x15, 0x73, 0xd6, 0x33, 0x63, 0x40,
+	0x3c, 0x0e, 0xd0, 0x2e, 0xbe, 0x80, 0x62, 0x32, 0x52, 0xbc, 0xb1, 0xea, 0x5d, 0xfb, 0x0f, 0x9a,
+	0xfa, 0xb9, 0x20, 0xb5, 0x9a, 0xd0, 0x36, 0x48, 0x6d, 0xa9, 0x9d, 0xfa, 0xa9, 0xf8, 0x0a, 0x4a,
+	0x72, 0x1a, 0x38, 0x23, 0x58, 0x1f, 0xbb, 0xb6, 0xf9, 0x45, 0x45, 0xba, 0xb7, 0x84, 0xbb, 0x49,
+	0xea, 0x4b, 0x37, 0x0f, 0xe7, 0x52, 0x7e, 0x58, 0x7f, 0x5c, 0xe8, 0xe8, 0x69, 0xa1, 0xa3, 0x97,
+	0x85, 0x8e, 0x1e, 0x5e, 0xf5, 0x3f, 0x83, 0xa2, 0xb8, 0xd5, 0xbd, 0xf7, 0x00, 0x00, 0x00, 0xff,
+	0xff, 0x37, 0xb6, 0x28, 0x0e, 0x44, 0x03, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -301,6 +434,15 @@ type LockClient interface {
 	// next Lock caller waiting for the lock will then be woken up and given
 	// ownership of the lock.
 	Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc.CallOption) (*UnlockResponse, error)
+	// TryLock acquires a distributed shared lock on a given named lock.
+	// On success, it will return a unique key that exists so long as the
+	// lock is held by the caller. This key can be used in conjunction with
+	// transactions to safely ensure updates to etcd only occur while holding
+	// lock ownership. The lock is held until Unlock is called on the key or the
+	// lease associate with the owner expires.
+	// On failure, it will retry within the timeout period or return
+	// immediately when timeout is 0.
+	TryLock(ctx context.Context, in *TryLockRequest, opts ...grpc.CallOption) (*TryLockResponse, error)
 }
 
 type lockClient struct {
@@ -329,6 +471,15 @@ func (c *lockClient) Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc
 	return out, nil
 }
 
+func (c *lockClient) TryLock(ctx context.Context, in *TryLockRequest, opts ...grpc.CallOption) (*TryLockResponse, error) {
+	out := new(TryLockResponse)
+	err := c.cc.Invoke(ctx, "/v3lockpb.Lock/TryLock", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LockServer is the server API for Lock service.
 type LockServer interface {
 	// Lock acquires a distributed shared lock on a given named lock.
@@ -342,6 +493,15 @@ type LockServer interface {
 	// next Lock caller waiting for the lock will then be woken up and given
 	// ownership of the lock.
 	Unlock(context.Context, *UnlockRequest) (*UnlockResponse, error)
+	// TryLock acquires a distributed shared lock on a given named lock.
+	// On success, it will return a unique key that exists so long as the
+	// lock is held by the caller. This key can be used in conjunction with
+	// transactions to safely ensure updates to etcd only occur while holding
+	// lock ownership. The lock is held until Unlock is called on the key or the
+	// lease associate with the owner expires.
+	// On failure, it will retry within the timeout period or return
+	// immediately when timeout is 0.
+	TryLock(context.Context, *TryLockRequest) (*TryLockResponse, error)
 }
 
 // UnimplementedLockServer can be embedded to have forward compatible implementations.
@@ -353,6 +513,9 @@ func (*UnimplementedLockServer) Lock(ctx context.Context, req *LockRequest) (*Lo
 }
 func (*UnimplementedLockServer) Unlock(ctx context.Context, req *UnlockRequest) (*UnlockResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Unlock not implemented")
+}
+func (*UnimplementedLockServer) TryLock(ctx context.Context, req *TryLockRequest) (*TryLockResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TryLock not implemented")
 }
 
 func RegisterLockServer(s *grpc.Server, srv LockServer) {
@@ -395,6 +558,24 @@ func _Lock_Unlock_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lock_TryLock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TryLockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LockServer).TryLock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/v3lockpb.Lock/TryLock",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LockServer).TryLock(ctx, req.(*TryLockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Lock_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "v3lockpb.Lock",
 	HandlerType: (*LockServer)(nil),
@@ -406,6 +587,10 @@ var _Lock_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Unlock",
 			Handler:    _Lock_Unlock_Handler,
+		},
+		{
+			MethodName: "TryLock",
+			Handler:    _Lock_TryLock_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -570,6 +755,96 @@ func (m *UnlockResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *TryLockRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TryLockRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TryLockRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Timeout != 0 {
+		i = encodeVarintV3Lock(dAtA, i, uint64(m.Timeout))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.Lease != 0 {
+		i = encodeVarintV3Lock(dAtA, i, uint64(m.Lease))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = encodeVarintV3Lock(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TryLockResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TryLockResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TryLockResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Key) > 0 {
+		i -= len(m.Key)
+		copy(dAtA[i:], m.Key)
+		i = encodeVarintV3Lock(dAtA, i, uint64(len(m.Key)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintV3Lock(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintV3Lock(dAtA []byte, offset int, v uint64) int {
 	offset -= sovV3Lock(v)
 	base := offset
@@ -644,6 +919,48 @@ func (m *UnlockResponse) Size() (n int) {
 	_ = l
 	if m.Header != nil {
 		l = m.Header.Size()
+		n += 1 + l + sovV3Lock(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TryLockRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovV3Lock(uint64(l))
+	}
+	if m.Lease != 0 {
+		n += 1 + sovV3Lock(uint64(m.Lease))
+	}
+	if m.Timeout != 0 {
+		n += 1 + sovV3Lock(uint64(m.Timeout))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *TryLockResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Header != nil {
+		l = m.Header.Size()
+		n += 1 + l + sovV3Lock(uint64(l))
+	}
+	l = len(m.Key)
+	if l > 0 {
 		n += 1 + l + sovV3Lock(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -1031,6 +1348,250 @@ func (m *UnlockResponse) Unmarshal(dAtA []byte) error {
 			}
 			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipV3Lock(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TryLockRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowV3Lock
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TryLockRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TryLockRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV3Lock
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = append(m.Name[:0], dAtA[iNdEx:postIndex]...)
+			if m.Name == nil {
+				m.Name = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Lease", wireType)
+			}
+			m.Lease = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV3Lock
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Lease |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Timeout", wireType)
+			}
+			m.Timeout = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV3Lock
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Timeout |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipV3Lock(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TryLockResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowV3Lock
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TryLockResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TryLockResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV3Lock
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Header == nil {
+				m.Header = &etcdserverpb.ResponseHeader{}
+			}
+			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV3Lock
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthV3Lock
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Key = append(m.Key[:0], dAtA[iNdEx:postIndex]...)
+			if m.Key == nil {
+				m.Key = []byte{}
 			}
 			iNdEx = postIndex
 		default:

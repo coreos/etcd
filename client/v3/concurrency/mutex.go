@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	v3 "go.etcd.io/etcd/client/v3"
@@ -64,6 +65,36 @@ func (m *Mutex) TryLock(ctx context.Context) error {
 	m.myKey = "\x00"
 	m.myRev = -1
 	return ErrLocked
+}
+
+// TryLockTimeout locks the mutex if not already locked by another session.
+// If lock is held by another session, return immediately when timeout is 0 or retry with in
+// timeout period after attempting necessary cleanup
+// The ctx argument is used for the sending/receiving Txn RPC.
+func (m *Mutex) TryLockTimeout(ctx context.Context, timeout time.Duration) error {
+	timeoutC := time.After(timeout * time.Second)
+
+	for {
+		select {
+		case <-timeoutC:
+			return ErrLocked
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err := m.TryLock(ctx)
+			if err == nil {
+				return nil
+			} else if err != ErrLocked {
+				return err
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(timeout / 5 * time.Second):
+			}
+		}
+	}
 }
 
 // Lock locks the mutex with a cancelable context. If the context is canceled

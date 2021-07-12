@@ -35,3 +35,7 @@ func (s *ls2lsc) Lock(ctx context.Context, r *v3lockpb.LockRequest, opts ...grpc
 func (s *ls2lsc) Unlock(ctx context.Context, r *v3lockpb.UnlockRequest, opts ...grpc.CallOption) (*v3lockpb.UnlockResponse, error) {
 	return s.ls.Unlock(ctx, r)
 }
+
+func (s *ls2lsc) TryLock(ctx context.Context, r *v3lockpb.TryLockRequest, opts ...grpc.CallOption) (*v3lockpb.TryLockResponse, error) {
+	return s.ls.TryLock(ctx, r)
+}
