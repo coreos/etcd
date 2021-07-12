@@ -56,6 +56,15 @@ main() {
   MINOR_VERSION=$(echo "${VERSION}" | cut -d. -f 1-2)
   BRANCH=${BRANCH:-"release-${MINOR_VERSION}"}
   REPOSITORY=${REPOSITORY:-"git@github.com:etcd-io/etcd.git"}
+  # Stable tags don't exist, but docker image store users would benefit from
+  # having a "latest" image that isn't too new. STABLE_VERSION creates
+  # a manual process for deciding which MINOR release version takes over the
+  # latest tags in docker image stores, and must be manually adjusted.
+  STABLE_VERSION="3.3"
+  if [[ ! "${STABLE_VERSION}" =~ ^[0-9]+.[0-9]+$ ]]; then
+    log_error "Stable Version Minor Version string (${STABLE_VERSION}) not formatted as <major-version>.<minor-version>"
+    exit 1
+  fi
 
   log_warning "DRY_RUN=${DRY_RUN}"
   log_callout "RELEASE_VERSION=${RELEASE_VERSION}"
@@ -231,11 +240,35 @@ main() {
       log_warning "login failed, retrying"
     done
 
+    # the stable version variable is only used for docker image tagged pushes.
+    # assumption is that "default" latest tag will be arch amd64.
+    # Just make sure VERSION is greater than :latest
+    LATEST_OLD=$(docker run --rm "quay.io/coreos/etcd:latest" etcd --version | grep "etcd Version" | awk -F: '{print $2}' | tr -d '[:space:]')
+    LATEST_OLD_ARRAY=(`echo ${LATEST_OLD} | tr \. ' '`)
+    VERSION_ARRAY=(`echo ${VERSION} | tr \. ' '`)
+    docker_push_error() { log_error "quay.io push would be invalid ${VERSION} < ${LATEST_OLD}. Aborting"; exit 1; }
+    log_callout "Old quay.io :latest tag \$VERSION is ${LATEST_OLD}, target :latest version is ${VERSION}"
+    if [ ${VERSION_ARRAY[0]} -lt ${LATEST_OLD_ARRAY[0]} ]; then docker_push_error; fi
+    if [ ${VERSION_ARRAY[0]} -eq ${LATEST_OLD_ARRAY[0]} ]
+      then
+      if [ ${VERSION_ARRAY[1]} -lt ${LATEST_OLD_ARRAY[1]} ]; then docker_push_error; fi
+      if [ ${VERSION_ARRAY[1]} -eq ${LATEST_OLD_ARRAY[1]} ]
+        then
+        if [ ${VERSION_ARRAY[2]} -lt ${LATEST_OLD_ARRAY[2]} ]; then docker_push_error; fi
+        # if the following is true, $VERSION == $LATEST_OLD, warn.
+        if [ ${VERSION_ARRAY[2]} -eq ${LATEST_OLD_ARRAY[2]} ]; then log_warning "Pushing ${VERSION} to quay.io as :latest, when :latest is ${LATEST_OLD}"; fi
+      fi
+    fi
+
     for TARGET_ARCH in "amd64" "arm64" "ppc64le" "s390x"; do
       log_callout "Pushing container images to quay.io ${RELEASE_VERSION}-${TARGET_ARCH}"
       maybe_run docker push "quay.io/coreos/etcd:${RELEASE_VERSION}-${TARGET_ARCH}"
+      [[ "${MINOR_VERSION}" == "${STABLE_VERSION}" ]] && maybe_run docker push "quay.io/coreos/etcd:latest-${TARGET_ARCH}"
+      [[ "${TARGET_ARCH}" == "amd64" ]] && [[ "${MINOR_VERSION}" == "${STABLE_VERSION}" ]] && maybe_run docker push "quay.io/coreos/etcd:latest"
       log_callout "Pushing container images to gcr.io ${RELEASE_VERSION}-${TARGET_ARCH}"
       maybe_run docker push "gcr.io/etcd-development/etcd:${RELEASE_VERSION}-${TARGET_ARCH}"
+      [[ "${MINOR_VERSION}" == "${STABLE_VERSION}" ]] && maybe_run docker push "gcr.io/etcd-development/etcd:latest-${TARGET_ARCH}"
+      [[ "${TARGET_ARCH}" == "amd64" ]] && [[ "${MINOR_VERSION}" == "${STABLE_VERSION}" ]] && maybe_run docker push "gcr.io/etcd-development/etcd:latest"
     done
 
     log_callout "Creating manifest-list (multi-image)..."
