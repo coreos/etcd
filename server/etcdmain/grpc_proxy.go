@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -27,6 +28,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -95,6 +97,10 @@ var (
 	grpcKeepAliveMinTime  time.Duration
 	grpcKeepAliveTimeout  time.Duration
 	grpcKeepAliveInterval time.Duration
+
+	// Auth
+	grpcUser     string
+	grpcPassword string
 )
 
 const defaultGRPCMaxCallSendMsgSize = 1.5 * 1024 * 1024
@@ -158,6 +164,10 @@ func newGRPCProxyStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&grpcProxyLeasing, "experimental-leasing-prefix", "", "leasing metadata prefix for disconnected linearized reads.")
 
 	cmd.Flags().BoolVar(&grpcProxyDebug, "debug", false, "Enable debug-level logging for grpc-proxy.")
+
+	// auth for watch lostLeaderKey
+	rootCmd.PersistentFlags().StringVar(&grpcUser, "user", "", "username[:password] for authentication (prompt if password is not supplied)")
+	rootCmd.PersistentFlags().StringVar(&grpcPassword, "password", "", "password for authentication (if this option is used, --user option shouldn't include password)")
 
 	return &cmd
 }
@@ -350,6 +360,22 @@ func newClientCfg(lg *zap.Logger, eps []string) (*clientv3.Config, error) {
 		cfg.TLS = clientTLS
 		lg.Info("gRPC proxy client TLS", zap.String("tls-info", fmt.Sprintf("%+v", tls)))
 	}
+
+	if grpcUser != "" {
+		if grpcPassword == "" {
+			splitted := strings.SplitN(grpcUser, ":", 2)
+			if len(splitted) < 2 {
+				return nil, errors.New("no valid password")
+			} else {
+				cfg.Username = splitted[0]
+				cfg.Password = splitted[1]
+			}
+		} else {
+			cfg.Username = grpcUser
+			cfg.Password = grpcPassword
+		}
+	}
+
 	return &cfg, nil
 }
 

@@ -251,6 +251,10 @@ func (c *Client) Dial(ep string) (*grpc.ClientConn, error) {
 	return c.dial(creds, grpc.WithResolvers(resolver.New(ep)))
 }
 
+func (c *Client) GetToken(ctx context.Context) error {
+	return c.getToken(ctx)
+}
+
 func (c *Client) getToken(ctx context.Context) error {
 	var err error // return last error in a case of fail
 

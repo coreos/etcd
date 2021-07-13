@@ -3,6 +3,7 @@ module go.etcd.io/etcd/server/v3
 go 1.16
 
 require (
+	github.com/bgentry/speakeasy v0.1.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/dustin/go-humanize v1.0.0

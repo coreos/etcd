@@ -16,7 +16,9 @@ package grpcproxy
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"go.etcd.io/etcd/client/v3"
@@ -31,6 +33,7 @@ const (
 
 type leader struct {
 	ctx context.Context
+	c   *clientv3.Client
 	w   clientv3.Watcher
 	// mu protects leaderc updates.
 	mu       sync.RWMutex
@@ -39,10 +42,11 @@ type leader struct {
 	donec    chan struct{}
 }
 
-func newLeader(ctx context.Context, w clientv3.Watcher) *leader {
+func newLeader(ctx context.Context, c *clientv3.Client) *leader {
 	l := &leader{
 		ctx:      clientv3.WithRequireLeader(ctx),
-		w:        w,
+		c:        c,
+		w:        c.Watcher,
 		leaderc:  make(chan struct{}),
 		disconnc: make(chan struct{}),
 		donec:    make(chan struct{}),
@@ -70,6 +74,12 @@ func (l *leader) recvLoop() {
 			if clientv3.IsConnCanceled(cresp.Err()) {
 				close(l.disconnc)
 				return
+			}
+			if strings.Contains(cresp.Err().Error(), "PermissionDenied") {
+				err := l.c.GetToken(l.ctx)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
 			}
 			continue
 		}

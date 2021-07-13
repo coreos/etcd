@@ -54,7 +54,7 @@ func NewLeaseProxy(ctx context.Context, c *clientv3.Client) (pb.LeaseServer, <-c
 		leaseClient: pb.NewLeaseClient(c.ActiveConnection()),
 		lessor:      c.Lease,
 		ctx:         cctx,
-		leader:      newLeader(cctx, c.Watcher),
+		leader:      newLeader(cctx, c),
 	}
 	ch := make(chan struct{})
 	go func() {

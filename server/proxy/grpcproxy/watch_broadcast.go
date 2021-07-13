@@ -16,6 +16,7 @@ package grpcproxy
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,13 +66,46 @@ func newWatchBroadcast(lg *zap.Logger, wp *watchProxy, w *watcher, update func(*
 
 		cctx = withClientAuthToken(cctx, w.wps.stream.Context())
 
-		wch := wp.cw.Watch(cctx, w.wr.key, opts...)
-		wp.lg.Debug("watch", zap.String("key", w.wr.key))
+		var isRetry bool
 
-		for wr := range wch {
-			wb.bcast(wr)
-			update(wb)
+	OutLayer:
+		for {
+			if isRetry {
+				time.Sleep(3 * time.Second)
+			}
+
+			wch := wp.cw.Watch(cctx, w.wr.key, opts...)
+			wp.lg.Debug("watch", zap.String("key", w.wr.key))
+
+			for wr := range wch {
+				if wr.Err() != nil {
+					wp.lg.Error("wr.Err()", zap.Error(wr.Err()))
+					if clientv3.IsConnCanceled(wr.Err()) {
+						wp.lg.Error("watch IsConnCanceled", zap.Error(wr.Err()))
+						return
+					}
+					if strings.Contains(wr.Err().Error(), "PermissionDenied") {
+						err := wp.c.GetToken(cctx)
+						if err != nil {
+							wp.lg.Error("wp.c.GetToken(cctx)", zap.Error(err))
+						}
+						isRetry = true
+						continue OutLayer
+					}
+
+					wp.lg.Error("wr.Err() can't handle, terminate watch broadcast.", zap.Error(wr.Err()))
+					return
+				}
+
+				wb.bcast(wr)
+				update(wb)
+			}
+
+			wp.lg.Info("wch is closed")
+			return
 		}
+
+		wp.lg.Warn("newWatchBroadcast break out goroutine, it's should never happen!!!")
 	}()
 	return wb
 }
