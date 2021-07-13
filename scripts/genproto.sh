@@ -34,7 +34,7 @@ echo "  - grpc-gateway-root:       ${GRPC_GATEWAY_ROOT}"
 GOGOPROTO_PATH="${GOGOPROTO_ROOT}:${GOGOPROTO_ROOT}/protobuf"
 
 # directories containing protos to be built
-DIRS="./server/wal/walpb ./api/etcdserverpb ./server/etcdserver/api/snap/snappb ./raft/raftpb ./api/mvccpb ./server/lease/leasepb ./api/authpb ./server/etcdserver/api/v3lock/v3lockpb ./server/etcdserver/api/v3election/v3electionpb ./api/membershippb ./tests/functional"
+DIRS="./server/wal/walpb ./api/etcdserverpb ./server/etcdserver/api/snap/snappb ./raft/raftpb ./api/mvccpb ./server/lease/leasepb ./api/authpb ./server/etcdserver/api/v3lock/v3lockpb ./server/etcdserver/api/v3election/v3electionpb ./api/membershippb ./tests/functional ./api/versionpb"
 
 log_callout -e "\\nRunning gofast (gogo) proto generation..."
 
@@ -45,6 +45,7 @@ for dir in ${DIRS}; do
 
     run sed -i.bak -E 's|"etcd/api/|"go.etcd.io/etcd/api/v3/|g' ./**/*.pb.go
     run sed -i.bak -E 's|"raft/raftpb"|"go.etcd.io/etcd/raft/v3/raftpb"|g' ./**/*.pb.go
+    run sed -i.bak -E 's|"google/protobuf"|"github.com/gogo/protobuf/protoc-gen-gogo/descriptor"|g' ./**/*.pb.go
 
     rm -f ./**/*.bak
     run gofmt -s -w ./**/*.pb.go
