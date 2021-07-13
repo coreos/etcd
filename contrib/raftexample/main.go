@@ -26,6 +26,7 @@ func main() {
 	id := flag.Int("id", 1, "node ID")
 	kvport := flag.Int("port", 9121, "key-value server port")
 	join := flag.Bool("join", false, "join an existing cluster")
+	path := flag.String("path", "./", "storage path")
 	flag.Parse()
 
 	proposeC := make(chan string)
@@ -36,7 +37,7 @@ func main() {
 	// raft provides a commit stream for the proposals from the http api
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
-	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC)
+	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC, *path)
 
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 

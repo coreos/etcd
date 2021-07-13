@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"time"
 
@@ -85,7 +86,7 @@ var defaultSnapshotCount uint64 = 10000
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
-	confChangeC <-chan raftpb.ConfChange) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
+	confChangeC <-chan raftpb.ConfChange, storagePath string) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
 
 	commitC := make(chan *commit)
 	errorC := make(chan error)
@@ -98,8 +99,8 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		id:          id,
 		peers:       peers,
 		join:        join,
-		waldir:      fmt.Sprintf("raftexample-%d", id),
-		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
+		waldir:      path.Join(storagePath, fmt.Sprintf("raftexample-%d", id)),
+		snapdir:     path.Join(storagePath, fmt.Sprintf("raftexample-%d-snap", id)),
 		getSnapshot: getSnapshot,
 		snapCount:   defaultSnapshotCount,
 		stopc:       make(chan struct{}),
@@ -386,17 +387,16 @@ func (rc *raftNode) maybeTriggerSnapshot(applyDoneC <-chan struct{}) {
 	if err := rc.saveSnap(snap); err != nil {
 		panic(err)
 	}
-
-	compactIndex := uint64(1)
-	if rc.appliedIndex > snapshotCatchUpEntriesN {
-		compactIndex = rc.appliedIndex - snapshotCatchUpEntriesN
-	}
-	if err := rc.raftStorage.Compact(compactIndex); err != nil {
-		panic(err)
-	}
-
-	log.Printf("compacted log at index %d", compactIndex)
 	rc.snapshotIndex = rc.appliedIndex
+
+	if rc.appliedIndex > snapshotCatchUpEntriesN {
+		compactIndex := rc.appliedIndex - snapshotCatchUpEntriesN
+		if err := rc.raftStorage.Compact(compactIndex); err != nil {
+			panic(err)
+		}
+
+		log.Printf("compacted log at index %d", compactIndex)
+	}
 }
 
 func (rc *raftNode) serveChannels() {

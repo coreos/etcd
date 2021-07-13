@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ type cluster struct {
 }
 
 // newCluster creates a cluster of n nodes
-func newCluster(n int) *cluster {
+func newCluster(t *testing.T, n int) *cluster {
 	peers := make([]string, n)
 	for i := range peers {
 		peers[i] = fmt.Sprintf("http://127.0.0.1:%d", 10000+i)
@@ -67,7 +68,7 @@ func newCluster(n int) *cluster {
 		clus.confChangeC[i] = make(chan raftpb.ConfChange, 1)
 		fn, snapshotTriggeredC := getSnapshotFn()
 		clus.snapshotTriggeredC[i] = snapshotTriggeredC
-		clus.commitC[i], clus.errorC[i], _ = newRaftNode(i+1, clus.peers, false, fn, clus.proposeC[i], clus.confChangeC[i])
+		clus.commitC[i], clus.errorC[i], _ = newRaftNode(i+1, clus.peers, false, fn, clus.proposeC[i], clus.confChangeC[i], t.TempDir())
 	}
 
 	return clus
@@ -86,9 +87,6 @@ func (clus *cluster) Close() (err error) {
 		if erri := <-clus.errorC[i]; erri != nil {
 			err = erri
 		}
-		// clean intermediates
-		os.RemoveAll(fmt.Sprintf("raftexample-%d", i+1))
-		os.RemoveAll(fmt.Sprintf("raftexample-%d-snap", i+1))
 	}
 	return err
 }
@@ -104,7 +102,7 @@ func (clus *cluster) closeNoErrors(t *testing.T) {
 // TestProposeOnCommit starts three nodes and feeds commits back into the proposal
 // channel. The intent is to ensure blocking on a proposal won't block raft progress.
 func TestProposeOnCommit(t *testing.T) {
-	clus := newCluster(3)
+	clus := newCluster(t, 3)
 	defer clus.closeNoErrors(t)
 
 	donec := make(chan struct{})
@@ -141,7 +139,7 @@ func TestProposeOnCommit(t *testing.T) {
 
 // TestCloseProposerBeforeReplay tests closing the producer before raft starts.
 func TestCloseProposerBeforeReplay(t *testing.T) {
-	clus := newCluster(1)
+	clus := newCluster(t, 1)
 	// close before replay so raft never starts
 	defer clus.closeNoErrors(t)
 }
@@ -149,7 +147,7 @@ func TestCloseProposerBeforeReplay(t *testing.T) {
 // TestCloseProposerInflight tests closing the producer while
 // committed messages are being published to the client.
 func TestCloseProposerInflight(t *testing.T) {
-	clus := newCluster(1)
+	clus := newCluster(t, 1)
 	defer clus.closeNoErrors(t)
 
 	// some inflight ops
@@ -175,7 +173,7 @@ func TestPutAndGetKeyValue(t *testing.T) {
 
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
-	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC)
+	commitC, errorC, snapshotterReady := newRaftNode(1, clusters, false, getSnapshot, proposeC, confChangeC, t.TempDir())
 
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 
@@ -224,7 +222,7 @@ func TestPutAndGetKeyValue(t *testing.T) {
 
 // TestAddNewNode tests adding new node to the existing cluster.
 func TestAddNewNode(t *testing.T) {
-	clus := newCluster(3)
+	clus := newCluster(t, 3)
 	defer clus.closeNoErrors(t)
 
 	os.RemoveAll("raftexample-4")
@@ -247,7 +245,7 @@ func TestAddNewNode(t *testing.T) {
 	confChangeC := make(chan raftpb.ConfChange)
 	defer close(confChangeC)
 
-	newRaftNode(4, append(clus.peers, newNodeURL), true, nil, proposeC, confChangeC)
+	newRaftNode(4, append(clus.peers, newNodeURL), true, nil, proposeC, confChangeC, t.TempDir())
 
 	go func() {
 		proposeC <- "foo"
@@ -268,7 +266,7 @@ func TestSnapshot(t *testing.T) {
 		snapshotCatchUpEntriesN = prevSnapshotCatchUpEntriesN
 	}()
 
-	clus := newCluster(3)
+	clus := newCluster(t, 3)
 	defer clus.closeNoErrors(t)
 
 	go func() {
@@ -284,4 +282,29 @@ func TestSnapshot(t *testing.T) {
 	}
 	close(c.applyDoneC)
 	<-clus.snapshotTriggeredC[0]
+}
+
+func TestStorageCompact(t *testing.T) {
+	prevDefaultSnapshotCount := defaultSnapshotCount
+	defaultSnapshotCount = 5
+	defer func() {
+		defaultSnapshotCount = prevDefaultSnapshotCount
+	}()
+
+	proposeC := make(chan string)
+	commitC, _, _ := newRaftNode(1, []string{"http://127.0.0.1:9021"}, false,
+		func() ([]byte, error) {
+			return []byte{}, nil
+		}, proposeC, make(chan raftpb.ConfChange), t.TempDir())
+
+	entriesNum := 100
+	for i := 0; i < entriesNum; i++ {
+		proposeC <- strconv.Itoa(i)
+		for commit := range commitC {
+			if commit != nil {
+				close(commit.applyDoneC)
+				break
+			}
+		}
+	}
 }
