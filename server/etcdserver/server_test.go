@@ -1159,11 +1159,6 @@ func TestSnapshotOrdering(t *testing.T) {
 		t.Fatalf("expected file %q, got missing", snapPath)
 	}
 
-	// unblock SaveSnapshot, etcdserver now permitted to move snapshot file
-	if ac := <-p.Chan(); ac.Name != "Sync" {
-		t.Fatalf("expected Sync, got %+v", ac)
-	}
-
 	if ac := <-p.Chan(); ac.Name != "Release" {
 		t.Fatalf("expected Release, got %+v", ac)
 	}

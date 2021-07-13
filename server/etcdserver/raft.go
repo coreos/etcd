@@ -249,14 +249,6 @@ func (r *raftNode) start(rh *raftReadyHandler) {
 				// gofail: var raftAfterSave struct{}
 
 				if !raft.IsEmptySnap(rd.Snapshot) {
-					// Force WAL to fsync its hard state before Release() releases
-					// old data from the WAL. Otherwise could get an error like:
-					// panic: tocommit(107) is out of range [lastIndex(84)]. Was the raft log corrupted, truncated, or lost?
-					// See https://github.com/etcd-io/etcd/issues/10219 for more details.
-					if err := r.storage.Sync(); err != nil {
-						r.lg.Fatal("failed to sync Raft snapshot", zap.Error(err))
-					}
-
 					// etcdserver now claim the snapshot has been persisted onto the disk
 					notifyc <- struct{}{}
 
