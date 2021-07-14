@@ -43,6 +43,12 @@ type etcdProcess interface {
 	Close() error
 	WithStopSignal(sig os.Signal) os.Signal
 	Config() *etcdServerProcessConfig
+
+	Logs() logsExpect
+}
+
+type logsExpect interface {
+	Expect(string) (string, error)
 }
 
 type etcdServerProcess struct {
@@ -163,3 +169,10 @@ func (ep *etcdServerProcess) waitReady() error {
 }
 
 func (ep *etcdServerProcess) Config() *etcdServerProcessConfig { return ep.cfg }
+
+func (ep *etcdServerProcess) Logs() logsExpect {
+	if ep.proc == nil {
+		ep.cfg.lg.Panic("Please grap logs before process is stopped")
+	}
+	return ep.proc
+}

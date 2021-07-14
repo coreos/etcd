@@ -1130,6 +1130,7 @@ func (s *EtcdServer) run() {
 	}
 
 	defer func() {
+		s.triggerSnapshot(&ep)
 		s.wgMu.Lock() // block concurrent waitgroup adds in GoAttach while stopping
 		close(s.stopping)
 		s.wgMu.Unlock()
@@ -1236,7 +1237,9 @@ func (s *EtcdServer) applyAll(ep *etcdProgress, apply *apply) {
 	// storage, since the raft routine might be slower than apply routine.
 	<-apply.notifyc
 
-	s.triggerSnapshot(ep)
+	if ep.appliedi-ep.snapi > s.Cfg.SnapshotCount {
+		s.triggerSnapshot(ep)
+	}
 	select {
 	// snapshot requested via send()
 	case m := <-s.r.msgSnapC:
@@ -1410,10 +1413,6 @@ func (s *EtcdServer) applyEntries(ep *etcdProgress, apply *apply) {
 }
 
 func (s *EtcdServer) triggerSnapshot(ep *etcdProgress) {
-	if ep.appliedi-ep.snapi <= s.Cfg.SnapshotCount {
-		return
-	}
-
 	lg := s.Logger()
 	lg.Info(
 		"triggering snapshot",
