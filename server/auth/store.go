@@ -28,8 +28,8 @@ import (
 	"go.etcd.io/etcd/api/v3/authpb"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -225,7 +225,7 @@ func (as *authStore) AuthEnable() error {
 		b.ForceCommit()
 	}()
 
-	u := buckets.UnsafeGetUser(as.lg, tx, rootUser)
+	u := schema.UnsafeGetUser(as.lg, tx, rootUser)
 	if u == nil {
 		return ErrRootUserNotExist
 	}
@@ -234,7 +234,7 @@ func (as *authStore) AuthEnable() error {
 		return ErrRootRoleNotExist
 	}
 
-	buckets.UnsafeSaveAuthEnabled(tx, true)
+	schema.UnsafeSaveAuthEnabled(tx, true)
 
 	as.enabled = true
 	as.tokenProvider.enable()
@@ -256,7 +256,7 @@ func (as *authStore) AuthDisable() {
 	b := as.be
 	tx := b.BatchTx()
 	tx.Lock()
-	buckets.UnsafeSaveAuthEnabled(tx, false)
+	schema.UnsafeSaveAuthEnabled(tx, false)
 	as.commitRevision(tx)
 	tx.Unlock()
 	b.ForceCommit()
@@ -286,7 +286,7 @@ func (as *authStore) Authenticate(ctx context.Context, username, password string
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, username)
+	user := schema.UnsafeGetUser(as.lg, tx, username)
 	if user == nil {
 		return nil, ErrAuthFailed
 	}
@@ -324,7 +324,7 @@ func (as *authStore) CheckPassword(username, password string) (uint64, error) {
 		tx.Lock()
 		defer tx.Unlock()
 
-		user = buckets.UnsafeGetUser(as.lg, tx, username)
+		user = schema.UnsafeGetUser(as.lg, tx, username)
 		if user == nil {
 			return 0, ErrAuthFailed
 		}
@@ -351,7 +351,7 @@ func (as *authStore) Recover(be backend.Backend) {
 	tx := be.BatchTx()
 	tx.Lock()
 
-	enabled := buckets.UnsafeReadAuthEnabled(tx)
+	enabled := schema.UnsafeReadAuthEnabled(tx)
 	as.setRevision(getRevision(tx))
 
 	tx.Unlock()
@@ -381,7 +381,7 @@ func (as *authStore) UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse,
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, r.Name)
+	user := schema.UnsafeGetUser(as.lg, tx, r.Name)
 	if user != nil {
 		return nil, ErrUserAlreadyExist
 	}
@@ -409,7 +409,7 @@ func (as *authStore) UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse,
 		Options:  options,
 	}
 
-	buckets.UnsafePutUser(as.lg, tx, newUser)
+	schema.UnsafePutUser(as.lg, tx, newUser)
 
 	as.commitRevision(tx)
 
@@ -427,12 +427,12 @@ func (as *authStore) UserDelete(r *pb.AuthUserDeleteRequest) (*pb.AuthUserDelete
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, r.Name)
+	user := schema.UnsafeGetUser(as.lg, tx, r.Name)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
-	buckets.UnsafeDeleteUser(tx, r.Name)
+	schema.UnsafeDeleteUser(tx, r.Name)
 
 	as.commitRevision(tx)
 
@@ -452,7 +452,7 @@ func (as *authStore) UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*p
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, r.Name)
+	user := schema.UnsafeGetUser(as.lg, tx, r.Name)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
@@ -474,7 +474,7 @@ func (as *authStore) UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*p
 		Options:  user.Options,
 	}
 
-	buckets.UnsafePutUser(as.lg, tx, updatedUser)
+	schema.UnsafePutUser(as.lg, tx, updatedUser)
 
 	as.commitRevision(tx)
 
@@ -494,13 +494,13 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, r.User)
+	user := schema.UnsafeGetUser(as.lg, tx, r.User)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
 	if r.Role != rootRole {
-		role := buckets.UnsafeGetRole(as.lg, tx, r.Role)
+		role := schema.UnsafeGetRole(as.lg, tx, r.Role)
 		if role == nil {
 			return nil, ErrRoleNotFound
 		}
@@ -520,7 +520,7 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 	user.Roles = append(user.Roles, r.Role)
 	sort.Strings(user.Roles)
 
-	buckets.UnsafePutUser(as.lg, tx, user)
+	schema.UnsafePutUser(as.lg, tx, user)
 
 	as.invalidateCachedPerm(r.User)
 
@@ -538,7 +538,7 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 func (as *authStore) UserGet(r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
-	user := buckets.UnsafeGetUser(as.lg, tx, r.Name)
+	user := schema.UnsafeGetUser(as.lg, tx, r.Name)
 	tx.Unlock()
 
 	if user == nil {
@@ -553,7 +553,7 @@ func (as *authStore) UserGet(r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse,
 func (as *authStore) UserList(r *pb.AuthUserListRequest) (*pb.AuthUserListResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
-	users := buckets.UnsafeGetAllUsers(as.lg, tx)
+	users := schema.UnsafeGetAllUsers(as.lg, tx)
 	tx.Unlock()
 
 	resp := &pb.AuthUserListResponse{Users: make([]string, len(users))}
@@ -577,7 +577,7 @@ func (as *authStore) UserRevokeRole(r *pb.AuthUserRevokeRoleRequest) (*pb.AuthUs
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, r.Name)
+	user := schema.UnsafeGetUser(as.lg, tx, r.Name)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
@@ -598,7 +598,7 @@ func (as *authStore) UserRevokeRole(r *pb.AuthUserRevokeRoleRequest) (*pb.AuthUs
 		return nil, ErrRoleNotGranted
 	}
 
-	buckets.UnsafePutUser(as.lg, tx, updatedUser)
+	schema.UnsafePutUser(as.lg, tx, updatedUser)
 
 	as.invalidateCachedPerm(r.Name)
 
@@ -621,7 +621,7 @@ func (as *authStore) RoleGet(r *pb.AuthRoleGetRequest) (*pb.AuthRoleGetResponse,
 
 	var resp pb.AuthRoleGetResponse
 
-	role := buckets.UnsafeGetRole(as.lg, tx, r.Role)
+	role := schema.UnsafeGetRole(as.lg, tx, r.Role)
 	if role == nil {
 		return nil, ErrRoleNotFound
 	}
@@ -636,7 +636,7 @@ func (as *authStore) RoleGet(r *pb.AuthRoleGetRequest) (*pb.AuthRoleGetResponse,
 func (as *authStore) RoleList(r *pb.AuthRoleListRequest) (*pb.AuthRoleListResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
-	roles := buckets.UnsafeGetAllRoles(as.lg, tx)
+	roles := schema.UnsafeGetAllRoles(as.lg, tx)
 	tx.Unlock()
 
 	resp := &pb.AuthRoleListResponse{Roles: make([]string, len(roles))}
@@ -651,7 +651,7 @@ func (as *authStore) RoleRevokePermission(r *pb.AuthRoleRevokePermissionRequest)
 	tx.Lock()
 	defer tx.Unlock()
 
-	role := buckets.UnsafeGetRole(as.lg, tx, r.Role)
+	role := schema.UnsafeGetRole(as.lg, tx, r.Role)
 	if role == nil {
 		return nil, ErrRoleNotFound
 	}
@@ -670,7 +670,7 @@ func (as *authStore) RoleRevokePermission(r *pb.AuthRoleRevokePermissionRequest)
 		return nil, ErrPermissionNotGranted
 	}
 
-	buckets.UnsafePutRole(as.lg, tx, updatedRole)
+	schema.UnsafePutRole(as.lg, tx, updatedRole)
 
 	// TODO(mitake): currently single role update invalidates every cache
 	// It should be optimized.
@@ -697,14 +697,14 @@ func (as *authStore) RoleDelete(r *pb.AuthRoleDeleteRequest) (*pb.AuthRoleDelete
 	tx.Lock()
 	defer tx.Unlock()
 
-	role := buckets.UnsafeGetRole(as.lg, tx, r.Role)
+	role := schema.UnsafeGetRole(as.lg, tx, r.Role)
 	if role == nil {
 		return nil, ErrRoleNotFound
 	}
 
-	buckets.UnsafeDeleteRole(tx, r.Role)
+	schema.UnsafeDeleteRole(tx, r.Role)
 
-	users := buckets.UnsafeGetAllUsers(as.lg, tx)
+	users := schema.UnsafeGetAllUsers(as.lg, tx)
 	for _, user := range users {
 		updatedUser := &authpb.User{
 			Name:     user.Name,
@@ -722,7 +722,7 @@ func (as *authStore) RoleDelete(r *pb.AuthRoleDeleteRequest) (*pb.AuthRoleDelete
 			continue
 		}
 
-		buckets.UnsafePutUser(as.lg, tx, updatedUser)
+		schema.UnsafePutUser(as.lg, tx, updatedUser)
 
 		as.invalidateCachedPerm(string(user.Name))
 	}
@@ -742,7 +742,7 @@ func (as *authStore) RoleAdd(r *pb.AuthRoleAddRequest) (*pb.AuthRoleAddResponse,
 	tx.Lock()
 	defer tx.Unlock()
 
-	role := buckets.UnsafeGetRole(as.lg, tx, r.Name)
+	role := schema.UnsafeGetRole(as.lg, tx, r.Name)
 	if role != nil {
 		return nil, ErrRoleAlreadyExist
 	}
@@ -751,7 +751,7 @@ func (as *authStore) RoleAdd(r *pb.AuthRoleAddRequest) (*pb.AuthRoleAddResponse,
 		Name: []byte(r.Name),
 	}
 
-	buckets.UnsafePutRole(as.lg, tx, newRole)
+	schema.UnsafePutRole(as.lg, tx, newRole)
 
 	as.commitRevision(tx)
 
@@ -786,7 +786,7 @@ func (as *authStore) RoleGrantPermission(r *pb.AuthRoleGrantPermissionRequest) (
 	tx.Lock()
 	defer tx.Unlock()
 
-	role := buckets.UnsafeGetRole(as.lg, tx, r.Name)
+	role := schema.UnsafeGetRole(as.lg, tx, r.Name)
 	if role == nil {
 		return nil, ErrRoleNotFound
 	}
@@ -810,7 +810,7 @@ func (as *authStore) RoleGrantPermission(r *pb.AuthRoleGrantPermissionRequest) (
 		sort.Sort(permSlice(role.KeyPermission))
 	}
 
-	buckets.UnsafePutRole(as.lg, tx, role)
+	schema.UnsafePutRole(as.lg, tx, role)
 
 	// TODO(mitake): currently single role update invalidates every cache
 	// It should be optimized.
@@ -850,7 +850,7 @@ func (as *authStore) isOpPermitted(userName string, revision uint64, key, rangeE
 	tx.Lock()
 	defer tx.Unlock()
 
-	user := buckets.UnsafeGetUser(as.lg, tx, userName)
+	user := schema.UnsafeGetUser(as.lg, tx, userName)
 	if user == nil {
 		as.lg.Error("cannot find a user for permission check", zap.String("user-name", userName))
 		return ErrPermissionDenied
@@ -890,7 +890,7 @@ func (as *authStore) IsAdminPermitted(authInfo *AuthInfo) error {
 
 	tx := as.be.BatchTx()
 	tx.Lock()
-	u := buckets.UnsafeGetUser(as.lg, tx, authInfo.Username)
+	u := schema.UnsafeGetUser(as.lg, tx, authInfo.Username)
 	tx.Unlock()
 
 	if u == nil {
@@ -930,11 +930,11 @@ func NewAuthStore(lg *zap.Logger, be backend.Backend, tp TokenProvider, bcryptCo
 	tx := be.BatchTx()
 	tx.Lock()
 
-	buckets.UnsafeCreateAuthBucket(tx)
-	tx.UnsafeCreateBucket(buckets.AuthUsers)
-	tx.UnsafeCreateBucket(buckets.AuthRoles)
+	schema.UnsafeCreateAuthBucket(tx)
+	tx.UnsafeCreateBucket(schema.AuthUsers)
+	tx.UnsafeCreateBucket(schema.AuthRoles)
 
-	enabled := buckets.UnsafeReadAuthEnabled(tx)
+	enabled := schema.UnsafeReadAuthEnabled(tx)
 
 	as := &authStore{
 		revision:       getRevision(tx),
@@ -970,11 +970,11 @@ func hasRootRole(u *authpb.User) bool {
 
 func (as *authStore) commitRevision(tx backend.BatchTx) {
 	atomic.AddUint64(&as.revision, 1)
-	buckets.UnsafeSaveAuthRevision(tx, as.Revision())
+	schema.UnsafeSaveAuthRevision(tx, as.Revision())
 }
 
 func getRevision(tx backend.BatchTx) uint64 {
-	return buckets.UnsafeReadAuthRevision(tx)
+	return schema.UnsafeReadAuthRevision(tx)
 }
 
 func (as *authStore) setRevision(rev uint64) {
@@ -1169,7 +1169,7 @@ func (as *authStore) WithRoot(ctx context.Context) context.Context {
 func (as *authStore) HasRole(user, role string) bool {
 	tx := as.be.BatchTx()
 	tx.Lock()
-	u := buckets.UnsafeGetUser(as.lg, tx, user)
+	u := schema.UnsafeGetUser(as.lg, tx, user)
 	tx.Unlock()
 
 	if u == nil {

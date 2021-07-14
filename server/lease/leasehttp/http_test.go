@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"go.etcd.io/etcd/server/v3/lease"
-	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
+	betesting "go.etcd.io/etcd/server/v3/storage/backend/testing"
 	"go.uber.org/zap/zaptest"
 )
 

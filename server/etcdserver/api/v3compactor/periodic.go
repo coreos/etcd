@@ -20,7 +20,7 @@ import (
 	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/server/v3/mvcc"
+	"go.etcd.io/etcd/server/v3/storage/mvcc"
 
 	"github.com/jonboulle/clockwork"
 	"go.uber.org/zap"

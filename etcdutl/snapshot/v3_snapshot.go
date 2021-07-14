@@ -40,8 +40,8 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v2store"
 	"go.etcd.io/etcd/server/v3/etcdserver/cindex"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 	"go.etcd.io/etcd/server/v3/verify"
 	"go.etcd.io/etcd/server/v3/wal"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
@@ -136,7 +136,7 @@ func (s *v3Manager) Status(dbPath string) (ds Status, err error) {
 			return fmt.Errorf("snapshot file integrity check failed. %d errors found.\n"+strings.Join(dbErrStrings, "\n"), len(dbErrStrings))
 		}
 		ds.TotalSize = tx.Size()
-		v := buckets.ReadStorageVersionFromSnapshot(tx)
+		v := schema.ReadStorageVersionFromSnapshot(tx)
 		if v != nil {
 			ds.Version = v.String()
 		}
@@ -306,7 +306,7 @@ func (s *v3Manager) saveDB() error {
 	be := backend.NewDefaultBackend(s.outDbPath())
 	defer be.Close()
 
-	err = buckets.NewMembershipStore(s.lg, be).TrimMembershipFromBackend()
+	err = schema.NewMembershipStore(s.lg, be).TrimMembershipFromBackend()
 	if err != nil {
 		return err
 	}
@@ -403,7 +403,7 @@ func (s *v3Manager) saveWALAndSnap() (*raftpb.HardState, error) {
 	s.cl.SetStore(st)
 	be := backend.NewDefaultBackend(s.outDbPath())
 	defer be.Close()
-	s.cl.SetBackend(buckets.NewMembershipStore(s.lg, be))
+	s.cl.SetBackend(schema.NewMembershipStore(s.lg, be))
 	for _, m := range s.cl.Members() {
 		s.cl.AddMember(m, true)
 	}

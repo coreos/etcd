@@ -22,8 +22,8 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/config"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 
 	"go.uber.org/zap"
 )
@@ -99,7 +99,7 @@ func openBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 func recoverSnapshotBackend(cfg config.ServerConfig, oldbe backend.Backend, snapshot raftpb.Snapshot, beExist bool, hooks backend.Hooks) (backend.Backend, error) {
 	consistentIndex := uint64(0)
 	if beExist {
-		consistentIndex, _ = buckets.ReadConsistentIndex(oldbe.BatchTx())
+		consistentIndex, _ = schema.ReadConsistentIndex(oldbe.BatchTx())
 	}
 	if snapshot.Metadata.Index <= consistentIndex {
 		return oldbe, nil

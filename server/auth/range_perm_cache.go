@@ -17,14 +17,14 @@ package auth
 import (
 	"go.etcd.io/etcd/api/v3/authpb"
 	"go.etcd.io/etcd/pkg/v3/adt"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 
 	"go.uber.org/zap"
 )
 
 func getMergedPerms(lg *zap.Logger, tx backend.BatchTx, userName string) *unifiedRangePermissions {
-	user := buckets.UnsafeGetUser(lg, tx, userName)
+	user := schema.UnsafeGetUser(lg, tx, userName)
 	if user == nil {
 		return nil
 	}
@@ -33,7 +33,7 @@ func getMergedPerms(lg *zap.Logger, tx backend.BatchTx, userName string) *unifie
 	writePerms := adt.NewIntervalTree()
 
 	for _, roleName := range user.Roles {
-		role := buckets.UnsafeGetRole(lg, tx, roleName)
+		role := schema.UnsafeGetRole(lg, tx, roleName)
 		if role == nil {
 			continue
 		}

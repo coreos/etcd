@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	betesting "go.etcd.io/etcd/server/v3/storage/backend/testing"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 )
 
 // TestConsistentIndex ensures that LoadConsistentIndex/Save/ConsistentIndex and backend.BatchTx can work well together.
@@ -37,7 +37,7 @@ func TestConsistentIndex(t *testing.T) {
 	}
 	tx.Lock()
 
-	buckets.UnsafeCreateMetaBucket(tx)
+	schema.UnsafeCreateMetaBucket(tx)
 	tx.Unlock()
 	be.ForceCommit()
 	r := uint64(7890123)

@@ -18,8 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 )
 
 type Backend interface {
@@ -73,7 +73,7 @@ func (ci *consistentIndex) ConsistentIndex() uint64 {
 	ci.mutex.Lock()
 	defer ci.mutex.Unlock()
 
-	v, term := buckets.ReadConsistentIndex(ci.be.BatchTx())
+	v, term := schema.ReadConsistentIndex(ci.be.BatchTx())
 	ci.SetConsistentIndex(v, term)
 	return v
 }
@@ -86,7 +86,7 @@ func (ci *consistentIndex) SetConsistentIndex(v uint64, term uint64) {
 func (ci *consistentIndex) UnsafeSave(tx backend.BatchTx) {
 	index := atomic.LoadUint64(&ci.consistentIndex)
 	term := atomic.LoadUint64(&ci.term)
-	buckets.UnsafeUpdateConsistentIndex(tx, index, term, true)
+	schema.UnsafeUpdateConsistentIndex(tx, index, term, true)
 }
 
 func (ci *consistentIndex) SetBackend(be Backend) {
@@ -119,5 +119,5 @@ func (f *fakeConsistentIndex) SetBackend(_ Backend)         {}
 func UpdateConsistentIndex(tx backend.BatchTx, index uint64, term uint64, onlyGrow bool) {
 	tx.Lock()
 	defer tx.Unlock()
-	buckets.UnsafeUpdateConsistentIndex(tx, index, term, onlyGrow)
+	schema.UnsafeUpdateConsistentIndex(tx, index, term, onlyGrow)
 }

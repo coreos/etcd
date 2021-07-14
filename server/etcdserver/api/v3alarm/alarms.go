@@ -20,8 +20,8 @@ import (
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 
 	"go.uber.org/zap"
 )
@@ -59,7 +59,7 @@ func (a *AlarmStore) Activate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 		return m
 	}
 
-	buckets.MustPutAlarm(a.lg, a.bg.Backend().BatchTx(), newAlarm)
+	schema.MustPutAlarm(a.lg, a.bg.Backend().BatchTx(), newAlarm)
 	return newAlarm
 }
 
@@ -79,7 +79,7 @@ func (a *AlarmStore) Deactivate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 
 	delete(t, id)
 
-	buckets.MustDeleteAlarm(a.lg, a.bg.Backend().BatchTx(), m)
+	schema.MustDeleteAlarm(a.lg, a.bg.Backend().BatchTx(), m)
 	return m
 }
 
@@ -105,8 +105,8 @@ func (a *AlarmStore) restore() error {
 	tx := b.BatchTx()
 
 	tx.Lock()
-	buckets.UnsafeCreateAlarmBucket(tx)
-	ms, err := buckets.UnsafeGetAllAlarms(tx)
+	schema.UnsafeCreateAlarmBucket(tx)
+	ms, err := schema.UnsafeGetAllAlarms(tx)
 	tx.Unlock()
 	if err != nil {
 		return err

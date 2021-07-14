@@ -26,8 +26,8 @@ import (
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/server/v3/lease/leasepb"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
+	"go.etcd.io/etcd/server/v3/storage/backend"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 	"go.uber.org/zap"
 )
 
@@ -336,7 +336,7 @@ func (le *lessor) Revoke(id LeaseID) error {
 	// lease deletion needs to be in the same backend transaction with the
 	// kv deletion. Or we might end up with not executing the revoke or not
 	// deleting the keys if etcdserver fails in between.
-	buckets.UnsafeDeleteLease(le.b.BatchTx(), &leasepb.Lease{ID: int64(l.ID)})
+	schema.UnsafeDeleteLease(le.b.BatchTx(), &leasepb.Lease{ID: int64(l.ID)})
 
 	txn.End()
 
@@ -770,8 +770,8 @@ func (le *lessor) initAndRecover() {
 	tx := le.b.BatchTx()
 
 	tx.Lock()
-	buckets.UnsafeCreateLeaseBucket(tx)
-	lpbs := buckets.MustUnsafeGetAllLeases(tx)
+	schema.UnsafeCreateLeaseBucket(tx)
+	lpbs := schema.MustUnsafeGetAllLeases(tx)
 	tx.Unlock()
 	for _, lpb := range lpbs {
 		ID := LeaseID(lpb.ID)
@@ -818,7 +818,7 @@ func (l *Lease) persistTo(b backend.Backend) {
 	tx := b.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
-	buckets.MustUnsafePutLease(tx, &lpb)
+	schema.MustUnsafePutLease(tx, &lpb)
 }
 
 // TTL returns the TTL of the Lease.

@@ -29,10 +29,8 @@ import (
 	"go.etcd.io/etcd/pkg/v3/pbutil"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
-	"go.etcd.io/etcd/server/v3/config"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/rafthttp"
-	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.uber.org/zap"
 )
 
@@ -416,134 +414,6 @@ func (r *raftNode) advanceTicks(ticks int) {
 	for i := 0; i < ticks; i++ {
 		r.tick()
 	}
-}
-
-func bootstrapRaftFromCluster(cfg config.ServerConfig, cl *membership.RaftCluster, ids []types.ID) *bootstrappedRaft {
-	member := cl.MemberByName(cfg.Name)
-	id := member.ID
-	wal := bootstrapNewWAL(cfg, id, cl.ID())
-	peers := make([]raft.Peer, len(ids))
-	for i, id := range ids {
-		var ctx []byte
-		ctx, err := json.Marshal((*cl).Member(id))
-		if err != nil {
-			cfg.Logger.Panic("failed to marshal member", zap.Error(err))
-		}
-		peers[i] = raft.Peer{ID: uint64(id), Context: ctx}
-	}
-	cfg.Logger.Info(
-		"starting local member",
-		zap.String("local-member-id", id.String()),
-		zap.String("cluster-id", cl.ID().String()),
-	)
-	s := wal.MemoryStorage()
-	return &bootstrappedRaft{
-		lg:        cfg.Logger,
-		heartbeat: time.Duration(cfg.TickMs) * time.Millisecond,
-		cl:        cl,
-		config:    raftConfig(cfg, uint64(wal.id), s),
-		peers:     peers,
-		storage:   s,
-		wal:       wal,
-	}
-}
-
-func bootstrapRaftFromWal(cfg config.ServerConfig, snapshot *raftpb.Snapshot) *bootstrappedRaft {
-	wal := bootstrapWALFromSnapshot(cfg.Logger, cfg.WALDir(), snapshot, cfg.UnsafeNoFsync)
-
-	cfg.Logger.Info(
-		"restarting local member",
-		zap.String("cluster-id", wal.cid.String()),
-		zap.String("local-member-id", wal.id.String()),
-		zap.Uint64("commit-index", wal.st.Commit),
-	)
-	cl := membership.NewCluster(cfg.Logger)
-	cl.SetID(wal.id, wal.cid)
-	s := wal.MemoryStorage()
-	return &bootstrappedRaft{
-		lg:        cfg.Logger,
-		heartbeat: time.Duration(cfg.TickMs) * time.Millisecond,
-		cl:        cl,
-		config:    raftConfig(cfg, uint64(wal.id), s),
-		storage:   s,
-		wal:       wal,
-	}
-}
-
-func bootstrapRaftFromWalStandalone(cfg config.ServerConfig, snapshot *raftpb.Snapshot) *bootstrappedRaft {
-	wal := bootstrapWALFromSnapshot(cfg.Logger, cfg.WALDir(), snapshot, cfg.UnsafeNoFsync)
-
-	// discard the previously uncommitted entries
-	wal.ents = wal.CommitedEntries()
-	entries := wal.ConfigChangeEntries()
-	// force commit config change entries
-	wal.AppendAndCommitEntries(entries)
-
-	cfg.Logger.Info(
-		"forcing restart member",
-		zap.String("cluster-id", wal.cid.String()),
-		zap.String("local-member-id", wal.id.String()),
-		zap.Uint64("commit-index", wal.st.Commit),
-	)
-
-	cl := membership.NewCluster(cfg.Logger)
-	cl.SetID(wal.id, wal.cid)
-	s := wal.MemoryStorage()
-	return &bootstrappedRaft{
-		lg:        cfg.Logger,
-		heartbeat: time.Duration(cfg.TickMs) * time.Millisecond,
-		cl:        cl,
-		config:    raftConfig(cfg, uint64(wal.id), s),
-		storage:   s,
-		wal:       wal,
-	}
-}
-
-func raftConfig(cfg config.ServerConfig, id uint64, s *raft.MemoryStorage) *raft.Config {
-	return &raft.Config{
-		ID:              id,
-		ElectionTick:    cfg.ElectionTicks,
-		HeartbeatTick:   1,
-		Storage:         s,
-		MaxSizePerMsg:   maxSizePerMsg,
-		MaxInflightMsgs: maxInflightMsgs,
-		CheckQuorum:     true,
-		PreVote:         cfg.PreVote,
-		Logger:          NewRaftLoggerZap(cfg.Logger.Named("raft")),
-	}
-}
-
-type bootstrappedRaft struct {
-	lg        *zap.Logger
-	heartbeat time.Duration
-
-	peers   []raft.Peer
-	config  *raft.Config
-	cl      *membership.RaftCluster
-	storage *raft.MemoryStorage
-	wal     *bootstrappedWAL
-}
-
-func (b *bootstrappedRaft) newRaftNode(ss *snap.Snapshotter) *raftNode {
-	var n raft.Node
-	if len(b.peers) == 0 {
-		n = raft.RestartNode(b.config)
-	} else {
-		n = raft.StartNode(b.config, b.peers)
-	}
-	raftStatusMu.Lock()
-	raftStatus = n.Status
-	raftStatusMu.Unlock()
-	return newRaftNode(
-		raftNodeConfig{
-			lg:          b.lg,
-			isIDRemoved: func(id uint64) bool { return b.cl.IsIDRemoved(types.ID(id)) },
-			Node:        n,
-			heartbeat:   b.heartbeat,
-			raftStorage: b.storage,
-			storage:     NewStorage(b.wal.w, ss),
-		},
-	)
 }
 
 // getIDs returns an ordered set of IDs included in the given snapshot and
