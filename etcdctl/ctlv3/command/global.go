@@ -27,7 +27,7 @@ import (
 	"github.com/bgentry/speakeasy"
 	"go.etcd.io/etcd/client/pkg/v3/srv"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/pkg/v3/cobrautl"
 	"go.etcd.io/etcd/pkg/v3/flags"
 
@@ -58,7 +58,8 @@ type GlobalFlags struct {
 	User     string
 	Password string
 
-	Debug bool
+	Debug      bool
+	ConfigFile string
 }
 
 type secureCfg struct {
