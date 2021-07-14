@@ -20,7 +20,6 @@ import (
 
 	"github.com/coreos/go-semver/semver"
 	"github.com/stretchr/testify/assert"
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/mvcc/backend"
 	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
@@ -28,53 +27,86 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	V3_4 = semver.Version{Major: 3, Minor: 4}
+	V3_7 = semver.Version{Major: 3, Minor: 7}
+)
+
 func TestUpdateStorageVersion(t *testing.T) {
 	tcs := []struct {
-		name             string
-		version          string
-		metaKeys         [][]byte
-		expectVersion    *semver.Version
-		expectError      bool
-		expectedErrorMsg string
+		name            string
+		storageVersion  *semver.Version
+		storageMetaKeys [][]byte
+
+		targetVersion *semver.Version
+
+		expectVersion  *semver.Version
+		expectError    bool
+		expectErrorMsg string
+		expectPanic    bool
 	}{
 		{
-			name:             `Backend before 3.6 without "confState" should be rejected`,
-			version:          "",
-			expectVersion:    nil,
-			expectError:      true,
-			expectedErrorMsg: `cannot determine storage version: missing "confState" key`,
+			name:           `Upgrading v3.5 to v3.6 should be rejected if confstate is not set`,
+			storageVersion: nil,
+			targetVersion:  &V3_6,
+			expectVersion:  nil,
+			expectError:    true,
+			expectErrorMsg: `cannot determine storage version: missing "confState" key`,
 		},
 		{
-			name:             `Backend before 3.6 without "term" should be rejected`,
-			version:          "",
-			metaKeys:         [][]byte{buckets.MetaConfStateName},
-			expectVersion:    nil,
-			expectError:      true,
-			expectedErrorMsg: `cannot determine storage version: missing "term" key`,
+			name:            `Upgrading v3.5 to v3.6 should be rejected if term is not set`,
+			storageVersion:  nil,
+			storageMetaKeys: [][]byte{buckets.MetaConfStateName},
+			targetVersion:   &V3_6,
+			expectVersion:   nil,
+			expectError:     true,
+			expectErrorMsg:  `cannot determine storage version: missing "term" key`,
 		},
 		{
-			name:          "Backend with 3.5 with all metadata keys should be upgraded to v3.6",
-			version:       "",
-			metaKeys:      [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName},
-			expectVersion: &semver.Version{Major: 3, Minor: 6},
+			name:            `Upgrading v3.5 to v3.6 should be succeed all required fields are set`,
+			storageVersion:  nil,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName},
+			targetVersion:   &V3_6,
+			expectVersion:   &V3_6,
 		},
 		{
-			name:          "Backend in 3.6.0 should be skipped",
-			version:       "3.6.0",
-			metaKeys:      [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName},
-			expectVersion: &semver.Version{Major: 3, Minor: 6},
+			name:            `Migrate on same v3.6 version should be an no-op`,
+			storageVersion:  &V3_6,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName},
+			targetVersion:   &V3_6,
+			expectVersion:   &V3_6,
 		},
 		{
-			name:          "Backend with current version should be skipped",
-			version:       version.Version,
-			metaKeys:      [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName},
-			expectVersion: &semver.Version{Major: 3, Minor: 6},
+			name:            "Upgrading 3.6 to v3.7 is not supported",
+			storageVersion:  &V3_6,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName},
+			targetVersion:   &V3_7,
+			expectVersion:   &V3_6,
+			expectPanic:     true,
 		},
 		{
-			name:          "Backend in 3.7.0 should be skipped",
-			version:       "3.7.0",
-			metaKeys:      [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName, []byte("future-key")},
-			expectVersion: &semver.Version{Major: 3, Minor: 7},
+			name:            "Downgrading v3.7 to v3.6 is not supported",
+			storageVersion:  &V3_7,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName, []byte("future-key")},
+			targetVersion:   &V3_6,
+			expectVersion:   &V3_7,
+			expectPanic:     true,
+		},
+		{
+			name:            "Downgrading v3.6 to v3.5 is not supported",
+			storageVersion:  &V3_6,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName, buckets.MetaStorageVersionName},
+			targetVersion:   &V3_5,
+			expectVersion:   &V3_6,
+			expectPanic:     true,
+		},
+		{
+			name:            "Downgrading v3.5 to v3.4 is not supported",
+			storageVersion:  nil,
+			storageMetaKeys: [][]byte{buckets.MetaTermKeyName, buckets.MetaConfStateName},
+			targetVersion:   &V3_4,
+			expectVersion:   nil,
+			expectPanic:     true,
 		},
 	}
 	for _, tc := range tcs {
@@ -87,7 +119,7 @@ func TestUpdateStorageVersion(t *testing.T) {
 			}
 			tx.Lock()
 			buckets.UnsafeCreateMetaBucket(tx)
-			for _, k := range tc.metaKeys {
+			for _, k := range tc.storageMetaKeys {
 				switch string(k) {
 				case string(buckets.MetaConfStateName):
 					buckets.MustUnsafeSaveConfStateToBackend(lg, tx, &raftpb.ConfState{})
@@ -97,8 +129,8 @@ func TestUpdateStorageVersion(t *testing.T) {
 					tx.UnsafePut(buckets.Meta, k, []byte{})
 				}
 			}
-			if tc.version != "" {
-				buckets.UnsafeSetStorageVersion(tx, semver.New(tc.version))
+			if tc.storageVersion != nil {
+				buckets.UnsafeSetStorageVersion(tx, tc.storageVersion)
 			}
 			tx.Unlock()
 			be.ForceCommit()
@@ -106,15 +138,26 @@ func TestUpdateStorageVersion(t *testing.T) {
 
 			b := backend.NewDefaultBackend(tmpPath)
 			defer b.Close()
-			err := UpdateStorageVersion(lg, b.BatchTx())
+			paniced, err := tryMigrate(lg, b.BatchTx(), *tc.targetVersion)
 			if (err != nil) != tc.expectError {
-				t.Errorf("UpgradeStorage(...) = %+v, expected error: %v", err, tc.expectError)
+				t.Errorf("Migrate(lg, tx, %q) = %+v, expected error: %v", tc.targetVersion, err, tc.expectError)
 			}
-			if err != nil && err.Error() != tc.expectedErrorMsg {
-				t.Errorf("UpgradeStorage(...) = %q, expected error message: %q", err, tc.expectedErrorMsg)
+			if err != nil && err.Error() != tc.expectErrorMsg {
+				t.Errorf("Migrate(lg, tx, %q) = %q, expected error message: %q", tc.targetVersion, err, tc.expectErrorMsg)
 			}
 			v := buckets.UnsafeReadStorageVersion(b.BatchTx())
 			assert.Equal(t, tc.expectVersion, v)
+			if (paniced != nil) != tc.expectPanic {
+				t.Errorf("Migrate(lg, tx, %q) panic=%q, expected %v", tc.targetVersion, paniced, tc.expectPanic)
+			}
 		})
 	}
+}
+
+func tryMigrate(lg *zap.Logger, be backend.BatchTx, target semver.Version) (panic interface{}, err error) {
+	defer func() {
+		panic = recover()
+	}()
+	err = Migrate(lg, be, target)
+	return panic, err
 }
