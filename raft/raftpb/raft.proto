@@ -2,6 +2,7 @@ syntax = "proto2";
 package raftpb;
 
 import "gogoproto/gogo.proto";
+import "etcd/api/versionpb/version.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
@@ -13,12 +14,16 @@ option (gogoproto.goproto_unrecognized_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
 
 enum EntryType {
+	option (versionpb.etcd_version_enum) = "3.0";
+
 	EntryNormal       = 0;
-	EntryConfChange   = 1; // corresponds to pb.ConfChange
-	EntryConfChangeV2 = 2; // corresponds to pb.ConfChangeV2
+	EntryConfChange   = 1 ; // corresponds to pb.ConfChange
+	EntryConfChangeV2 = 2 [(versionpb.etcd_version_enum_value)="3.4"]; // corresponds to pb.ConfChangeV2
 }
 
 message Entry {
+	option (versionpb.etcd_version_msg) = "3.0";
+
 	optional uint64     Term  = 2 [(gogoproto.nullable) = false]; // must be 64-bit aligned for atomic operations
 	optional uint64     Index = 3 [(gogoproto.nullable) = false]; // must be 64-bit aligned for atomic operations
 	optional EntryType  Type  = 1 [(gogoproto.nullable) = false];
@@ -61,20 +66,20 @@ enum MessageType {
 }
 
 message Message {
-	optional MessageType type        = 1  [(gogoproto.nullable) = false];
-	optional uint64      to          = 2  [(gogoproto.nullable) = false];
-	optional uint64      from        = 3  [(gogoproto.nullable) = false];
-	optional uint64      term        = 4  [(gogoproto.nullable) = false];
+	optional MessageType type        = 1 [(gogoproto.nullable) = false];
+	optional uint64      to          = 2 [(gogoproto.nullable) = false];
+	optional uint64      from        = 3 [(gogoproto.nullable) = false];
+	optional uint64      term        = 4 [(gogoproto.nullable) = false];
 	// logTerm is generally used for appending Raft logs to followers. For example,
 	// (type=MsgApp,index=100,logTerm=5) means leader appends entries starting at
 	// index=101, and the term of entry at index 100 is 5.
 	// (type=MsgAppResp,reject=true,index=100,logTerm=5) means follower rejects some
 	// entries from its leader as it already has an entry with term 5 at index 100.
-	optional uint64      logTerm     = 5  [(gogoproto.nullable) = false];
-	optional uint64      index       = 6  [(gogoproto.nullable) = false];
-	repeated Entry       entries     = 7  [(gogoproto.nullable) = false];
-	optional uint64      commit      = 8  [(gogoproto.nullable) = false];
-	optional Snapshot    snapshot    = 9  [(gogoproto.nullable) = false];
+	optional uint64      logTerm     = 5 [(gogoproto.nullable) = false];
+	optional uint64      index       = 6 [(gogoproto.nullable) = false];
+	repeated Entry       entries     = 7 [(gogoproto.nullable) = false];
+	optional uint64      commit      = 8 [(gogoproto.nullable) = false];
+	optional Snapshot    snapshot    = 9 [(gogoproto.nullable) = false];
 	optional bool        reject      = 10 [(gogoproto.nullable) = false];
 	optional uint64      rejectHint  = 11 [(gogoproto.nullable) = false];
 	optional bytes       context     = 12;
@@ -89,6 +94,7 @@ message HardState {
 // ConfChangeTransition specifies the behavior of a configuration change with
 // respect to joint consensus.
 enum ConfChangeTransition {
+	option (versionpb.etcd_version_enum) = "3.4";
 	// Automatically use the simple protocol if possible, otherwise fall back
 	// to ConfChangeJointImplicit. Most applications will want to use this.
 	ConfChangeTransitionAuto          = 0;
@@ -109,7 +115,7 @@ enum ConfChangeTransition {
 message ConfState {
 	// The voters in the incoming config. (If the configuration is not joint,
 	// then the outgoing config is empty).
-	repeated uint64 voters = 1;
+	repeated uint64 voters = 1 ;
 	// The learners in the incoming config.
 	repeated uint64 learners          = 2;
 	// The voters in the outgoing config.
@@ -131,14 +137,16 @@ enum ConfChangeType {
 }
 
 message ConfChange {
+	option (versionpb.etcd_version_msg) = "3.0";
+
 	optional ConfChangeType  type    = 2 [(gogoproto.nullable) = false];
-	optional uint64          node_id = 3 [(gogoproto.nullable) = false, (gogoproto.customname) = "NodeID" ];
+	optional uint64          node_id = 3 [(gogoproto.nullable) = false, (gogoproto.customname) = "NodeID"];
 	optional bytes           context = 4;
 
 	// NB: this is used only by etcd to thread through a unique identifier.
 	// Ideally it should really use the Context instead. No counterpart to
 	// this field exists in ConfChangeV2.
-	optional uint64          id      = 1 [(gogoproto.nullable) = false, (gogoproto.customname) = "ID" ];
+	optional uint64          id      = 1 [(gogoproto.nullable) = false, (gogoproto.customname) = "ID"];
 }
 
 // ConfChangeSingle is an individual configuration change operation. Multiple
@@ -181,6 +189,8 @@ message ConfChangeSingle {
 //
 // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
 message ConfChangeV2 {
+	option (versionpb.etcd_version_msg) = "3.4";
+
 	optional ConfChangeTransition transition = 1 [(gogoproto.nullable) = false];
 	repeated ConfChangeSingle     changes =    2 [(gogoproto.nullable) = false];
 	optional bytes                context =    3;

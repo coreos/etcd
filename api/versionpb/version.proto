@@ -1,0 +1,24 @@
+syntax = "proto3";
+package versionpb;
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/descriptor.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+extend google.protobuf.MessageOptions {
+  optional string etcd_version_msg = 50000;
+}
+
+extend google.protobuf.FieldOptions {
+  optional string etcd_version_field = 50001;
+}
+
+extend google.protobuf.EnumOptions {
+  optional string etcd_version_enum = 50002;
+}
+
+extend google.protobuf.EnumValueOptions {
+  optional string etcd_version_enum_value = 50003;
+}

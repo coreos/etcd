@@ -98,7 +98,7 @@ message Member {
   SnapshotInfo SnapshotInfo = 602;
 
   // Failpoints is the GOFAIL_FAILPOINTS environment variable value to use when starting etcd.
-  string Failpoints = 701  [(gogoproto.moretags) = "yaml:\"failpoints\""];
+  string Failpoints = 701 [(gogoproto.moretags) = "yaml:\"failpoints\""];
 }
 
 message Tester {
