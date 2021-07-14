@@ -1618,7 +1618,7 @@ func TestPublishV3(t *testing.T) {
 		w:          w,
 		reqIDGen:   idutil.NewGenerator(0, time.Time{}),
 		SyncTicker: &time.Ticker{},
-		authStore:  auth.NewAuthStore(lg, buckets.NewAuthBackend(lg ,be), nil, 0),
+		authStore:  auth.NewAuthStore(lg, buckets.NewAuthBackend(lg, be), nil, 0),
 		be:         be,
 		ctx:        ctx,
 		cancel:     cancel,

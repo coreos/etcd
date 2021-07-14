@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 
 	"go.etcd.io/etcd/server/v3/mvcc/backend"
 	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
@@ -53,7 +53,7 @@ func TestAuthEnabled(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			be, tmpPath := betesting.NewTmpBackend(t, time.Microsecond, 10)
-			abe := NewAuthBackend(zap.NewNop(), be)
+			abe := NewAuthBackend(zaptest.NewLogger(t), be)
 			tx := abe.BatchTx()
 			abe.CreateAuthBuckets()
 
@@ -67,7 +67,7 @@ func TestAuthEnabled(t *testing.T) {
 
 			be2 := backend.NewDefaultBackend(tmpPath)
 			defer be2.Close()
-			abe2 := NewAuthBackend(zap.NewNop(), be2)
+			abe2 := NewAuthBackend(zaptest.NewLogger(t), be2)
 			tx = abe2.BatchTx()
 			tx.Lock()
 			defer tx.Unlock()
@@ -103,7 +103,7 @@ func TestAuthRevision(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			be, tmpPath := betesting.NewTmpBackend(t, time.Microsecond, 10)
-			abe := NewAuthBackend(zap.NewNop(), be)
+			abe := NewAuthBackend(zaptest.NewLogger(t), be)
 			abe.CreateAuthBuckets()
 
 			if tc.setRevision != 0 {
@@ -117,7 +117,7 @@ func TestAuthRevision(t *testing.T) {
 
 			be2 := backend.NewDefaultBackend(tmpPath)
 			defer be2.Close()
-			abe2 := NewAuthBackend(zap.NewNop(), be2)
+			abe2 := NewAuthBackend(zaptest.NewLogger(t), be2)
 			tx := abe2.BatchTx()
 			tx.Lock()
 			defer tx.Unlock()
