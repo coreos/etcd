@@ -60,12 +60,23 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 			if lastErr == nil {
 				return nil
 			}
-			c.GetLogger().Warn(
-				"retrying of unary invoker failed",
-				zap.String("target", cc.Target()),
-				zap.Uint("attempt", attempt),
-				zap.Error(lastErr),
-			)
+			// To suppress expected errors on JWT auth token expiry (before
+			// rotation), log the 1st attempt failure at debug level.
+			if attempt == 0 {
+				c.GetLogger().Debug(
+					"retrying of unary invoker failed",
+					zap.String("target", cc.Target()),
+					zap.Uint("attempt", attempt),
+					zap.Error(lastErr),
+				)
+			} else {
+				c.GetLogger().Warn(
+					"retrying of unary invoker failed",
+					zap.String("target", cc.Target()),
+					zap.Uint("attempt", attempt),
+					zap.Error(lastErr),
+				)
+			}
 			if isContextError(lastErr) {
 				if ctx.Err() != nil {
 					// its the context deadline or cancellation.
