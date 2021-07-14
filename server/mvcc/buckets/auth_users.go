@@ -16,12 +16,18 @@ package buckets
 
 import (
 	"go.etcd.io/etcd/api/v3/authpb"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
 	"go.uber.org/zap"
 )
 
-func UnsafeGetUser(lg *zap.Logger, tx backend.BatchTx, username string) *authpb.User {
-	_, vs := tx.UnsafeRange(AuthUsers, []byte(username), nil, 0)
+func (abe *authBackend) GetUser(username string) *authpb.User {
+	tx := abe.BatchTx()
+	tx.Lock()
+	defer tx.Unlock()
+	return tx.UnsafeGetUser(username)
+}
+
+func (atx *authBatchTx) UnsafeGetUser(username string) *authpb.User {
+	_, vs := atx.tx.UnsafeRange(AuthUsers, []byte(username), nil, 0)
 	if len(vs) == 0 {
 		return nil
 	}
@@ -29,7 +35,7 @@ func UnsafeGetUser(lg *zap.Logger, tx backend.BatchTx, username string) *authpb.
 	user := &authpb.User{}
 	err := user.Unmarshal(vs[0])
 	if err != nil {
-		lg.Panic(
+		atx.lg.Panic(
 			"failed to unmarshal 'authpb.User'",
 			zap.String("user-name", username),
 			zap.Error(err),
@@ -38,8 +44,15 @@ func UnsafeGetUser(lg *zap.Logger, tx backend.BatchTx, username string) *authpb.
 	return user
 }
 
-func UnsafeGetAllUsers(lg *zap.Logger, tx backend.BatchTx) []*authpb.User {
-	_, vs := tx.UnsafeRange(AuthUsers, []byte{0}, []byte{0xff}, -1)
+func (abe *authBackend) GetAllUsers() []*authpb.User {
+	tx := abe.BatchTx()
+	tx.Lock()
+	defer tx.Unlock()
+	return tx.UnsafeGetAllUsers()
+}
+
+func (atx *authBatchTx) UnsafeGetAllUsers() []*authpb.User {
+	_, vs := atx.tx.UnsafeRange(AuthUsers, []byte{0}, []byte{0xff}, -1)
 	if len(vs) == 0 {
 		return nil
 	}
@@ -49,21 +62,21 @@ func UnsafeGetAllUsers(lg *zap.Logger, tx backend.BatchTx) []*authpb.User {
 		user := &authpb.User{}
 		err := user.Unmarshal(vs[i])
 		if err != nil {
-			lg.Panic("failed to unmarshal 'authpb.User'", zap.Error(err))
+			atx.lg.Panic("failed to unmarshal 'authpb.User'", zap.Error(err))
 		}
 		users[i] = user
 	}
 	return users
 }
 
-func UnsafePutUser(lg *zap.Logger, tx backend.BatchTx, user *authpb.User) {
+func (atx *authBatchTx) UnsafePutUser(user *authpb.User) {
 	b, err := user.Marshal()
 	if err != nil {
-		lg.Panic("failed to unmarshal 'authpb.User'", zap.Error(err))
+		atx.lg.Panic("failed to unmarshal 'authpb.User'", zap.Error(err))
 	}
-	tx.UnsafePut(AuthUsers, user.Name, b)
+	atx.tx.UnsafePut(AuthUsers, user.Name, b)
 }
 
-func UnsafeDeleteUser(tx backend.BatchTx, username string) {
-	tx.UnsafeDelete(AuthUsers, []byte(username))
+func (atx *authBatchTx) UnsafeDeleteUser(username string) {
+	atx.tx.UnsafeDelete(AuthUsers, []byte(username))
 }

@@ -91,7 +91,7 @@ func TestScheduleCompaction(t *testing.T) {
 		}
 		vals, _ := UnsafeReadFinishedCompact(tx)
 		if !reflect.DeepEqual(vals, tt.rev) {
-			t.Errorf("#%d: vals on %v = %+v, want %+v", i, buckets.FinishedCompactKeyName, vals, tt.rev)
+			t.Errorf("#%d: finished compact equal %+v, want %+v", i, vals, tt.rev)
 		}
 		tx.Unlock()
 

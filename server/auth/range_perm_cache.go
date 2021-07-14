@@ -17,14 +17,11 @@ package auth
 import (
 	"go.etcd.io/etcd/api/v3/authpb"
 	"go.etcd.io/etcd/pkg/v3/adt"
-	"go.etcd.io/etcd/server/v3/mvcc/backend"
-	"go.etcd.io/etcd/server/v3/mvcc/buckets"
-
 	"go.uber.org/zap"
 )
 
-func getMergedPerms(lg *zap.Logger, tx backend.BatchTx, userName string) *unifiedRangePermissions {
-	user := buckets.UnsafeGetUser(lg, tx, userName)
+func getMergedPerms(tx AuthBatchTx, userName string) *unifiedRangePermissions {
+	user := tx.UnsafeGetUser(userName)
 	if user == nil {
 		return nil
 	}
@@ -33,7 +30,7 @@ func getMergedPerms(lg *zap.Logger, tx backend.BatchTx, userName string) *unifie
 	writePerms := adt.NewIntervalTree()
 
 	for _, roleName := range user.Roles {
-		role := buckets.UnsafeGetRole(lg, tx, roleName)
+		role := tx.UnsafeGetRole(roleName)
 		if role == nil {
 			continue
 		}
@@ -106,11 +103,11 @@ func checkKeyPoint(lg *zap.Logger, cachedPerms *unifiedRangePermissions, key []b
 	return false
 }
 
-func (as *authStore) isRangeOpPermitted(tx backend.BatchTx, userName string, key, rangeEnd []byte, permtyp authpb.Permission_Type) bool {
+func (as *authStore) isRangeOpPermitted(tx AuthBatchTx, userName string, key, rangeEnd []byte, permtyp authpb.Permission_Type) bool {
 	// assumption: tx is Lock()ed
 	_, ok := as.rangePermCache[userName]
 	if !ok {
-		perms := getMergedPerms(as.lg, tx, userName)
+		perms := getMergedPerms(tx, userName)
 		if perms == nil {
 			as.lg.Error(
 				"failed to create a merged permission",

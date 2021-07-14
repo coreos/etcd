@@ -15,12 +15,13 @@
 package buckets
 
 import (
-	"fmt"
 	"math"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap/zaptest"
+
 	"go.etcd.io/etcd/server/v3/mvcc/backend"
 	betesting "go.etcd.io/etcd/server/v3/mvcc/backend/testing"
 )
@@ -28,34 +29,51 @@ import (
 // TestAuthEnabled ensures that UnsafeSaveAuthEnabled&UnsafeReadAuthEnabled work well together.
 func TestAuthEnabled(t *testing.T) {
 	tcs := []struct {
-		enabled bool
+		name        string
+		skipSetting bool
+		setEnabled  bool
+		wantEnabled bool
 	}{
 		{
-			enabled: true,
+			name:        "Returns true after setting true",
+			setEnabled:  true,
+			wantEnabled: true,
 		},
 		{
-			enabled: false,
+			name:        "Returns false after setting false",
+			setEnabled:  false,
+			wantEnabled: false,
+		},
+		{
+			name:        "Returns false by default",
+			skipSetting: true,
+			wantEnabled: false,
 		},
 	}
 	for _, tc := range tcs {
-		t.Run(fmt.Sprint(tc.enabled), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			be, tmpPath := betesting.NewTmpBackend(t, time.Microsecond, 10)
-			tx := be.BatchTx()
-			if tx == nil {
-				t.Fatal("batch tx is nil")
-			}
+			abe := NewAuthBackend(zaptest.NewLogger(t), be)
+			tx := abe.BatchTx()
+			abe.CreateAuthBuckets()
+
 			tx.Lock()
-			UnsafeCreateAuthBucket(tx)
-			UnsafeSaveAuthEnabled(tx, tc.enabled)
+			if !tc.skipSetting {
+				tx.UnsafeSaveAuthEnabled(tc.setEnabled)
+			}
 			tx.Unlock()
-			be.ForceCommit()
+			abe.ForceCommit()
 			be.Close()
 
-			b := backend.NewDefaultBackend(tmpPath)
-			defer b.Close()
-			v := UnsafeReadAuthEnabled(b.BatchTx())
+			be2 := backend.NewDefaultBackend(tmpPath)
+			defer be2.Close()
+			abe2 := NewAuthBackend(zaptest.NewLogger(t), be2)
+			tx = abe2.BatchTx()
+			tx.Lock()
+			defer tx.Unlock()
+			v := tx.UnsafeReadAuthEnabled()
 
-			assert.Equal(t, tc.enabled, v)
+			assert.Equal(t, tc.wantEnabled, v)
 		})
 	}
 }
@@ -63,37 +81,49 @@ func TestAuthEnabled(t *testing.T) {
 // TestAuthRevision ensures that UnsafeSaveAuthRevision&UnsafeReadAuthRevision work well together.
 func TestAuthRevision(t *testing.T) {
 	tcs := []struct {
-		revision uint64
+		name         string
+		setRevision  uint64
+		wantRevision uint64
 	}{
 		{
-			revision: 0,
+			name:         "Returns 0 by default",
+			wantRevision: 0,
 		},
 		{
-			revision: 1,
+			name:         "Returns 1 after setting 1",
+			setRevision:  1,
+			wantRevision: 1,
 		},
 		{
-			revision: math.MaxUint64,
+			name:         "Returns max int after setting max int",
+			setRevision:  math.MaxUint64,
+			wantRevision: math.MaxUint64,
 		},
 	}
 	for _, tc := range tcs {
-		t.Run(fmt.Sprint(tc.revision), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			be, tmpPath := betesting.NewTmpBackend(t, time.Microsecond, 10)
-			tx := be.BatchTx()
-			if tx == nil {
-				t.Fatal("batch tx is nil")
+			abe := NewAuthBackend(zaptest.NewLogger(t), be)
+			abe.CreateAuthBuckets()
+
+			if tc.setRevision != 0 {
+				tx := abe.BatchTx()
+				tx.Lock()
+				tx.UnsafeSaveAuthRevision(tc.setRevision)
+				tx.Unlock()
 			}
-			tx.Lock()
-			UnsafeCreateAuthBucket(tx)
-			UnsafeSaveAuthRevision(tx, tc.revision)
-			tx.Unlock()
-			be.ForceCommit()
+			abe.ForceCommit()
 			be.Close()
 
-			b := backend.NewDefaultBackend(tmpPath)
-			defer b.Close()
-			v := UnsafeReadAuthRevision(b.BatchTx())
+			be2 := backend.NewDefaultBackend(tmpPath)
+			defer be2.Close()
+			abe2 := NewAuthBackend(zaptest.NewLogger(t), be2)
+			tx := abe2.BatchTx()
+			tx.Lock()
+			defer tx.Unlock()
+			v := tx.UnsafeReadAuthRevision()
 
-			assert.Equal(t, tc.revision, v)
+			assert.Equal(t, tc.wantRevision, v)
 		})
 	}
 }
