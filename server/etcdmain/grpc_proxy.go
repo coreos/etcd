@@ -41,6 +41,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3election/v3electionpb"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3lock/v3lockpb"
 	"go.etcd.io/etcd/server/v3/proxy/grpcproxy"
+	lruCache "go.etcd.io/etcd/v3/proxy/grpcproxy/cache"
 	"go.uber.org/zap/zapgrpc"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -95,6 +96,8 @@ var (
 	grpcKeepAliveMinTime  time.Duration
 	grpcKeepAliveTimeout  time.Duration
 	grpcKeepAliveInterval time.Duration
+
+	grpcLruCacheTimeout time.Duration
 )
 
 const defaultGRPCMaxCallSendMsgSize = 1.5 * 1024 * 1024
@@ -159,6 +162,7 @@ func newGRPCProxyStartCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&grpcProxyDebug, "debug", false, "Enable debug-level logging for grpc-proxy.")
 
+	cmd.Flags().DurationVar(&grpcLruCacheTimeout, "grpc-lrucache-timeout", embed.DefaultLRUCacheTimeout, "LRU cache key timeout.")
 	return &cmd
 }
 
@@ -212,6 +216,10 @@ func startGRPCProxy(cmd *cobra.Command, args []string) {
 		proxyClient = mustNewProxyClient(lg, tlsinfo)
 	}
 	httpClient := mustNewHTTPClient(lg)
+
+	if grpcLruCacheTimeout > 0 {
+		lruCache.DefaultLruCacheTimeout = grpcLruCacheTimeout
+	}
 
 	srvhttp, httpl := mustHTTPListener(lg, m, tlsinfo, client, proxyClient)
 	errc := make(chan error, 3)

@@ -94,6 +94,8 @@ const (
 	maxElectionMs = 50000
 	// backend freelist map type
 	freelistArrayType = "array"
+
+	DefaultLRUCacheTimeout = 10 * time.Minute
 )
 
 var (

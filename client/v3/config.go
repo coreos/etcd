@@ -89,4 +89,6 @@ type Config struct {
 	PermitWithoutStream bool `json:"permit-without-stream"`
 
 	// TODO: support custom balancer picker
+
+	LRUCacheTimeout time.Duration
 }
