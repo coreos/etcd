@@ -35,19 +35,27 @@ func (s *store) scheduleCompaction(compactMainRev int64, keep map[revision]struc
 	batchNum := s.cfg.CompactionBatchLimit
 	batchInterval := s.cfg.CompactionSleepInterval
 
+	rvs := make(revisions, 0, batchNum)
+
 	last := make([]byte, 8+1+8)
 	for {
-		var rev revision
-
 		start := time.Now()
+
+		rtx := s.b.ConcurrentReadTx()
+		rtx.RLock()
+		keys, _ := rtx.UnsafeRange(buckets.Key, last, end, int64(batchNum))
+		rtx.RUnlock()
+
+		rvs = rvs[:0]
+		for _, key := range keys {
+			rvs = append(rvs, bytesToRev(key))
+		}
 
 		tx := s.b.BatchTx()
 		tx.Lock()
-		keys, _ := tx.UnsafeRange(buckets.Key, last, end, int64(batchNum))
-		for _, key := range keys {
-			rev = bytesToRev(key)
+		for i, rev := range rvs {
 			if _, ok := keep[rev]; !ok {
-				tx.UnsafeDelete(buckets.Key, key)
+				tx.UnsafeDelete(buckets.Key, keys[i])
 				keyCompactions++
 			}
 		}
@@ -65,7 +73,8 @@ func (s *store) scheduleCompaction(compactMainRev int64, keep map[revision]struc
 
 		tx.Unlock()
 		// update last
-		revToBytes(revision{main: rev.main, sub: rev.sub + 1}, last)
+		lastrev := rvs[len(rvs) - 1]
+		revToBytes(revision{main: lastrev.main, sub: lastrev.sub + 1}, last)
 		// Immediately commit the compaction deletes instead of letting them accumulate in the write buffer
 		s.b.ForceCommit()
 		dbCompactionPauseMs.Observe(float64(time.Since(start) / time.Millisecond))
