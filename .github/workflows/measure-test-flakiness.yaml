@@ -1,0 +1,15 @@
+name: Measure Test Flakiness
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  measure-test-flakiness:
+    name: Measure Test Flakiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run script to measure test flakiness
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: "./scripts/measure-test-flakiness.sh"
