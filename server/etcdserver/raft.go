@@ -552,8 +552,9 @@ func (b *bootstrappedRaft) newRaftNode(ss *snap.Snapshotter) *raftNode {
 // - ConfChangeAddNode, in which case the contained ID will be added into the set.
 // - ConfChangeRemoveNode, in which case the contained ID will be removed from the set.
 // - ConfChangeAddLearnerNode, in which the contained ID will be added into the set.
-func getIDs(lg *zap.Logger, snap *raftpb.Snapshot, ents []raftpb.Entry) []uint64 {
+func getIDs(lg *zap.Logger, snap *raftpb.Snapshot, ents []raftpb.Entry) ([]uint64, map[uint64]bool) {
 	ids := make(map[uint64]bool)
+	isLearnerMap := make(map[uint64]bool)
 	if snap != nil {
 		for _, id := range snap.Metadata.ConfState.Voters {
 			ids[id] = true
@@ -568,6 +569,7 @@ func getIDs(lg *zap.Logger, snap *raftpb.Snapshot, ents []raftpb.Entry) []uint64
 		switch cc.Type {
 		case raftpb.ConfChangeAddLearnerNode:
 			ids[cc.NodeID] = true
+			isLearnerMap[cc.NodeID] = true
 		case raftpb.ConfChangeAddNode:
 			ids[cc.NodeID] = true
 		case raftpb.ConfChangeRemoveNode:
@@ -583,7 +585,7 @@ func getIDs(lg *zap.Logger, snap *raftpb.Snapshot, ents []raftpb.Entry) []uint64
 		sids = append(sids, id)
 	}
 	sort.Sort(sids)
-	return []uint64(sids)
+	return []uint64(sids), isLearnerMap
 }
 
 // createConfigChangeEnts creates a series of Raft entries (i.e.
@@ -591,7 +593,7 @@ func getIDs(lg *zap.Logger, snap *raftpb.Snapshot, ents []raftpb.Entry) []uint64
 // `self` is _not_ removed, even if present in the set.
 // If `self` is not inside the given ids, it creates a Raft entry to add a
 // default member with the given `self`.
-func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, index uint64) []raftpb.Entry {
+func createConfigChangeEnts(lg *zap.Logger, ids []uint64, isLearnerMap map[uint64]bool, self uint64, term, index uint64) []raftpb.Entry {
 	found := false
 	for _, id := range ids {
 		if id == self {
@@ -602,12 +604,10 @@ func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, ind
 	var ents []raftpb.Entry
 	next := index + 1
 
-	// NB: always add self first, then remove other nodes. Raft will panic if the
-	// set of voters ever becomes empty.
-	if !found {
+	addNodeFunc := func(id uint64, peerUrls []string) {
 		m := membership.Member{
 			ID:             types.ID(self),
-			RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2380"}},
+			RaftAttributes: membership.RaftAttributes{PeerURLs: peerUrls},
 		}
 		ctx, err := json.Marshal(m)
 		if err != nil {
@@ -615,7 +615,7 @@ func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, ind
 		}
 		cc := &raftpb.ConfChange{
 			Type:    raftpb.ConfChangeAddNode,
-			NodeID:  self,
+			NodeID:  id,
 			Context: ctx,
 		}
 		e := raftpb.Entry{
@@ -628,10 +628,7 @@ func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, ind
 		next++
 	}
 
-	for _, id := range ids {
-		if id == self {
-			continue
-		}
+	delNodeFunc := func(id uint64) {
 		cc := &raftpb.ConfChange{
 			Type:   raftpb.ConfChangeRemoveNode,
 			NodeID: id,
@@ -644,6 +641,51 @@ func createConfigChangeEnts(lg *zap.Logger, ids []uint64, self uint64, term, ind
 		}
 		ents = append(ents, e)
 		next++
+	}
+
+	promoteNodeFunc := func(id uint64) {
+		// build the context for the promote confChange. mark IsLearner to false and IsPromote to true.
+		promoteChangeContext := membership.ConfigChangeContext{
+			Member: membership.Member{
+				ID: types.ID(id),
+			},
+			IsPromote: true,
+		}
+
+		b, err := json.Marshal(promoteChangeContext)
+		if err != nil {
+			lg.Panic("failed to marshal member", zap.Error(err))
+		}
+
+		cc := &raftpb.ConfChange{
+			Type:    raftpb.ConfChangeAddNode,
+			NodeID:  id,
+			Context: b,
+		}
+
+		e := raftpb.Entry{
+			Type:  raftpb.EntryConfChange,
+			Data:  pbutil.MustMarshal(cc),
+			Term:  term,
+			Index: next,
+		}
+		ents = append(ents, e)
+		next++
+	}
+
+	// NB: always add self first, then remove other nodes. Raft will panic if the
+	// set of voters ever becomes empty.
+	if !found {
+		addNodeFunc(self, []string{"http://localhost:2380"})
+	} else if isLearnerMap[self] {
+		promoteNodeFunc(self)
+	}
+
+	for _, id := range ids {
+		if id == self {
+			continue
+		}
+		delNodeFunc(id)
 	}
 
 	return ents

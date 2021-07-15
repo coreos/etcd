@@ -192,9 +192,11 @@ func (wal *bootstrappedWAL) CommitedEntries() []raftpb.Entry {
 }
 
 func (wal *bootstrappedWAL) ConfigChangeEntries() []raftpb.Entry {
+	ids, isLearnerMap := getIDs(wal.lg, wal.snapshot, wal.ents)
 	return createConfigChangeEnts(
 		wal.lg,
-		getIDs(wal.lg, wal.snapshot, wal.ents),
+		ids,
+		isLearnerMap,
 		uint64(wal.id),
 		wal.st.Term,
 		wal.st.Commit,

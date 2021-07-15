@@ -66,7 +66,7 @@ func TestGetIDs(t *testing.T) {
 		if tt.confState != nil {
 			snap.Metadata.ConfState = *tt.confState
 		}
-		idSet := getIDs(testLogger, &snap, tt.ents)
+		idSet, _ := getIDs(testLogger, &snap, tt.ents)
 		if !reflect.DeepEqual(idSet, tt.widSet) {
 			t.Errorf("#%d: idset = %#v, want %#v", i, idSet, tt.widSet)
 		}
@@ -146,7 +146,7 @@ func TestCreateConfigChangeEnts(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		gents := createConfigChangeEnts(testLogger, tt.ids, tt.self, tt.term, tt.index)
+		gents := createConfigChangeEnts(testLogger, tt.ids, make(map[uint64]bool), tt.self, tt.term, tt.index)
 		if !reflect.DeepEqual(gents, tt.wents) {
 			t.Errorf("#%d: ents = %v, want %v", i, gents, tt.wents)
 		}
