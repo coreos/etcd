@@ -151,7 +151,7 @@ test:
 	$(info TEST_OPTS: $(TEST_OPTS))
 	$(info log-file: test-$(TEST_SUFFIX).log)
 	$(TEST_OPTS) ./test.sh 2>&1 | tee test-$(TEST_SUFFIX).log
-	! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test-$(TEST_SUFFIX).log
+	! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test-$(TEST_SUFFIX).log
 
 test-smoke:
 	$(info log-file: test-$(TEST_SUFFIX).log)
@@ -174,7 +174,7 @@ docker-test:
 	  --mount type=bind,source=`pwd`,destination=/go/src/go.etcd.io/etcd \
 	  gcr.io/etcd-development/etcd-test:go$(GO_VERSION) \
 	  /bin/bash -c "$(TEST_OPTS) ./test.sh 2>&1 | tee test-$(TEST_SUFFIX).log"
-	! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test-$(TEST_SUFFIX).log
+	! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test-$(TEST_SUFFIX).log
 
 docker-test-coverage:
 	$(info GO_VERSION: $(GO_VERSION))
@@ -188,7 +188,7 @@ docker-test-coverage:
 	  --mount type=bind,source=`pwd`,destination=/go/src/go.etcd.io/etcd \
 	  gcr.io/etcd-development/etcd-test:go$(GO_VERSION) \
 	  /bin/bash ./scripts/codecov_upload.sh docker-test-coverage-$(TEST_SUFFIX).log \
-	! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 docker-test-coverage-$(TEST_SUFFIX).log
+	! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 docker-test-coverage-$(TEST_SUFFIX).log
 
 
 

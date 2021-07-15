@@ -22,11 +22,11 @@ jobs:
         case "${TARGET}" in
           linux-amd64-e2e)
             PASSES='build release e2e' MANUAL_VER=v3.4.7 CPU='4' EXPECT_DEBUG='true' COVER='false' RACE='true' ./test.sh 2>&1 | tee test.log
-            ! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
+            ! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
             ;;
           linux-386-e2e)
             GOARCH=386 PASSES='build e2e' CPU='4' EXPECT_DEBUG='true' COVER='false' RACE='true' ./test.sh 2>&1 | tee test.log
-            ! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
+            ! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
             ;;
           *)
             echo "Failed to find target"

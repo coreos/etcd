@@ -21,7 +21,7 @@ jobs:
         case "${TARGET}" in
           linux-amd64-grpcproxy)
             PASSES='build grpcproxy'  CPU='4' COVER='false' RACE='true' ./test.sh 2>&1 | tee test.log
-            ! egrep "(--- FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
+            ! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
             ;;
           *)
             echo "Failed to find target"
