@@ -83,6 +83,7 @@ var (
 	grpcProxyListenCert          string
 	grpcProxyListenKey           string
 	grpcProxyListenCipherSuites  []string
+	grpcProxyListenCurves        []string
 	grpcProxyListenAutoTLS       bool
 	grpcProxyListenCRL           string
 	grpcProxyListenTLSMinVersion string
@@ -168,6 +169,7 @@ func newGRPCProxyStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&grpcProxyListenKey, "key-file", "", "identify secure connections to the proxy using this TLS key file")
 	cmd.Flags().StringVar(&grpcProxyListenCA, "trusted-ca-file", "", "verify certificates of TLS-enabled secure proxy using this CA bundle")
 	cmd.Flags().StringSliceVar(&grpcProxyListenCipherSuites, "listen-cipher-suites", grpcProxyListenCipherSuites, "Comma-separated list of supported TLS cipher suites between client/proxy (empty will be auto-populated by Go).")
+	cmd.Flags().StringSliceVar(&grpcProxyListenCurves, "listen-curve-preferences", grpcProxyListenCurves, "Comma-separated list of supported elliptic curves between client/proxy (empty will be auto-populated by Go).")
 	cmd.Flags().BoolVar(&grpcProxyListenAutoTLS, "auto-tls", false, "proxy TLS using generated certificates")
 	cmd.Flags().StringVar(&grpcProxyListenCRL, "client-crl-file", "", "proxy client certificate revocation list file.")
 	cmd.Flags().UintVar(&selfSignedCertValidity, "self-signed-cert-validity", 1, "The validity period of the proxy certificates, unit is year")
@@ -221,6 +223,17 @@ func startGRPCProxy(cmd *cobra.Command, args []string) {
 				log.Fatal(err)
 			}
 			tlsInfo.CipherSuites = cs
+		}
+		if len(grpcProxyListenCurves) > 0 {
+			curveIDs := make([]tls.CurveID, len(grpcProxyListenCurves))
+			for i, name := range grpcProxyListenCurves {
+				curveID, ok := tlsutil.GetCurveID(name)
+				if !ok {
+					log.Fatalf("unexpected TLS curve %q", name)
+				}
+				curveIDs[i] = curveID
+			}
+			tlsInfo.ListenCurvePreferences = curveIDs
 		}
 		if grpcProxyListenTLSMinVersion != "" {
 			version, err := tlsutil.GetTLSVersion(grpcProxyListenTLSMinVersion)
