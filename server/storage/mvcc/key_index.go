@@ -315,25 +315,6 @@ func (ki *keyIndex) Less(bki *keyIndex) bool {
 	return bytes.Compare(ki.key, bki.key) == -1
 }
 
-func (ki *keyIndex) equal(b *keyIndex) bool {
-	if !bytes.Equal(ki.key, b.key) {
-		return false
-	}
-	if ki.modified != b.modified {
-		return false
-	}
-	if len(ki.generations) != len(b.generations) {
-		return false
-	}
-	for i := range ki.generations {
-		ag, bg := ki.generations[i], b.generations[i]
-		if !ag.equal(bg) {
-			return false
-		}
-	}
-	return true
-}
-
 func (ki *keyIndex) String() string {
 	var s string
 	for _, g := range ki.generations {
@@ -369,21 +350,4 @@ func (g *generation) walk(f func(rev Revision) bool) int {
 
 func (g *generation) String() string {
 	return fmt.Sprintf("g: created[%d] ver[%d], revs %#v\n", g.created, g.ver, g.revs)
-}
-
-func (g generation) equal(b generation) bool {
-	if g.ver != b.ver {
-		return false
-	}
-	if len(g.revs) != len(b.revs) {
-		return false
-	}
-
-	for i := range g.revs {
-		ar, br := g.revs[i], b.revs[i]
-		if ar != br {
-			return false
-		}
-	}
-	return true
 }
