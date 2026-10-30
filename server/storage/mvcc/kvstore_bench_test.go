@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap"
 
 	"go.etcd.io/etcd/pkg/v3/traceutil"
 	"go.etcd.io/etcd/server/v3/etcdserver/cindex"
@@ -28,8 +28,8 @@ import (
 )
 
 func BenchmarkStorePut(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// arbitrary number of bytes
@@ -37,6 +37,7 @@ func BenchmarkStorePut(b *testing.B) {
 	keys := createBytesSlice(bytesN, b.N)
 	vals := createBytesSlice(bytesN, b.N)
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		s.Put(keys[i], vals[i], lease.NoLease)
@@ -47,8 +48,8 @@ func BenchmarkStoreRangeKey1(b *testing.B)   { benchmarkStoreRange(b, 1) }
 func BenchmarkStoreRangeKey100(b *testing.B) { benchmarkStoreRange(b, 100) }
 
 func benchmarkStoreRange(b *testing.B, n int) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// 64 byte key/val
@@ -74,7 +75,7 @@ func benchmarkStoreRange(b *testing.B, n int) {
 }
 
 func BenchmarkConsistentIndex(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
 	ci := cindex.NewConsistentIndex(be)
 	defer betesting.Close(b, be)
 
@@ -96,14 +97,15 @@ func BenchmarkConsistentIndex(b *testing.B) {
 
 // BenchmarkStorePutUpdate is same as above, but instead updates single key
 func BenchmarkStorePutUpdate(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// arbitrary number of bytes
 	keys := createBytesSlice(64, 1)
 	vals := createBytesSlice(1024, 1)
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		s.Put(keys[0], vals[0], lease.NoLease)
@@ -114,8 +116,8 @@ func BenchmarkStorePutUpdate(b *testing.B) {
 // with transaction begin and end, where transaction involves
 // some synchronization operations, such as mutex locking.
 func BenchmarkStoreTxnPut(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// arbitrary number of bytes
@@ -134,8 +136,8 @@ func BenchmarkStoreTxnPut(b *testing.B) {
 
 // benchmarkStoreRestore benchmarks the restore operation
 func benchmarkStoreRestore(revsPerKey int, b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	// use closure to capture 's' to pick up the reassignment
 	defer func() { cleanup(s, be) }()
 
@@ -155,7 +157,7 @@ func benchmarkStoreRestore(revsPerKey int, b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	s = NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	s = NewStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 }
 
 func BenchmarkStoreRestoreRevs1(b *testing.B) {
