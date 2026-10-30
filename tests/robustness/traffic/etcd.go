@@ -162,9 +162,14 @@ func (t etcdTraffic) RunKeyValueLoop(ctx context.Context, c *client.RecordingCli
 }
 
 func (t etcdTraffic) RunWatchLoop(ctx context.Context, c *client.RecordingClient, p RunWatchLoopParam) {
-	runWatchLoop(ctx, c, p, watchLoopConfig{
-		key: p.KeyStore.GetPrefix(),
-	})
+	runWatchLoop(ctx, c, p, t.watchLoopConfig(p.KeyStore.GetPrefix()))
+}
+
+func (t etcdTraffic) watchLoopConfig(key string) watchLoopConfig {
+	return watchLoopConfig{
+		key:            key,
+		progressNotify: true,
+	}
 }
 
 func (t etcdTraffic) RunCompactLoop(ctx context.Context, c *client.RecordingClient, param RunCompactLoopParam) {
