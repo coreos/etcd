@@ -198,7 +198,6 @@ var referenceUsageOfWatchAndKV = map[string]refOp{
 			{name: "Watch", matcher: andMatcher(
 				isRangeEndSet,
 				intAttrSet("start_rev"),
-				boolAttrSet("prev_kv"),
 				notMatcher(boolAttrSet("fragment")),
 			)},
 		},
