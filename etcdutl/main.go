@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:debug multipathtcp=0
+
 // etcdutl is a command line application that operates on etcd files.
 package main
 

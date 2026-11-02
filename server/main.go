@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:debug multipathtcp=0
+
 // Package main is a simple wrapper of the real etcd entrypoint package
 // (located at go.etcd.io/etcd/etcdmain) to ensure that etcd is still
 // "go getable"; e.g. `go get go.etcd.io/etcd` works as expected and
