@@ -572,7 +572,7 @@ func restartNode(cfg config.ServerConfig, snapshot *raftpb.Snapshot) (types.ID, 
 	return id, cl, n, s, w
 }
 
-func restartAsStandaloneNode(cfg config.ServerConfig, snapshot *raftpb.Snapshot, ci cindex.ConsistentIndexer) (types.ID, *membership.RaftCluster, raft.Node, *raft.MemoryStorage, *wal.WAL) {
+func restartAsStandaloneNode(cfg config.ServerConfig, snapshot *raftpb.Snapshot, ci cindex.ConsistentIndexer) (types.ID, *membership.RaftCluster, raft.Node, *raft.MemoryStorage, *wal.WAL, error) {
 	var walsnap walpb.Snapshot
 	if snapshot != nil {
 		walsnap.Index, walsnap.Term = snapshot.Metadata.Index, snapshot.Metadata.Term
@@ -590,7 +590,26 @@ func restartAsStandaloneNode(cfg config.ServerConfig, snapshot *raftpb.Snapshot,
 	// committed, we reset Commit to max(HardState.Commit, consistent_index).
 	//
 	// See: https://github.com/etcd-io/raft/pull/300 for more details.
-	st.Commit = max(oldCommitIndex, consistentIndex)
+	adjustedCommitIndex := max(oldCommitIndex, consistentIndex)
+	lastIdx := uint64(0)
+	if snapshot != nil {
+		lastIdx = snapshot.Metadata.Index
+	}
+	if len(ents) != 0 {
+		if entIdx := ents[len(ents)-1].Index; entIdx > lastIdx {
+			lastIdx = entIdx
+		}
+	}
+	if adjustedCommitIndex > lastIdx {
+		cfg.Logger.Error(
+			"adjusted commit index is ahead of the last WAL entry",
+			zap.Uint64("adjusted-commit-index", adjustedCommitIndex),
+			zap.Uint64("last-wal-entry-index", lastIdx),
+		)
+		w.Close()
+		return 0, nil, nil, nil, nil, fmt.Errorf("adjusted commit index %d exceeds the last WAL entry index %d", adjustedCommitIndex, lastIdx)
+	}
+	st.Commit = adjustedCommitIndex
 
 	// discard the previously uncommitted entries
 	for i, ent := range ents {
@@ -655,7 +674,7 @@ func restartAsStandaloneNode(cfg config.ServerConfig, snapshot *raftpb.Snapshot,
 
 	n := raft.RestartNode(c)
 	raftStatus = n.Status
-	return id, cl, n, s, w
+	return id, cl, n, s, w, nil
 }
 
 // getIDs returns an ordered set of IDs included in the given snapshot and
