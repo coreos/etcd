@@ -987,3 +987,106 @@ func TestStressWatchCancelClose(t *testing.T) {
 
 	wg.Wait()
 }
+func BenchmarkWatcherSendFilter(b *testing.B) {
+	ch := make(chan WatchResponse, 1024)
+
+	// Filter that only ignores DELETE events (so all PUT events pass through)
+	filterNoDelete := func(e *mvccpb.Event) bool {
+		return e.Type == mvccpb.Event_DELETE
+	}
+
+	w := &watcher{
+		id:  1,
+		ch:  ch,
+		fcs: []FilterFunc{filterNoDelete},
+	}
+
+	events := make([]*mvccpb.Event, 10)
+	for i := range events {
+		events[i] = &mvccpb.Event{
+			Type: mvccpb.Event_PUT,
+			Kv:   &mvccpb.KeyValue{ModRevision: 100},
+		}
+	}
+
+	wr := WatchResponse{
+		WatchID:  1,
+		Events:   events,
+		Revision: 100,
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		w.send(wr)
+		<-ch
+	}
+}
+func TestWatcherSendFiltering(t *testing.T) {
+	tests := []struct {
+		name           string
+		events         []*mvccpb.Event
+		filter         FilterFunc
+		expectedEvents int
+		shouldSend     bool
+	}{
+		{
+			name: "all pass (fast path)",
+			events: []*mvccpb.Event{
+				{Type: mvccpb.Event_PUT, Kv: &mvccpb.KeyValue{ModRevision: 10}},
+				{Type: mvccpb.Event_PUT, Kv: &mvccpb.KeyValue{ModRevision: 11}},
+			},
+			filter: func(e *mvccpb.Event) bool {
+				return e.Type == mvccpb.Event_DELETE
+			},
+			expectedEvents: 2,
+			shouldSend:     true,
+		},
+		{
+			name: "some filtered (slow path)",
+			events: []*mvccpb.Event{
+				{Type: mvccpb.Event_PUT, Kv: &mvccpb.KeyValue{ModRevision: 10}},
+				{Type: mvccpb.Event_DELETE, Kv: &mvccpb.KeyValue{ModRevision: 11}},
+			},
+			filter: func(e *mvccpb.Event) bool {
+				return e.Type == mvccpb.Event_DELETE
+			},
+			expectedEvents: 1,
+			shouldSend:     true,
+		},
+		{
+			name: "all filtered",
+			events: []*mvccpb.Event{
+				{Type: mvccpb.Event_DELETE, Kv: &mvccpb.KeyValue{ModRevision: 10}},
+			},
+			filter: func(e *mvccpb.Event) bool {
+				return e.Type == mvccpb.Event_DELETE
+			},
+			expectedEvents: 0,
+			shouldSend:     true, // returns true because dropping all filtered events is normal completion
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan WatchResponse, 1)
+			w := &watcher{
+				id:  1,
+				ch:  ch,
+				fcs: []FilterFunc{tt.filter},
+			}
+			wr := WatchResponse{WatchID: 1, Events: tt.events}
+			ok := w.send(wr)
+			if ok != tt.shouldSend {
+				t.Fatalf("expected send=%v, got %v", tt.shouldSend, ok)
+			}
+			if tt.expectedEvents > 0 {
+				resp := <-ch
+				if len(resp.Events) != tt.expectedEvents {
+					t.Fatalf("expected %d events, got %d", tt.expectedEvents, len(resp.Events))
+				}
+			}
+		})
+	}
+}
