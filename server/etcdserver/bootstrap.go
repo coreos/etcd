@@ -88,7 +88,11 @@ func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 			return nil, fmt.Errorf("cannot write to WAL directory: %w", err)
 		}
 		cfg.Logger.Info("Bootstrapping WAL from snapshot")
-		bwal = bootstrapWALFromSnapshot(cfg, backend.snapshot, backend.ci)
+		bwal, err = bootstrapWALFromSnapshot(cfg, backend.snapshot, backend.ci)
+		if err != nil {
+			backend.Close()
+			return nil, err
+		}
 	}
 
 	cfg.Logger.Info("bootstrapping cluster")
@@ -557,7 +561,7 @@ func (b *bootstrappedRaft) newRaftNode(ss *snap.Snapshotter, wal *wal.WAL, cl *m
 	)
 }
 
-func bootstrapWALFromSnapshot(cfg config.ServerConfig, snapshot *raftpb.Snapshot, ci cindex.ConsistentIndexer) *bootstrappedWAL {
+func bootstrapWALFromSnapshot(cfg config.ServerConfig, snapshot *raftpb.Snapshot, ci cindex.ConsistentIndexer) (*bootstrappedWAL, error) {
 	wal, st, ents, snap, meta := openWALFromSnapshot(cfg, snapshot)
 	bwal := &bootstrappedWAL{
 		lg:       cfg.Logger,
@@ -581,7 +585,18 @@ func bootstrapWALFromSnapshot(cfg config.ServerConfig, snapshot *raftpb.Snapshot
 		// committed, we reset Commit to max(HardState.Commit, consistent_index).
 		//
 		// See: https://github.com/etcd-io/raft/pull/300 for more details.
-		bwal.st.Commit = max(oldCommitIndex, consistentIndex)
+		adjustedCommitIndex := max(oldCommitIndex, consistentIndex)
+		lastIdx := bwal.lastIndex()
+		if adjustedCommitIndex > lastIdx {
+			cfg.Logger.Error(
+				"adjusted commit index is ahead of the last WAL entry",
+				zap.Uint64("adjusted-commit-index", adjustedCommitIndex),
+				zap.Uint64("last-wal-entry-index", lastIdx),
+			)
+			bwal.w.Close()
+			return nil, fmt.Errorf("adjusted commit index %d exceeds the last WAL entry index %d", adjustedCommitIndex, lastIdx)
+		}
+		bwal.st.Commit = adjustedCommitIndex
 
 		// discard the previously uncommitted entries
 		bwal.ents = bwal.CommitedEntries()
@@ -603,7 +618,7 @@ func bootstrapWALFromSnapshot(cfg config.ServerConfig, snapshot *raftpb.Snapshot
 			zap.Uint64("commit-index", bwal.st.Commit),
 		)
 	}
-	return bwal
+	return bwal, nil
 }
 
 // openWALFromSnapshot reads the WAL at the given snap and returns the wal, its latest HardState and cluster ID, and all entries that appear
@@ -730,4 +745,20 @@ func (wal *bootstrappedWAL) AppendAndCommitEntries(ents []raftpb.Entry) {
 	if len(wal.ents) != 0 {
 		wal.st.Commit = wal.ents[len(wal.ents)-1].Index
 	}
+}
+
+// `lastIndex` returns the index of the last entry, or the snapshot index if there are no entries
+func (wal *bootstrappedWAL) lastIndex() uint64 {
+	var idx uint64
+	if wal.snapshot != nil {
+		idx = wal.snapshot.Metadata.Index
+	}
+
+	if len(wal.ents) != 0 {
+		if entIdx := wal.ents[len(wal.ents)-1].Index; entIdx > idx {
+			idx = entIdx
+		}
+	}
+
+	return idx
 }
