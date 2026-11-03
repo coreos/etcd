@@ -987,10 +987,11 @@ func TestStressWatchCancelClose(t *testing.T) {
 
 	wg.Wait()
 }
-func BenchmarkWatcherSendFilter(b *testing.B) {
+
+func runBenchmarkWatcherSendFilter(b *testing.B, totalEvents, deleteCount int) {
 	ch := make(chan WatchResponse, 1024)
 
-	// Filter that only ignores DELETE events (so all PUT events pass through)
+	// Filter that drops DELETE events
 	filterNoDelete := func(e *mvccpb.Event) bool {
 		return e.Type == mvccpb.Event_DELETE
 	}
@@ -1001,10 +1002,14 @@ func BenchmarkWatcherSendFilter(b *testing.B) {
 		fcs: []FilterFunc{filterNoDelete},
 	}
 
-	events := make([]*mvccpb.Event, 10)
-	for i := range events {
+	events := make([]*mvccpb.Event, totalEvents)
+	for i := 0; i < totalEvents; i++ {
+		ty := mvccpb.Event_PUT
+		if i < deleteCount {
+			ty = mvccpb.Event_DELETE
+		}
 		events[i] = &mvccpb.Event{
-			Type: mvccpb.Event_PUT,
+			Type: ty,
 			Kv:   &mvccpb.KeyValue{ModRevision: 100},
 		}
 	}
@@ -1020,8 +1025,23 @@ func BenchmarkWatcherSendFilter(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		w.send(wr)
-		<-ch
+		select {
+		case <-ch:
+		default:
+		}
 	}
+}
+
+func BenchmarkWatcherSendFilter_NoneFiltered(b *testing.B) {
+	runBenchmarkWatcherSendFilter(b, 10, 0)
+}
+
+func BenchmarkWatcherSendFilter_HalfFiltered(b *testing.B) {
+	runBenchmarkWatcherSendFilter(b, 10, 5)
+}
+
+func BenchmarkWatcherSendFilter_AllFiltered(b *testing.B) {
+	runBenchmarkWatcherSendFilter(b, 10, 10)
 }
 func TestWatcherSendFiltering(t *testing.T) {
 	tests := []struct {
