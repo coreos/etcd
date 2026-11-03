@@ -134,7 +134,7 @@
           {
             alert: 'etcdHighNumberOfFailedProposals',
             expr: |||
-              rate(etcd_server_proposals_failed_total{%(etcd_selector)s}[15m]) > 5
+              increase(etcd_server_proposals_failed_total{%(etcd_selector)s}[15m]) > 5
             ||| % $._config,
             'for': '15m',
             labels: {
