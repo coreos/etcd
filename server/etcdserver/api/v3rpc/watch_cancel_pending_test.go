@@ -95,6 +95,7 @@ func newSendLoopHarness(t *testing.T) *sendLoopHarness {
 		gRPCStream:  gs,
 		watchStream: ws,
 		ctrlStream:  make(chan *pb.WatchResponse, ctrlStreamBufLen),
+		creating:    make(map[mvcc.WatchID]struct{}),
 		progress:    make(map[mvcc.WatchID]bool),
 		prevKV:      make(map[mvcc.WatchID]bool),
 		fragment:    make(map[mvcc.WatchID]bool),
@@ -123,6 +124,16 @@ func (h *sendLoopHarness) stop() {
 
 // ctrl queues a control response the way recvLoop does.
 func (h *sendLoopHarness) ctrl(wr *pb.WatchResponse) { h.sws.ctrlStream <- wr }
+
+// register mirrors what recvLoop does when it creates a watcher: the watch ID
+// is recorded as awaiting its created response while mu is held across
+// watchStream.Watch(), so that sendLoop can tell an event that arrives before
+// the created response from an event of an already canceled watch.
+func (h *sendLoopHarness) register(wid mvcc.WatchID) {
+	h.sws.mu.Lock()
+	h.sws.creating[wid] = struct{}{}
+	h.sws.mu.Unlock()
+}
 
 // event queues a response on the mvcc event channel that every watcher of a
 // stream shares.
@@ -216,8 +227,10 @@ func TestSendLoopDiscardsEventsOfCanceledWatch(t *testing.T) {
 	h := newSendLoopHarness(t)
 
 	// Both watches are created and acknowledged, so sendLoop records them.
+	h.register(wid)
 	h.ctrl(&pb.WatchResponse{WatchId: wid, Created: true})
 	require.True(t, h.nextSent("created response").Created)
+	h.register(keep)
 	h.ctrl(&pb.WatchResponse{WatchId: keep, Created: true})
 	require.True(t, h.nextSent("created response").Created)
 
@@ -233,17 +246,18 @@ func TestSendLoopDiscardsEventsOfCanceledWatch(t *testing.T) {
 	// It must not be retained either. A client may reuse an explicit watch ID
 	// as soon as the cancel is acknowledged, because mvcc only rejects IDs that
 	// are still live, and the Created branch flushes pending[wid]
-	// unconditionally. The new watch then inherits the dead watch's event.
+	// unconditionally. The new watch must not inherit the dead watch's event.
+	h.register(wid)
 	h.ctrl(&pb.WatchResponse{WatchId: wid, Created: true})
 	require.True(t, h.nextSent("created response for the reused watch id").Created)
 	h.barrier(keep, 44)
 }
 
 // TestSendLoopAccountsEventsOfCanceledWatch asserts that dropping the late
-// event of a canceled watch also reconciles the pending-events gauge. Today the
-// late event takes the pending branch of sendLoop, which continues before
-// mvcc.ReportEventReceived is reached, so the gauge stays elevated for as long
-// as the gRPC watch stream lives.
+// event of a canceled watch also reconciles the pending-events gauge. Before
+// the fix the late event took the pending branch of sendLoop, which continues
+// before mvcc.ReportEventReceived is reached, so the gauge stayed elevated for
+// as long as the gRPC watch stream lived.
 func TestSendLoopAccountsEventsOfCanceledWatch(t *testing.T) {
 	const (
 		wid  = 5
@@ -252,8 +266,10 @@ func TestSendLoopAccountsEventsOfCanceledWatch(t *testing.T) {
 
 	h := newSendLoopHarness(t)
 
+	h.register(wid)
 	h.ctrl(&pb.WatchResponse{WatchId: wid, Created: true})
 	require.True(t, h.nextSent("created response").Created)
+	h.register(keep)
 	h.ctrl(&pb.WatchResponse{WatchId: keep, Created: true})
 	require.True(t, h.nextSent("created response").Created)
 	h.ctrl(&pb.WatchResponse{WatchId: wid, Canceled: true})
@@ -271,8 +287,8 @@ func TestSendLoopAccountsEventsOfCanceledWatch(t *testing.T) {
 
 // TestSendLoopFlushesEventsBufferedBeforeCreated guards the behavior pending
 // actually exists for: an event that reaches sendLoop before the Created
-// response must be buffered and delivered once the watch is announced. Any fix
-// for the canceled case has to keep this working.
+// response must be buffered and delivered once the watch is announced. The fix
+// for the canceled case must not break this.
 func TestSendLoopFlushesEventsBufferedBeforeCreated(t *testing.T) {
 	const (
 		wid  = 5
@@ -281,10 +297,13 @@ func TestSendLoopFlushesEventsBufferedBeforeCreated(t *testing.T) {
 
 	h := newSendLoopHarness(t)
 
+	h.register(keep)
 	h.ctrl(&pb.WatchResponse{WatchId: keep, Created: true})
 	require.True(t, h.nextSent("created response").Created)
 
-	// The event arrives before anything told sendLoop that wid exists.
+	// recvLoop has created the watcher, so the ID is registered as awaiting its
+	// created response, but sendLoop has not processed that response yet.
+	h.register(wid)
 	h.event(putEvent(wid, "early-key", 42))
 	h.barrier(keep, 43)
 
