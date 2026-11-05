@@ -602,6 +602,9 @@ func (rw RWPermission) HasRecursiveAccess(key string, write bool) bool {
 }
 
 func simpleMatch(pattern string, key string) (match bool, err error) {
+	if pattern == "" {
+		return false, nil
+	}
 	if pattern[len(pattern)-1] == '*' {
 		return strings.HasPrefix(key, pattern[:len(pattern)-1]), nil
 	}
@@ -609,6 +612,9 @@ func simpleMatch(pattern string, key string) (match bool, err error) {
 }
 
 func prefixMatch(pattern string, key string) (match bool, err error) {
+	if pattern == "" {
+		return false, nil
+	}
 	if pattern[len(pattern)-1] != '*' {
 		return false, nil
 	}

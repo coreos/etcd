@@ -676,3 +676,34 @@ func TestSimpleMatch(t *testing.T) {
 		t.Fatal("role has unexpected access")
 	}
 }
+
+func TestEmptyPatternDoesNotPanic(t *testing.T) {
+	// A role whose permission list contains an empty-string pattern can be
+	// stored through the v2 role API. Matching an empty pattern must be
+	// rejected gracefully instead of panicking with index out of range.
+	role := Role{Role: "foo", Permissions: Permissions{KV: RWPermission{Read: []string{""}, Write: []string{""}}}}
+
+	if role.HasKeyAccess("/foodir/foo/bar", false) {
+		t.Fatal("role with empty read pattern should not grant access")
+	}
+	if role.HasKeyAccess("/foodir/foo/bar", true) {
+		t.Fatal("role with empty write pattern should not grant access")
+	}
+	if role.HasRecursiveAccess("/foodir/foo/bar", false) {
+		t.Fatal("role with empty read pattern should not grant recursive access")
+	}
+	if role.HasRecursiveAccess("/foodir/foo/bar", true) {
+		t.Fatal("role with empty write pattern should not grant recursive access")
+	}
+
+	if match, _ := simpleMatch("", "/foodir/foo/bar"); match {
+		t.Fatal("simpleMatch with empty pattern should not match")
+	}
+	if match, _ := prefixMatch("", "/foodir/foo/bar"); match {
+		t.Fatal("prefixMatch with empty pattern should not match")
+	}
+
+	if match, _ := simpleMatch("*", "/foodir/foo/bar"); !match {
+		t.Fatal("simpleMatch with '*' pattern should match")
+	}
+}
