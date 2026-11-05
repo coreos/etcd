@@ -221,7 +221,9 @@ func ParseCompare(line string) (*clientv3.Cmp, error) {
 	case "val", "value":
 		cmp = clientv3.Compare(clientv3.Value(key), op, val)
 	case "lease":
-		cmp = clientv3.Compare(clientv3.LeaseValue(key), op, val)
+		if v, err = strconv.ParseInt(val, 16, 64); err == nil {
+			cmp = clientv3.Compare(clientv3.LeaseValue(key), op, v)
+		}
 	default:
 		return nil, fmt.Errorf("malformed comparison: %s (unknown target %s)", line, target)
 	}
