@@ -167,7 +167,7 @@ func TestStorePut(t *testing.T) {
 		}
 		wact = []testutil.Action{
 			{Name: "get", Params: []any{[]byte("foo"), tt.wputrev.Main}},
-			{Name: "put", Params: []any{[]byte("foo"), tt.wputrev}},
+			{Name: "put", Params: []any{[]byte("foo"), lease.LeaseID(i + 1), tt.wputrev}},
 		}
 		if g := fi.Action(); !reflect.DeepEqual(g, wact) {
 			t.Errorf("#%d: index action = %+v, want %+v", i, g, wact)
@@ -201,11 +201,11 @@ func TestStoreRange(t *testing.T) {
 		r    rangeResp
 	}{
 		{
-			indexRangeResp{[][]byte{[]byte("foo")}, []Revision{{Main: 2}}, []Revision{{Main: 1}}, []int64{1}, 1},
+			indexRangeResp{[][]byte{[]byte("foo")}, []lease.LeaseID{lease.NoLease}, []Revision{{Main: 2}}, []Revision{{Main: 1}}, []int64{1}, 1},
 			rangeResp{[][]byte{key}, [][]byte{kvb}},
 		},
 		{
-			indexRangeResp{[][]byte{[]byte("foo"), []byte("foo1")}, []Revision{{Main: 2}, {Main: 3}}, []Revision{{Main: 2}, {Main: 3}}, []int64{1, 1}, 2},
+			indexRangeResp{[][]byte{[]byte("foo"), []byte("foo1")}, []lease.LeaseID{lease.NoLease, lease.NoLease}, []Revision{{Main: 2}, {Main: 3}}, []Revision{{Main: 2}, {Main: 3}}, []int64{1, 1}, 2},
 			rangeResp{[][]byte{key}, [][]byte{kvb}},
 		},
 	}
@@ -280,7 +280,7 @@ func TestStoreDeleteRange(t *testing.T) {
 	}{
 		{
 			Revision{Main: 2},
-			indexRangeResp{[][]byte{[]byte("foo")}, []Revision{{Main: 2}}, []Revision{{Main: 2}}, []int64{1}, 1},
+			indexRangeResp{[][]byte{[]byte("foo")}, []lease.LeaseID{lease.NoLease}, []Revision{{Main: 2}}, []Revision{{Main: 2}}, []int64{1}, 1},
 			rangeResp{[][]byte{key}, [][]byte{kvb}},
 
 			newTestBucketKeyBytes(newBucketKey(3, 0, true)),
@@ -422,7 +422,7 @@ func TestStoreRestore(t *testing.T) {
 	}
 
 	gens := []generation{
-		{created: Revision{Main: 4}, ver: 2, revs: []Revision{{Main: 3}, {Main: 5}}},
+		{created: Revision{Main: 4}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 3}, leaseID: lease.NoLease}, {revision: Revision{Main: 5}, leaseID: lease.NoLease}}},
 		{created: Revision{Main: 0}, ver: 0, revs: nil},
 	}
 	ki := &keyIndex{key: []byte("foo"), modified: Revision{Main: 5}, generations: gens}
@@ -1047,6 +1047,7 @@ type indexGetResp struct {
 
 type indexRangeResp struct {
 	keys     [][]byte
+	leases   []lease.LeaseID
 	revs     []Revision
 	creates  []Revision
 	versions []int64
@@ -1066,7 +1067,7 @@ type fakeIndex struct {
 }
 
 func (i *fakeIndex) Revisions(key, end []byte, atRev int64, limit int, withTotalCount bool) ([]Revision, int) {
-	_, rev, _, _, _ := i.Range(key, end, atRev, limit, withTotalCount)
+	_, _, rev, _, _, _ := i.Range(key, end, atRev, limit, withTotalCount)
 	if len(rev) >= limit {
 		rev = rev[:limit]
 	}
@@ -1074,7 +1075,7 @@ func (i *fakeIndex) Revisions(key, end []byte, atRev int64, limit int, withTotal
 }
 
 func (i *fakeIndex) CountRevisions(key, end []byte, atRev int64) int {
-	_, rev, _, _, _ := i.Range(key, end, atRev, 0, true)
+	_, _, rev, _, _, _ := i.Range(key, end, atRev, 0, true)
 	return len(rev)
 }
 
@@ -1084,14 +1085,14 @@ func (i *fakeIndex) Get(key []byte, atRev int64) (rev, created Revision, ver int
 	return r.rev, r.created, r.ver, r.err
 }
 
-func (i *fakeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, modifies, creates []Revision, versions []int64, total int) {
+func (i *fakeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, leases []lease.LeaseID, modifies, creates []Revision, versions []int64, total int) {
 	i.Recorder.Record(testutil.Action{Name: "range", Params: []any{key, end, atRev}})
 	r := <-i.indexRangeRespc
-	return r.keys, r.revs, r.creates, r.versions, r.total
+	return r.keys, r.leases, r.revs, r.creates, r.versions, r.total
 }
 
-func (i *fakeIndex) Put(key []byte, rev Revision) {
-	i.Recorder.Record(testutil.Action{Name: "put", Params: []any{key, rev}})
+func (i *fakeIndex) Put(key []byte, leaseID lease.LeaseID, rev Revision) {
+	i.Recorder.Record(testutil.Action{Name: "put", Params: []any{key, leaseID, rev}})
 }
 
 func (i *fakeIndex) Tombstone(key []byte, rev Revision) error {

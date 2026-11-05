@@ -23,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+
+	"go.etcd.io/etcd/server/v3/lease"
 )
 
 func TestRestoreTombstone(t *testing.T) {
@@ -38,11 +40,12 @@ func TestRestoreTombstone(t *testing.T) {
 	//    {{16, 0}(t)[0]}
 	//
 	ki := &keyIndex{key: []byte("foo")}
-	ki.restoreTombstone(lg, 16, 0)
+	ki.restoreTombstone(lg, 16, 0, lease.LeaseID(5))
+	require.Equal(t, lease.LeaseID(5), ki.generations[0].revs[0].leaseID)
 
 	// get should return not found
 	for retAt := 16; retAt <= 20; retAt++ {
-		_, _, _, err := ki.get(lg, int64(retAt))
+		_, _, _, _, err := ki.get(lg, int64(retAt))
 		require.ErrorIs(t, err, ErrRevisionNotFound)
 	}
 
@@ -54,15 +57,18 @@ func TestRestoreTombstone(t *testing.T) {
 	require.True(t, ok)
 
 	// should be able to put new revisions
-	ki.put(lg, 17, 0)
-	ki.put(lg, 18, 0)
+	ki.put(lg, 17, 0, lease.NoLease)
+	ki.put(lg, 18, 0, lease.LeaseID(1))
 	revs := ki.since(lg, 16)
 	require.Equal(t, []Revision{{16, 0}, {17, 0}, {18, 0}}, revs)
 
 	// compaction should remove restored tombstone
 	ki.compact(lg, 17, map[Revision]struct{}{})
 	require.Len(t, ki.generations, 1)
-	require.Equal(t, []Revision{{17, 0}, {18, 0}}, ki.generations[0].revs)
+	require.Equal(t, []revisionLease{
+		{revision: Revision{17, 0}, leaseID: lease.NoLease},
+		{revision: Revision{18, 0}, leaseID: lease.LeaseID(1)},
+	}, ki.generations[0].revs)
 }
 
 func TestKeyIndexGet(t *testing.T) {
@@ -82,39 +88,40 @@ func TestKeyIndexGet(t *testing.T) {
 		wmod   Revision
 		wcreat Revision
 		wver   int64
+		wlease lease.LeaseID
 		werr   error
 	}{
-		{17, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{16, Revision{}, Revision{}, 0, ErrRevisionNotFound},
+		{17, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{16, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
 
 		// get on generation 3
-		{15, Revision{Main: 15, Sub: 1}, Revision{Main: 14}, 2, nil},
-		{14, Revision{Main: 14}, Revision{Main: 14}, 1, nil},
+		{15, Revision{Main: 15, Sub: 1}, Revision{Main: 14}, 2, lease.LeaseID(5), nil},
+		{14, Revision{Main: 14}, Revision{Main: 14}, 1, lease.LeaseID(4), nil},
 
-		{13, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{12, Revision{}, Revision{}, 0, ErrRevisionNotFound},
+		{13, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{12, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
 
 		// get on generation 2
-		{11, Revision{Main: 10}, Revision{Main: 8}, 2, nil},
-		{10, Revision{Main: 10}, Revision{Main: 8}, 2, nil},
-		{9, Revision{Main: 8}, Revision{Main: 8}, 1, nil},
-		{8, Revision{Main: 8}, Revision{Main: 8}, 1, nil},
+		{11, Revision{Main: 10}, Revision{Main: 8}, 2, lease.LeaseID(3), nil},
+		{10, Revision{Main: 10}, Revision{Main: 8}, 2, lease.LeaseID(3), nil},
+		{9, Revision{Main: 8}, Revision{Main: 8}, 1, lease.LeaseID(2), nil},
+		{8, Revision{Main: 8}, Revision{Main: 8}, 1, lease.LeaseID(2), nil},
 
-		{7, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{6, Revision{}, Revision{}, 0, ErrRevisionNotFound},
+		{7, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{6, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
 
 		// get on generation 1
-		{5, Revision{Main: 4}, Revision{Main: 2}, 2, nil},
-		{4, Revision{Main: 4}, Revision{Main: 2}, 2, nil},
+		{5, Revision{Main: 4}, Revision{Main: 2}, 2, lease.LeaseID(1), nil},
+		{4, Revision{Main: 4}, Revision{Main: 2}, 2, lease.LeaseID(1), nil},
 
-		{3, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{2, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{1, Revision{}, Revision{}, 0, ErrRevisionNotFound},
-		{0, Revision{}, Revision{}, 0, ErrRevisionNotFound},
+		{3, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{2, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{1, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
+		{0, Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound},
 	}
 
 	for i, tt := range tests {
-		mod, creat, ver, err := ki.get(zaptest.NewLogger(t), tt.rev)
+		mod, creat, ver, leaseID, err := ki.get(zaptest.NewLogger(t), tt.rev)
 		if !errors.Is(err, tt.werr) {
 			t.Errorf("#%d: err = %v, want %v", i, err, tt.werr)
 		}
@@ -126,6 +133,9 @@ func TestKeyIndexGet(t *testing.T) {
 		}
 		if ver != tt.wver {
 			t.Errorf("#%d: version = %d, want %d", i, ver, tt.wver)
+		}
+		if leaseID != tt.wlease {
+			t.Errorf("#%d: leaseID = %d, want %d", i, leaseID, tt.wlease)
 		}
 	}
 }
@@ -179,23 +189,23 @@ func TestKeyIndexSince(t *testing.T) {
 
 func TestKeyIndexPut(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
-	ki.put(zaptest.NewLogger(t), 5, 0)
+	ki.put(zaptest.NewLogger(t), 5, 0, lease.NoLease)
 
 	wki := &keyIndex{
 		key:         []byte("foo"),
 		modified:    Revision{Main: 5},
-		generations: []generation{{created: Revision{Main: 5}, ver: 1, revs: []Revision{{Main: 5}}}},
+		generations: []generation{{created: Revision{Main: 5}, ver: 1, revs: []revisionLease{{revision: Revision{Main: 5}, leaseID: lease.NoLease}}}},
 	}
 	if !reflect.DeepEqual(ki, wki) {
 		t.Errorf("ki = %+v, want %+v", ki, wki)
 	}
 
-	ki.put(zaptest.NewLogger(t), 7, 0)
+	ki.put(zaptest.NewLogger(t), 7, 0, lease.LeaseID(1))
 
 	wki = &keyIndex{
 		key:         []byte("foo"),
 		modified:    Revision{Main: 7},
-		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []Revision{{Main: 5}, {Main: 7}}}},
+		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 5}, leaseID: lease.NoLease}, {revision: Revision{Main: 7}, leaseID: lease.LeaseID(1)}}}},
 	}
 	if !reflect.DeepEqual(ki, wki) {
 		t.Errorf("ki = %+v, want %+v", ki, wki)
@@ -204,12 +214,12 @@ func TestKeyIndexPut(t *testing.T) {
 
 func TestKeyIndexRestore(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
-	ki.restore(zaptest.NewLogger(t), Revision{Main: 5}, Revision{Main: 7}, 2)
+	ki.restore(zaptest.NewLogger(t), Revision{Main: 5}, Revision{Main: 7}, 2, lease.LeaseID(1))
 
 	wki := &keyIndex{
 		key:         []byte("foo"),
 		modified:    Revision{Main: 7},
-		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []Revision{{Main: 7}}}},
+		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 7}, leaseID: lease.LeaseID(1)}}}},
 	}
 	if !reflect.DeepEqual(ki, wki) {
 		t.Errorf("ki = %+v, want %+v", ki, wki)
@@ -218,7 +228,7 @@ func TestKeyIndexRestore(t *testing.T) {
 
 func TestKeyIndexTombstone(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
-	ki.put(zaptest.NewLogger(t), 5, 0)
+	ki.put(zaptest.NewLogger(t), 5, 0, lease.NoLease)
 
 	err := ki.tombstone(zaptest.NewLogger(t), 7, 0)
 	if err != nil {
@@ -228,14 +238,14 @@ func TestKeyIndexTombstone(t *testing.T) {
 	wki := &keyIndex{
 		key:         []byte("foo"),
 		modified:    Revision{Main: 7},
-		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []Revision{{Main: 5}, {Main: 7}}}, {}},
+		generations: []generation{{created: Revision{Main: 5}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 5}, leaseID: lease.NoLease}, {revision: Revision{Main: 7}, leaseID: lease.NoLease}}}, {}},
 	}
 	if !reflect.DeepEqual(ki, wki) {
 		t.Errorf("ki = %+v, want %+v", ki, wki)
 	}
 
-	ki.put(zaptest.NewLogger(t), 8, 0)
-	ki.put(zaptest.NewLogger(t), 9, 0)
+	ki.put(zaptest.NewLogger(t), 8, 0, lease.NoLease)
+	ki.put(zaptest.NewLogger(t), 9, 0, lease.NoLease)
 	err = ki.tombstone(zaptest.NewLogger(t), 15, 0)
 	if err != nil {
 		t.Errorf("unexpected tombstone error: %v", err)
@@ -245,8 +255,8 @@ func TestKeyIndexTombstone(t *testing.T) {
 		key:      []byte("foo"),
 		modified: Revision{Main: 15},
 		generations: []generation{
-			{created: Revision{Main: 5}, ver: 2, revs: []Revision{{Main: 5}, {Main: 7}}},
-			{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 9}, {Main: 15}}},
+			{created: Revision{Main: 5}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 5}, leaseID: lease.NoLease}, {revision: Revision{Main: 7}, leaseID: lease.NoLease}}},
+			{created: Revision{Main: 8}, ver: 3, revs: []revisionLease{{revision: Revision{Main: 8}, leaseID: lease.NoLease}, {revision: Revision{Main: 9}, leaseID: lease.NoLease}, {revision: Revision{Main: 15}, leaseID: lease.NoLease}}},
 			{},
 		},
 	}
@@ -273,9 +283,33 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 2}, {Main: 4}, {Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+							{revision: Revision{Main: 4}, leaseID: lease.LeaseID(1)},
+							{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -287,9 +321,33 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 2}, {Main: 4}, {Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+							{revision: Revision{Main: 4}, leaseID: lease.LeaseID(1)},
+							{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -303,9 +361,33 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 2}, {Main: 4}, {Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+							{revision: Revision{Main: 4}, leaseID: lease.LeaseID(1)},
+							{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -319,9 +401,32 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 4}, {Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 4}, leaseID: lease.LeaseID(1)},
+							{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -335,9 +440,32 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 4}, {Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 4}, leaseID: lease.LeaseID(1)},
+							{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -351,9 +479,29 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 2}, ver: 3, revs: []Revision{{Main: 6}}},
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 2},
+						ver:     3,
+						revs:    []revisionLease{{revision: Revision{Main: 6}, leaseID: lease.NoLease}},
+					},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -367,8 +515,24 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -380,8 +544,24 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -395,8 +575,24 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 8}, {Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 8}, leaseID: lease.LeaseID(2)},
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -410,8 +606,23 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -425,8 +636,23 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 10}, {Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 10}, leaseID: lease.LeaseID(3)},
+							{revision: Revision{Main: 12}, leaseID: lease.NoLease},
+						},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -440,8 +666,20 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 8}, ver: 3, revs: []Revision{{Main: 12}}},
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 8},
+						ver:     3,
+						revs:    []revisionLease{{revision: Revision{Main: 12}, leaseID: lease.NoLease}},
+					},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -455,7 +693,15 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -467,7 +713,15 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 14}, {Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 14}, leaseID: lease.LeaseID(4)},
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -481,7 +735,14 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 15, Sub: 1}, {Main: 16}}},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs: []revisionLease{
+							{revision: Revision{Main: 15, Sub: 1}, leaseID: lease.LeaseID(5)},
+							{revision: Revision{Main: 16}, leaseID: lease.NoLease},
+						},
+					},
 					{},
 				},
 			},
@@ -495,7 +756,11 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 16},
 				generations: []generation{
-					{created: Revision{Main: 14}, ver: 3, revs: []Revision{{Main: 16}}},
+					{
+						created: Revision{Main: 14},
+						ver:     3,
+						revs:    []revisionLease{{revision: Revision{Main: 16}, leaseID: lease.NoLease}},
+					},
 					{},
 				},
 			},
@@ -520,7 +785,7 @@ func TestKeyIndexCompactAndKeep(t *testing.T) {
 		for i := 0; i < len(ki.generations)-1; i++ {
 			g := ki.generations[i]
 
-			if l := len(g.revs); l > 0 && g.revs[l-1].Main == rev {
+			if l := len(g.revs); l > 0 && g.revs[l-1].revision.Main == rev {
 				return true
 			}
 		}
@@ -620,7 +885,7 @@ func cloneGeneration(g *generation) *generation {
 	if g.revs == nil {
 		return &generation{g.ver, g.created, nil}
 	}
-	tmp := make([]Revision, len(g.revs))
+	tmp := make([]revisionLease, len(g.revs))
 	copy(tmp, g.revs)
 	return &generation{g.ver, g.created, tmp}
 }
@@ -629,8 +894,8 @@ func cloneGeneration(g *generation) *generation {
 // higher than last modified version works well
 func TestKeyIndexCompactOnFurtherRev(t *testing.T) {
 	ki := &keyIndex{key: []byte("foo")}
-	ki.put(zaptest.NewLogger(t), 1, 0)
-	ki.put(zaptest.NewLogger(t), 2, 0)
+	ki.put(zaptest.NewLogger(t), 1, 0, lease.NoLease)
+	ki.put(zaptest.NewLogger(t), 2, 0, lease.NoLease)
 	am := make(map[Revision]struct{})
 	ki.compact(zaptest.NewLogger(t), 3, am)
 
@@ -638,7 +903,7 @@ func TestKeyIndexCompactOnFurtherRev(t *testing.T) {
 		key:      []byte("foo"),
 		modified: Revision{Main: 2},
 		generations: []generation{
-			{created: Revision{Main: 1}, ver: 2, revs: []Revision{{Main: 2}}},
+			{created: Revision{Main: 1}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 2}, leaseID: lease.NoLease}}},
 		},
 	}
 	wam := map[Revision]struct{}{
@@ -669,7 +934,7 @@ func TestKeyIndexIsEmpty(t *testing.T) {
 				key:      []byte("foo"),
 				modified: Revision{Main: 2},
 				generations: []generation{
-					{created: Revision{Main: 1}, ver: 2, revs: []Revision{{Main: 2}}},
+					{created: Revision{Main: 1}, ver: 2, revs: []revisionLease{{revision: Revision{Main: 2}, leaseID: lease.NoLease}}},
 				},
 			},
 			false,
@@ -739,7 +1004,7 @@ func TestGenerationIsEmpty(t *testing.T) {
 	}{
 		{nil, true},
 		{&generation{}, true},
-		{&generation{revs: []Revision{{Main: 1}}}, false},
+		{&generation{revs: []revisionLease{{revision: Revision{Main: 1}, leaseID: lease.NoLease}}}, false},
 	}
 	for i, tt := range tests {
 		g := tt.g.isEmpty()
@@ -753,7 +1018,11 @@ func TestGenerationWalk(t *testing.T) {
 	g := &generation{
 		ver:     3,
 		created: Revision{Main: 2},
-		revs:    []Revision{{Main: 2}, {Main: 4}, {Main: 6}},
+		revs: []revisionLease{
+			{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+			{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+			{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+		},
 	}
 	tests := []struct {
 		f  func(rev Revision) bool
@@ -784,14 +1053,14 @@ func newTestKeyIndex(lg *zap.Logger) *keyIndex {
 	//    {{2, 0}[1], {4, 0}[2], {6, 0}(t)[3]}
 
 	ki := &keyIndex{key: []byte("foo")}
-	ki.put(lg, 2, 0)
-	ki.put(lg, 4, 0)
+	ki.put(lg, 2, 0, lease.NoLease)
+	ki.put(lg, 4, 0, lease.LeaseID(1))
 	ki.tombstone(lg, 6, 0)
-	ki.put(lg, 8, 0)
-	ki.put(lg, 10, 0)
+	ki.put(lg, 8, 0, lease.LeaseID(2))
+	ki.put(lg, 10, 0, lease.LeaseID(3))
 	ki.tombstone(lg, 12, 0)
-	ki.put(lg, 14, 0)
-	ki.put(lg, 15, 1)
+	ki.put(lg, 14, 0, lease.LeaseID(4))
+	ki.put(lg, 15, 1, lease.LeaseID(5))
 	ki.tombstone(lg, 16, 0)
 	return ki
 }

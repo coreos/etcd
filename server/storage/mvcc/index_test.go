@@ -21,12 +21,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
+
+	"go.etcd.io/etcd/server/v3/lease"
 )
 
 func TestIndexGet(t *testing.T) {
 	ti := newTreeIndex(zaptest.NewLogger(t))
-	ti.Put([]byte("foo"), Revision{Main: 2})
-	ti.Put([]byte("foo"), Revision{Main: 4})
+	ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 2})
+	ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 4})
 	ti.Tombstone([]byte("foo"), Revision{Main: 6})
 
 	tests := []struct {
@@ -65,10 +67,15 @@ func TestIndexGet(t *testing.T) {
 func TestIndexRange(t *testing.T) {
 	allKeys := [][]byte{[]byte("foo"), []byte("foo1"), []byte("foo2")}
 	allRevs := []Revision{{Main: 1}, {Main: 2}, {Main: 3}}
+	allLeases := []lease.LeaseID{
+		lease.NoLease,
+		lease.LeaseID(1),
+		lease.LeaseID(2),
+	}
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], allLeases[i], allRevs[i])
 	}
 
 	atRev := int64(3)
@@ -78,6 +85,7 @@ func TestIndexRange(t *testing.T) {
 		rangeLimit           int
 		withTotalCount       bool
 		expectKeys           [][]byte
+		expectLeases         []lease.LeaseID
 		expectRevisions      []Revision
 		expectTotalCount     int
 	}{
@@ -86,6 +94,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("bar"),
 			rangeEnd:         nil,
 			expectKeys:       nil,
+			expectLeases:     nil,
 			expectRevisions:  nil,
 			expectTotalCount: 0,
 			rangeLimit:       0,
@@ -96,6 +105,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         nil,
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 1,
 			rangeLimit:       0,
@@ -106,6 +116,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("foo1"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 1,
 			rangeLimit:       0,
@@ -116,6 +127,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("foo2"),
 			expectKeys:       allKeys[:2],
+			expectLeases:     allLeases[:2],
 			expectRevisions:  allRevs[:2],
 			expectTotalCount: 2,
 			rangeLimit:       0,
@@ -126,6 +138,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys,
+			expectLeases:     allLeases,
 			expectRevisions:  allRevs,
 			expectTotalCount: 3,
 			rangeLimit:       0,
@@ -136,6 +149,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 1,
 			rangeLimit:       1,
@@ -146,6 +160,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys,
+			expectLeases:     allLeases,
 			expectRevisions:  allRevs,
 			expectTotalCount: 3,
 			rangeLimit:       3,
@@ -156,6 +171,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys,
+			expectLeases:     allLeases,
 			expectRevisions:  allRevs,
 			expectTotalCount: 3,
 			rangeLimit:       4,
@@ -166,6 +182,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 3,
 			rangeLimit:       1,
@@ -176,6 +193,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("fo"),
 			rangeEnd:         []byte("foo"),
 			expectKeys:       nil,
+			expectLeases:     nil,
 			expectRevisions:  nil,
 			expectTotalCount: 0,
 			rangeLimit:       3,
@@ -186,6 +204,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("foo1"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 1,
 			rangeLimit:       3,
@@ -196,6 +215,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("foo1"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 1,
 			rangeLimit:       1,
@@ -206,6 +226,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("foo3"),
 			expectKeys:       allKeys[:1],
+			expectLeases:     allLeases[:1],
 			expectRevisions:  allRevs[:1],
 			expectTotalCount: 3,
 			rangeLimit:       1,
@@ -216,6 +237,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo1"),
 			rangeEnd:         []byte("foo3"),
 			expectKeys:       allKeys[1:2],
+			expectLeases:     allLeases[1:2],
 			expectRevisions:  allRevs[1:2],
 			expectTotalCount: 2,
 			rangeLimit:       1,
@@ -226,6 +248,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys,
+			expectLeases:     allLeases,
 			expectRevisions:  allRevs,
 			expectTotalCount: 3,
 			rangeLimit:       3,
@@ -236,6 +259,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo1"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys[1:],
+			expectLeases:     allLeases[1:],
 			expectRevisions:  allRevs[1:],
 			expectTotalCount: 2,
 			rangeLimit:       0,
@@ -246,6 +270,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo2"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       allKeys[2:],
+			expectLeases:     allLeases[2:],
 			expectRevisions:  allRevs[2:],
 			expectTotalCount: 1,
 			rangeLimit:       0,
@@ -256,6 +281,7 @@ func TestIndexRange(t *testing.T) {
 			rangeStart:       []byte("foo3"),
 			rangeEnd:         []byte("fop"),
 			expectKeys:       nil,
+			expectLeases:     nil,
 			expectRevisions:  nil,
 			expectTotalCount: 0,
 			rangeLimit:       0,
@@ -264,9 +290,12 @@ func TestIndexRange(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keys, revs, _, _, total := ti.Range(tt.rangeStart, tt.rangeEnd, atRev, tt.rangeLimit, tt.withTotalCount)
+			keys, leases, revs, _, _, total := ti.Range(tt.rangeStart, tt.rangeEnd, atRev, tt.rangeLimit, tt.withTotalCount)
 			if !reflect.DeepEqual(keys, tt.expectKeys) {
 				t.Errorf("#%d: keys = %+v, want %+v", i, keys, tt.expectKeys)
+			}
+			if !reflect.DeepEqual(leases, tt.expectLeases) {
+				t.Errorf("#%d: leases = %+v, want %v", i, leases, tt.expectLeases)
 			}
 			if !reflect.DeepEqual(revs, tt.expectRevisions) {
 				t.Errorf("#%d: revs = %+v, want %+v", i, revs, tt.expectRevisions)
@@ -280,7 +309,7 @@ func TestIndexRange(t *testing.T) {
 
 func TestIndexTombstone(t *testing.T) {
 	ti := newTreeIndex(zaptest.NewLogger(t))
-	ti.Put([]byte("foo"), Revision{Main: 1})
+	ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 1})
 
 	err := ti.Tombstone([]byte("foo"), Revision{Main: 2})
 	if err != nil {
@@ -303,7 +332,7 @@ func TestIndexRevision(t *testing.T) {
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], lease.NoLease, allRevs[i])
 	}
 
 	tests := []struct {
@@ -397,7 +426,7 @@ func TestIndexRevisionsWithTotalCount(t *testing.T) {
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], lease.NoLease, allRevs[i])
 	}
 
 	// Range [foo, fop) @ rev 6 matches 3 keys: foo, foo1, foo2.
@@ -508,17 +537,17 @@ func TestIndexCompactAndKeep(t *testing.T) {
 	buildTreeIndex := func() index {
 		ti := newTreeIndex(zaptest.NewLogger(t))
 
-		ti.Put([]byte("foo"), Revision{Main: 1})
-		ti.Put([]byte("foo1"), Revision{Main: 2})
-		ti.Put([]byte("foo2"), Revision{Main: 3})
-		ti.Put([]byte("foo2"), Revision{Main: 4})
-		ti.Put([]byte("foo"), Revision{Main: 5})
-		ti.Put([]byte("foo1"), Revision{Main: 6})
+		ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 1})
+		ti.Put([]byte("foo1"), lease.NoLease, Revision{Main: 2})
+		ti.Put([]byte("foo2"), lease.NoLease, Revision{Main: 3})
+		ti.Put([]byte("foo2"), lease.NoLease, Revision{Main: 4})
+		ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 5})
+		ti.Put([]byte("foo1"), lease.NoLease, Revision{Main: 6})
 		require.NoError(t, ti.Tombstone([]byte("foo1"), Revision{Main: 7}))
 		require.NoError(t, ti.Tombstone([]byte("foo2"), Revision{Main: 8}))
 		require.NoError(t, ti.Tombstone([]byte("foo"), Revision{Main: 9}))
-		ti.Put([]byte("foo"), Revision{Main: 10})
-		ti.Put([]byte("foo1"), Revision{Main: 10, Sub: 1})
+		ti.Put([]byte("foo"), lease.NoLease, Revision{Main: 10})
+		ti.Put([]byte("foo1"), lease.NoLease, Revision{Main: 10, Sub: 1})
 		return ti
 	}
 
@@ -535,23 +564,57 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 1}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs: []revisionLease{
+								{revision: Revision{Main: 10}, leaseID: lease.NoLease},
+							},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 3}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -570,23 +633,55 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 1}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 3}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -607,23 +702,55 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 1}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 3}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -646,23 +773,54 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 1}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -685,23 +843,53 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 2}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -724,23 +912,52 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs: []revisionLease{
+								{revision: Revision{Main: 6}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 7}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -763,23 +980,49 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     3,
+							created: Revision{Main: 2},
+							revs:    []revisionLease{{revision: Revision{Main: 7}, leaseID: lease.NoLease}},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs: []revisionLease{
+								{revision: Revision{Main: 4}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 8}, leaseID: lease.NoLease},
+							},
+						},
 						{},
 					},
 				},
@@ -801,22 +1044,41 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs: []revisionLease{
+								{revision: Revision{Main: 5}, leaseID: lease.NoLease},
+								{revision: Revision{Main: 9}, leaseID: lease.NoLease},
+							},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo2"),
 					modified: Revision{Main: 8},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 8}}},
+						{
+							ver:     3,
+							created: Revision{Main: 3},
+							revs:    []revisionLease{{revision: Revision{Main: 8}, leaseID: lease.NoLease}},
+						},
 						{},
 					},
 				},
@@ -836,15 +1098,27 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     3,
+							created: Revision{Main: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 9}, leaseID: lease.NoLease}},
+						},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 			},
@@ -860,14 +1134,22 @@ func TestIndexCompactAndKeep(t *testing.T) {
 					key:      []byte("foo"),
 					modified: Revision{Main: 10},
 					generations: []generation{
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
+						{
+							ver:     1,
+							created: Revision{Main: 10},
+							revs:    []revisionLease{{revision: Revision{Main: 10}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 				{
 					key:      []byte("foo1"),
 					modified: Revision{Main: 10, Sub: 1},
 					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
+						{
+							ver:     1,
+							created: Revision{Main: 10, Sub: 1},
+							revs:    []revisionLease{{revision: Revision{Main: 10, Sub: 1}, leaseID: lease.NoLease}},
+						},
 					},
 				},
 			},

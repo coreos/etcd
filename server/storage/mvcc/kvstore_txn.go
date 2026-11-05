@@ -88,7 +88,7 @@ func (tr *storeTxnCommon) rangeKeys(ctx context.Context, key, end []byte, curRev
 	}
 
 	if ro.FastKeysOnly {
-		keys, modifies, creates, versions, total := tr.s.kvindex.Range(key, end, rev, int(ro.Limit), ro.WithTotalCount)
+		keys, leases, modifies, creates, versions, total := tr.s.kvindex.Range(key, end, rev, int(ro.Limit), ro.WithTotalCount)
 		tr.trace.Step("keys only range from in-memory index tree")
 		if len(keys) == 0 {
 			return &RangeResult{KVs: nil, Count: 0, Rev: curRev}, nil
@@ -97,6 +97,7 @@ func (tr *storeTxnCommon) rangeKeys(ctx context.Context, key, end []byte, curRev
 		for i := range len(kvs) {
 			kvs[i] = &mvccpb.KeyValue{
 				Key:            keys[i],
+				Lease:          int64(leases[i]),
 				ModRevision:    modifies[i].Main,
 				CreateRevision: creates[i].Main,
 				Version:        versions[i],
@@ -257,7 +258,7 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 
 	tw.trace.Step("marshal mvccpb.KeyValue")
 	tw.tx.UnsafeSeqPut(schema.Key, ibytes, d)
-	tw.s.kvindex.Put(key, idxRev)
+	tw.s.kvindex.Put(key, leaseID, idxRev)
 	tw.changes = append(tw.changes, kv)
 	tw.trace.Step("store kv pair into bolt db")
 
@@ -295,7 +296,7 @@ func (tw *storeTxnWrite) deleteRange(key, end []byte) int64 {
 	if len(tw.changes) > 0 {
 		rrev++
 	}
-	keys, _, _, _, _ := tw.s.kvindex.Range(key, end, rrev, 0, false)
+	keys, _, _, _, _, _ := tw.s.kvindex.Range(key, end, rrev, 0, false)
 	if len(keys) == 0 {
 		return 0
 	}

@@ -19,14 +19,16 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/utils/third_party/forked/golang/btree"
+
+	"go.etcd.io/etcd/server/v3/lease"
 )
 
 type index interface {
 	Get(key []byte, atRev int64) (rev, created Revision, ver int64, err error)
-	Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, modifies, creates []Revision, versions []int64, totalCount int)
+	Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, leases []lease.LeaseID, modifies, creates []Revision, versions []int64, totalCount int)
 	Revisions(key, end []byte, atRev int64, limit int, withTotalCount bool) ([]Revision, int)
 	CountRevisions(key, end []byte, atRev int64) int
-	Put(key []byte, rev Revision)
+	Put(key []byte, leaseID lease.LeaseID, rev Revision)
 	Tombstone(key []byte, rev Revision) error
 	Compact(rev int64) map[Revision]struct{}
 	Keep(rev int64) map[Revision]struct{}
@@ -51,30 +53,31 @@ func newTreeIndex(lg *zap.Logger) index {
 	}
 }
 
-func (ti *treeIndex) Put(key []byte, rev Revision) {
+func (ti *treeIndex) Put(key []byte, leaseID lease.LeaseID, rev Revision) {
 	keyi := &keyIndex{key: key}
 
 	ti.Lock()
 	defer ti.Unlock()
 	okeyi, ok := ti.tree.Get(keyi)
 	if !ok {
-		keyi.put(ti.lg, rev.Main, rev.Sub)
+		keyi.put(ti.lg, rev.Main, rev.Sub, leaseID)
 		ti.tree.ReplaceOrInsert(keyi)
 		return
 	}
-	okeyi.put(ti.lg, rev.Main, rev.Sub)
+	okeyi.put(ti.lg, rev.Main, rev.Sub, leaseID)
 }
 
 func (ti *treeIndex) Get(key []byte, atRev int64) (modified, created Revision, ver int64, err error) {
 	ti.RLock()
 	defer ti.RUnlock()
-	return ti.unsafeGet(key, atRev)
+	modified, created, ver, _, err = ti.unsafeGet(key, atRev)
+	return modified, created, ver, err
 }
 
-func (ti *treeIndex) unsafeGet(key []byte, atRev int64) (modified, created Revision, ver int64, err error) {
+func (ti *treeIndex) unsafeGet(key []byte, atRev int64) (modified, created Revision, ver int64, leaseID lease.LeaseID, err error) {
 	keyi := &keyIndex{key: key}
 	if keyi = ti.keyIndex(keyi); keyi == nil {
-		return Revision{}, Revision{}, 0, ErrRevisionNotFound
+		return Revision{}, Revision{}, 0, lease.NoLease, ErrRevisionNotFound
 	}
 	return keyi.get(ti.lg, atRev)
 }
@@ -114,7 +117,7 @@ func (ti *treeIndex) Revisions(key, end []byte, atRev int64, limit int, withTota
 	defer ti.RUnlock()
 
 	if end == nil {
-		rev, _, _, err := ti.unsafeGet(key, atRev)
+		rev, _, _, _, err := ti.unsafeGet(key, atRev)
 		if err != nil {
 			return nil, 0
 		}
@@ -125,7 +128,7 @@ func (ti *treeIndex) Revisions(key, end []byte, atRev int64, limit int, withTota
 		if reachedLimit && !withTotalCount {
 			return false
 		}
-		if rev, _, _, err := ki.get(ti.lg, atRev); err == nil {
+		if rev, _, _, _, err := ki.get(ti.lg, atRev); err == nil {
 			if !reachedLimit {
 				revs = append(revs, rev)
 			}
@@ -143,7 +146,7 @@ func (ti *treeIndex) CountRevisions(key, end []byte, atRev int64) int {
 	defer ti.RUnlock()
 
 	if end == nil {
-		_, _, _, err := ti.unsafeGet(key, atRev)
+		_, _, _, _, err := ti.unsafeGet(key, atRev)
 		if err != nil {
 			return 0
 		}
@@ -151,7 +154,7 @@ func (ti *treeIndex) CountRevisions(key, end []byte, atRev int64) int {
 	}
 	total := 0
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
-		if _, _, _, err := ki.get(ti.lg, atRev); err == nil {
+		if _, _, _, _, err := ki.get(ti.lg, atRev); err == nil {
 			total++
 		}
 		return true
@@ -159,24 +162,25 @@ func (ti *treeIndex) CountRevisions(key, end []byte, atRev int64) int {
 	return total
 }
 
-func (ti *treeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, modifies, creates []Revision, versions []int64, totalCount int) {
+func (ti *treeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCount bool) (keys [][]byte, leases []lease.LeaseID, modifies, creates []Revision, versions []int64, totalCount int) {
 	ti.RLock()
 	defer ti.RUnlock()
 
 	if end == nil {
-		modified, created, version, err := ti.unsafeGet(key, atRev)
+		modified, created, version, leaseID, err := ti.unsafeGet(key, atRev)
 		if err != nil {
-			return nil, nil, nil, nil, 0
+			return nil, nil, nil, nil, nil, 0
 		}
-		return [][]byte{key}, []Revision{modified}, []Revision{created}, []int64{version}, 1
+		return [][]byte{key}, []lease.LeaseID{leaseID}, []Revision{modified}, []Revision{created}, []int64{version}, 1
 	}
 	ti.unsafeVisit(key, end, func(ki *keyIndex) bool {
 		reachedLimit := limit > 0 && len(keys) >= limit
 		if reachedLimit && !withTotalCount {
 			return false
 		}
-		if modified, created, version, err := ki.get(ti.lg, atRev); err == nil {
+		if modified, created, version, leaseID, err := ki.get(ti.lg, atRev); err == nil {
 			if !reachedLimit {
+				leases = append(leases, leaseID)
 				modifies = append(modifies, modified)
 				keys = append(keys, ki.key)
 				creates = append(creates, created)
@@ -186,7 +190,7 @@ func (ti *treeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCou
 		}
 		return true
 	})
-	return keys, modifies, creates, versions, totalCount
+	return keys, leases, modifies, creates, versions, totalCount
 }
 
 func (ti *treeIndex) Tombstone(key []byte, rev Revision) error {

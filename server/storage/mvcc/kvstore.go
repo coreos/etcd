@@ -420,7 +420,8 @@ func (s *store) restore() error {
 
 	if scheduledCompact != 0 {
 		if _, err := s.compactLockfree(scheduledCompact); err != nil {
-			s.lg.Warn("compaction encountered error",
+			s.lg.Warn(
+				"compaction encountered error",
 				zap.Int64("scheduled-compact-revision", scheduledCompact),
 				zap.Error(err),
 			)
@@ -485,12 +486,12 @@ func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int
 					}
 					continue
 				}
-				ki.put(lg, rev.Main, rev.Sub)
+				ki.put(lg, rev.Main, rev.Sub, lease.LeaseID(rkv.kv.Lease))
 			} else {
 				if isTombstone(rkv.key) {
-					ki.restoreTombstone(lg, rev.Main, rev.Sub)
+					ki.restoreTombstone(lg, rev.Main, rev.Sub, lease.LeaseID(rkv.kv.Lease))
 				} else {
-					ki.restore(lg, Revision{Main: rkv.kv.CreateRevision}, rev, rkv.kv.Version)
+					ki.restore(lg, Revision{Main: rkv.kv.CreateRevision}, rev, rkv.kv.Version, lease.LeaseID(rkv.kv.Lease))
 				}
 				idx.Insert(ki)
 				kiCache[rkv.kstr] = ki
