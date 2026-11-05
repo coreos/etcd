@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/membershippb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -730,22 +731,22 @@ func (a *applierV3backend) LeaseCheckpoint(lc *pb.LeaseCheckpointRequest) (*pb.L
 
 func (a *applierV3backend) Alarm(ar *pb.AlarmRequest) (*pb.AlarmResponse, error) {
 	resp := &pb.AlarmResponse{}
-	oldCount := len(a.s.alarmStore.Get(ar.Alarm))
+	oldCount := len(a.s.alarmStore.Load().Get(ar.Alarm))
 
 	lg := a.s.Logger()
 	switch ar.Action {
 	case pb.AlarmRequest_GET:
-		resp.Alarms = a.s.alarmStore.Get(ar.Alarm)
+		resp.Alarms = a.s.alarmStore.Load().Get(ar.Alarm)
 	case pb.AlarmRequest_ACTIVATE:
 		if ar.Alarm == pb.AlarmType_NONE {
 			break
 		}
-		m := a.s.alarmStore.Activate(types.ID(ar.MemberID), ar.Alarm)
+		m := a.s.alarmStore.Load().Activate(types.ID(ar.MemberID), ar.Alarm)
 		if m == nil {
 			break
 		}
 		resp.Alarms = append(resp.Alarms, m)
-		activated := oldCount == 0 && len(a.s.alarmStore.Get(m.Alarm)) == 1
+		activated := oldCount == 0 && len(a.s.alarmStore.Load().Get(m.Alarm)) == 1
 		if !activated {
 			break
 		}
@@ -760,12 +761,12 @@ func (a *applierV3backend) Alarm(ar *pb.AlarmRequest) (*pb.AlarmResponse, error)
 			lg.Panic("unimplemented alarm activation", zap.String("alarm", fmt.Sprintf("%+v", m)))
 		}
 	case pb.AlarmRequest_DEACTIVATE:
-		m := a.s.alarmStore.Deactivate(types.ID(ar.MemberID), ar.Alarm)
+		m := a.s.alarmStore.Load().Deactivate(types.ID(ar.MemberID), ar.Alarm)
 		if m == nil {
 			break
 		}
 		resp.Alarms = append(resp.Alarms, m)
-		deactivated := oldCount > 0 && len(a.s.alarmStore.Get(ar.Alarm)) == 0
+		deactivated := oldCount > 0 && len(a.s.alarmStore.Load().Get(ar.Alarm)) == 0
 		if !deactivated {
 			break
 		}
