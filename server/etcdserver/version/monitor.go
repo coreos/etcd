@@ -17,6 +17,7 @@ package version
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/coreos/go-semver/semver"
 	"go.uber.org/zap"
@@ -161,7 +162,7 @@ func (m *Monitor) membersMinimalServerVersion() *semver.Version {
 		if ver == nil {
 			return nil
 		}
-		v, err := semver.NewVersion(ver.Server)
+		v, err := semver.NewVersion(strings.TrimPrefix(ver.Server, "v"))
 		if err != nil {
 			m.lg.Warn(
 				"failed to parse server version of remote member",
@@ -197,7 +198,7 @@ func (m *Monitor) versionsMatchTarget(targetVersion *semver.Version) bool {
 		if ver == nil {
 			return false
 		}
-		v, err := semver.NewVersion(ver.Server)
+		v, err := semver.NewVersion(strings.TrimPrefix(ver.Server, "v"))
 		if err != nil {
 			m.lg.Warn(
 				"failed to parse server version of remote member",

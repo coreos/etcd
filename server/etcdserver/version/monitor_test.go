@@ -128,7 +128,7 @@ func TestVersionMatchTarget(t *testing.T) {
 			map[string]*version.Versions{
 				"mem1": {Server: "3.4.1", Cluster: "3.4.0"},
 				"mem2": {Server: "3.4.2-pre", Cluster: "3.4.0"},
-				"mem3": {Server: "3.4.2", Cluster: "3.4.0"},
+				"mem3": {Server: "v3.4.2", Cluster: "3.4.0"},
 			},
 			true,
 		},
