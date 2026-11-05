@@ -178,7 +178,7 @@ func TestV2SetMemberAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.alarmStore = as
+	srv.alarmStore.Store(as)
 	srv.uberApply = srv.NewUberApplier()
 
 	req := pb.Request{
@@ -224,7 +224,7 @@ func TestV2SetClusterVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.alarmStore = as
+	srv.alarmStore.Store(as)
 	srv.uberApply = srv.NewUberApplier()
 
 	req := pb.Request{

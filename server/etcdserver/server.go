@@ -263,7 +263,7 @@ type EtcdServer struct {
 	be         backend.Backend
 	beHooks    *serverstorage.BackendHooks
 	authStore  auth.AuthStore
-	alarmStore *v3alarm.AlarmStore
+	alarmStore atomic.Pointer[v3alarm.AlarmStore]
 
 	stats  *stats.ServerStats
 	lstats *stats.LeaderStats
@@ -1166,7 +1166,7 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, toApply *toApply) {
 }
 
 func (s *EtcdServer) NewUberApplier() apply.UberApplier {
-	return apply.NewUberApplier(s.lg, s.be, s.KV(), s.alarmStore, s.authStore, s.lessor, s.cluster, s, s, s.consistIndex,
+	return apply.NewUberApplier(s.lg, s.be, s.KV(), s.alarmStore.Load(), s.authStore, s.lessor, s.cluster, s, s, s.consistIndex,
 		s.Cfg.WarningApplyDuration, s.Cfg.ServerFeatureGate.Enabled(features.TxnModeWriteWithSharedBuffer), s.Cfg.QuotaBackendBytes)
 }
 
@@ -2014,7 +2014,7 @@ func (s *EtcdServer) applyEntryNormal(e *raftpb.Entry, shouldApplyV3 membership.
 		return
 	}
 
-	if !errorspkg.Is(ar.Err, errors.ErrNoSpace) || len(s.alarmStore.Get(pb.AlarmType_NOSPACE)) > 0 {
+	if !errorspkg.Is(ar.Err, errors.ErrNoSpace) || len(s.alarmStore.Load().Get(pb.AlarmType_NOSPACE)) > 0 {
 		s.w.Trigger(id, ar)
 		return
 	}
@@ -2531,7 +2531,7 @@ func (s *EtcdServer) restoreAlarms() error {
 	if err != nil {
 		return err
 	}
-	s.alarmStore = as
+	s.alarmStore.Store(as)
 	return nil
 }
 
@@ -2558,7 +2558,7 @@ func (s *EtcdServer) GoAttach(f func()) {
 }
 
 func (s *EtcdServer) Alarms() []*pb.AlarmMember {
-	return s.alarmStore.Get(pb.AlarmType_NONE)
+	return s.alarmStore.Load().Get(pb.AlarmType_NONE)
 }
 
 // IsLearner returns if the local member is raft learner
