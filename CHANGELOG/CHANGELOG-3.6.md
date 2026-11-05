@@ -9,6 +9,7 @@ Previous change logs can be found at [CHANGELOG-3.5](https://github.com/etcd-io/
 ### etcd server
 
 - Fix [`--force-new-cluster` permanently bricking a member whose backend consistent index is ahead of its WAL](https://github.com/etcd-io/etcd/pull/22686)
+- [Define `alarmStore` as an `atomic.Pointer` to avoid race condition](https://github.com/etcd-io/etcd/pull/22706)
 
 ---
 
