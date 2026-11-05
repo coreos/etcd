@@ -315,6 +315,15 @@
 		]
 	},
 	{
+		"project": "github.com/pandatix/go-abnf",
+		"licenses": [
+			{
+				"type": "MIT License",
+				"confidence": 1
+			}
+		]
+	},
+	{
 		"project": "github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil",
 		"licenses": [
 			{
