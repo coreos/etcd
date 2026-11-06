@@ -85,7 +85,7 @@ func executeRange(ctx context.Context, lg *zap.Logger, txnRead mvcc.TxnRead, r *
 
 func rangeLimit(r *pb.RangeRequest) int64 {
 	limit := r.Limit
-	if !IsDefaultOrdering(r.SortTarget, r.SortOrder) || HasRevisionFilters(r) {
+	if !IsDefaultOrdering(r.SortTarget, rangeSortOrder(r)) || HasRevisionFilters(r) {
 		limit = 0
 	}
 	if limit > 0 && limit < math.MaxInt64 {
@@ -100,6 +100,13 @@ func IsDefaultOrdering(sortTarget pb.RangeRequest_SortTarget, sortOrder pb.Range
 	// don't re-sort when target is 'KEY' and order is ASCEND
 	return sortOrder == pb.RangeRequest_NONE ||
 		(sortTarget == pb.RangeRequest_KEY && sortOrder == pb.RangeRequest_ASCEND)
+}
+
+func rangeSortOrder(r *pb.RangeRequest) pb.RangeRequest_SortOrder {
+	if r.SortTarget != pb.RangeRequest_KEY && r.SortOrder == pb.RangeRequest_NONE {
+		return pb.RangeRequest_ASCEND
+	}
+	return r.SortOrder
 }
 
 func HasRevisionFilters(r *pb.RangeRequest) bool {
@@ -123,11 +130,7 @@ func filterRangeResults(rr *mvcc.RangeResult, r *pb.RangeRequest) {
 }
 
 func sortRangeResults(rr *mvcc.RangeResult, r *pb.RangeRequest, lg *zap.Logger) {
-	sortOrder := r.SortOrder
-	if r.SortTarget != pb.RangeRequest_KEY && sortOrder == pb.RangeRequest_NONE {
-		sortOrder = pb.RangeRequest_ASCEND
-	}
-
+	sortOrder := rangeSortOrder(r)
 	if !IsDefaultOrdering(r.SortTarget, sortOrder) {
 		var sorter sort.Interface
 		switch {
