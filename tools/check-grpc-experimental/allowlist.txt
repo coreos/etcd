@@ -19,3 +19,46 @@ resolver.URL
 resolver.UpdateState
 serviceconfig.Err
 serviceconfig.ParseResult
+
+# Opt-in leader-aware client balancer, tracked in
+# https://github.com/etcd-io/etcd/issues/22268. The gRPC balancer API is
+# experimental; grpc-go has committed to a migration path with advance
+# notice for breaking changes (https://github.com/grpc/grpc-go/issues/8683).
+attributes.Value
+attributes.WithValue
+balancer.Balancer
+balancer.Build
+balancer.BuildOptions
+balancer.Builder
+balancer.ClientConn
+balancer.ClientConnState
+balancer.Close
+balancer.ConnectivityState
+balancer.Ctx
+balancer.Done
+balancer.DoneInfo
+balancer.Err
+balancer.ErrNoSubConnAvailable
+balancer.ExitIdle
+balancer.Get
+balancer.NewSubConnOptions
+balancer.Pick
+balancer.PickInfo
+balancer.PickResult
+balancer.Picker
+balancer.Register
+balancer.ResolverError
+balancer.ResolverState
+balancer.State
+balancer.StateListener
+balancer.SubConn
+balancer.UpdateClientConnState
+balancer.UpdateState
+balancer.UpdateSubConnState
+endpointsharding.ChildStatesFromPicker
+endpointsharding.Endpoint
+endpointsharding.State
+resolver.Addr
+resolver.Addresses
+resolver.Attributes
+resolver.Endpoints

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
 	grpccredentials "google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -60,13 +62,16 @@ type Client struct {
 
 	cfg      Config
 	creds    grpccredentials.TransportCredentials
-	resolver *resolver.EtcdManualResolver
+	resolver *resolver.ManualResolver
 
-	epMu      *sync.RWMutex
-	endpoints []string
+	epMu               *sync.RWMutex
+	endpoints          []string
+	endpointGeneration uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	leaderTracker *leaderTracker
 
 	// Username is a user name for authentication.
 	Username string
@@ -146,6 +151,9 @@ func (c *Client) GetLogger() *zap.Logger {
 // Close shuts down the client's etcd connections.
 func (c *Client) Close() error {
 	c.cancel()
+	if c.leaderTracker != nil {
+		<-c.leaderTracker.donec
+	}
 	if c.Watcher != nil {
 		c.Watcher.Close()
 	}
@@ -165,21 +173,44 @@ func (c *Client) Ctx() context.Context { return c.ctx }
 
 // Endpoints lists the registered endpoints for the client.
 func (c *Client) Endpoints() []string {
-	// copy the slice; protect original endpoints from being changed
-	c.epMu.RLock()
-	defer c.epMu.RUnlock()
-	eps := make([]string, len(c.endpoints))
-	copy(eps, c.endpoints)
+	eps, _ := c.endpointSnapshot()
 	return eps
 }
 
-// SetEndpoints updates client's endpoints.
+func (c *Client) endpointSnapshot() ([]string, uint64) {
+	c.epMu.RLock()
+	defer c.epMu.RUnlock()
+	return slices.Clone(c.endpoints), c.endpointGeneration
+}
+
+// SetEndpoints updates the client's endpoints.
+//
+// A list equal to the current one is a no-op: it does not advance the
+// endpoint generation or publish another resolver state. gRPC applies every
+// publication, and redundant updates churn balancers and connections; see
+// https://github.com/etcd-io/etcd/issues/21660.
 func (c *Client) SetEndpoints(eps ...string) {
+	// The client and resolver retain this state after SetEndpoints returns.
+	// Neither may share the caller's backing array.
+	eps = slices.Clone(eps)
 	c.epMu.Lock()
-	defer c.epMu.Unlock()
+	if slices.Equal(c.endpoints, eps) {
+		c.epMu.Unlock()
+		return
+	}
+	c.endpointGeneration++
 	c.endpoints = eps
 
-	c.resolver.SetEndpoints(eps)
+	c.resolver.SetEndpoints(eps, c.endpointGeneration)
+	tracker := c.leaderTracker
+	if tracker != nil {
+		// Keep the resolver update and invalidation under epMu.
+		//
+		// Concurrent SetEndpoints calls must not clear a newer generation's hint.
+		// The tracker notification is non-blocking.
+		tracker.invalidate()
+	}
+	c.epMu.Unlock()
 }
 
 // Sync synchronizes client's endpoints with the known endpoints from the etcd membership.
@@ -199,6 +230,12 @@ func (c *Client) Sync(ctx context.Context) error {
 	verify.Verify("empty endpoints returned from etcd cluster", func() (bool, map[string]any) {
 		return len(eps) > 0, nil
 	})
+	// MemberList order is not stable. Sort so that a pure reordering does
+	// not clear the leader hint and schedule a rediscovery round when
+	// membership did not change. Sorting is safe here: unlike a
+	// caller-provided list, this one is membership-derived, and its order
+	// carries no meaning.
+	slices.Sort(eps)
 	c.SetEndpoints(eps...)
 	c.GetLogger().Debug("set etcd endpoints by autoSync", zap.Strings("endpoints", eps))
 	return nil
@@ -263,11 +300,19 @@ func (c *Client) dialSetupOpts(creds grpccredentials.TransportCredentials, dopts
 	// TODO: Replace all of clientv3/retry.go with RetryPolicy:
 	// https://github.com/grpc/grpc-proto/blob/cdd9ed5c3d3f87aef62f373b93361cf7bddc620d/grpc/service_config/service_config.proto#L130
 	rrBackoff := withBackoff(c.roundRobinQuorumBackoff(backoffWaitBetween, backoffJitterFraction))
+	retryInterceptor := c.unaryClientInterceptor(withMax(unaryMaxRetries), rrBackoff)
+	unaryOption := grpc.WithUnaryInterceptor(retryInterceptor)
+	if c.cfg.balancerName == LeaderAwareBalancerName {
+		// Keep leader-aware routing in gRPC's interceptor chain.
+		//
+		// A later WithUnaryInterceptor must not replace it.
+		unaryOption = grpc.WithChainUnaryInterceptor(c.leaderUnaryInterceptor, retryInterceptor)
+	}
 	opts = append(opts,
 		// Disable stream retry by default since go-grpc-middleware/retry does not support client streams.
 		// Streams that are safe to retry are enabled individually.
 		grpc.WithStreamInterceptor(c.streamClientInterceptor(withMax(0), rrBackoff)),
-		grpc.WithUnaryInterceptor(c.unaryClientInterceptor(withMax(unaryMaxRetries), rrBackoff)),
+		unaryOption,
 	)
 
 	return opts
@@ -279,7 +324,7 @@ func (c *Client) Dial(ep string) (*grpc.ClientConn, error) {
 
 	// Using ad-hoc created resolver, to guarantee only explicitly given
 	// endpoint is used.
-	return c.dial(creds, grpc.WithResolvers(resolver.New(ep)))
+	return c.dial(creds, "", grpc.WithResolvers(resolver.New(ep)))
 }
 
 func (c *Client) getToken(ctx context.Context) error {
@@ -311,20 +356,33 @@ func (c *Client) getToken(ctx context.Context) error {
 func (c *Client) dialWithBalancer(dopts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	creds := c.credentialsForEndpoint(c.Endpoints()[0])
 	opts := append(dopts, grpc.WithResolvers(c.resolver))
-	return c.dial(creds, opts...)
+	return c.dial(creds, c.cfg.balancerName, opts...)
 }
 
 // dial configures and dials any grpc balancer target.
-func (c *Client) dial(creds grpccredentials.TransportCredentials, dopts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func (c *Client) dial(creds grpccredentials.TransportCredentials, balancerName string, dopts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	opts := c.dialSetupOpts(creds, dopts...)
 
 	if c.authTokenBundle != nil {
 		opts = append(opts, grpc.WithPerRPCCredentials(c.authTokenBundle.PerRPCCredentials()))
 	}
 
+	// Caller options keep the position they have in stock clientv3.
+	//
+	// The etcd resolver always publishes a service config selecting this
+	// balancer, which gRPC prefers over any default. The default below matters
+	// only when the caller disables resolver service configs: without it, gRPC
+	// would fall back to pick_first instead of the selected balancer.
 	opts = append(opts, c.cfg.DialOptions...)
+	if balancerName != "" {
+		opts = append(opts, grpc.WithDefaultServiceConfig(resolver.BalancerServiceConfig(balancerName)))
+	}
 
-	target := fmt.Sprintf("%s://%p/%s", resolver.Schema, c, authority(c.endpoints[0]))
+	endpoints := c.Endpoints()
+	if len(endpoints) == 0 {
+		return nil, ErrNoAvailableEndpoints
+	}
+	target := fmt.Sprintf("%s://%p/%s", resolver.Schema, c, authority(endpoints[0]))
 	return grpc.NewClient(target, opts...)
 }
 
@@ -370,6 +428,13 @@ func newClient(cfg *Config) (*Client, error) {
 
 	if cfg.Token != "" && (cfg.Username != "" || cfg.Password != "") {
 		return nil, ErrMutuallyExclusiveCfg
+	}
+	balancerName := cfg.balancerName
+	if balancerName == "" {
+		balancerName = DefaultBalancerName
+	}
+	if balancer.Get(balancerName) == nil {
+		return nil, fmt.Errorf("etcdclient: gRPC balancer %q is not registered", balancerName)
 	}
 
 	// use a temporary skeleton client to bootstrap first connection
@@ -435,7 +500,11 @@ func newClient(cfg *Config) (*Client, error) {
 		client.callOpts = callOpts
 	}
 
-	client.resolver = resolver.New(cfg.Endpoints...)
+	if cfg.balancerName == "" {
+		client.resolver = resolver.New(cfg.Endpoints...)
+	} else {
+		client.resolver = resolver.NewWithBalancer(balancerName, cfg.Endpoints...)
+	}
 
 	if len(cfg.Endpoints) < 1 {
 		client.cancel()
@@ -482,6 +551,12 @@ func newClient(cfg *Config) (*Client, error) {
 		}
 	}
 
+	if balancerName == LeaderAwareBalancerName {
+		client.leaderTracker = newLeaderTracker(client)
+		// Leader discovery is advisory, so client initialization does not wait
+		// for it.
+		go client.leaderTracker.run()
+	}
 	go client.autoSync()
 	return client, nil
 }

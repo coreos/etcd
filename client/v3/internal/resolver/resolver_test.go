@@ -15,261 +15,191 @@
 package resolver
 
 import (
-	"errors"
+	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"
+
+	leaderbalancer "go.etcd.io/etcd/client/v3/internal/balancer/leader"
 )
 
-// fakeClientConn records every state passed to UpdateState so tests can assert
-// how many resolver updates were emitted and what they carried. It also lets a
-// test control the value returned by ParseServiceConfig.
-//
-// Assertions compare whole resolver.State values built with composite literals
-// rather than reading individual grpc resolver fields (state.Endpoints, .Addr,
-// ...). Field reads would be flagged by tools/check-grpc-experimental as
-// experimental gRPC API usage; composite-literal keys are not.
-type fakeClientConn struct {
-	resolver.ClientConn
-	parsed        *serviceconfig.ParseResult
-	states        []resolver.State
-	parseCalls    int
-	lastParsedArg string
+// fakeResolverClientConn records every published resolver state.
+type fakeResolverClientConn struct {
+	mu     sync.Mutex
+	states []resolver.State
 }
 
-func (f *fakeClientConn) UpdateState(s resolver.State) error {
-	f.states = append(f.states, s)
+func (cc *fakeResolverClientConn) UpdateState(state resolver.State) error {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.states = append(cc.states, state)
 	return nil
 }
 
-func (f *fakeClientConn) ParseServiceConfig(cfg string) *serviceconfig.ParseResult {
-	f.parseCalls++
-	f.lastParsedArg = cfg
-	return f.parsed
+func (cc *fakeResolverClientConn) ReportError(error) {}
+
+func (cc *fakeResolverClientConn) NewAddress([]resolver.Address) {}
+
+func (cc *fakeResolverClientConn) ParseServiceConfig(string) *serviceconfig.ParseResult {
+	return &serviceconfig.ParseResult{}
 }
 
-func (f *fakeClientConn) ReportError(error) {}
-
-func newFakeClientConn() *fakeClientConn {
-	return &fakeClientConn{parsed: &serviceconfig.ParseResult{}}
+func (cc *fakeResolverClientConn) stateCount() int {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return len(cc.states)
 }
 
-// wantState builds the resolver.State we expect the resolver to emit for the
-// given addresses and service config, using composite literals only.
-func wantState(sc *serviceconfig.ParseResult, addrs ...struct{ addr, serverName string }) resolver.State {
-	eps := make([]resolver.Endpoint, len(addrs))
-	for i, a := range addrs {
-		eps[i] = resolver.Endpoint{Addresses: []resolver.Address{
-			{Addr: a.addr, ServerName: a.serverName},
-		}}
+func (cc *fakeResolverClientConn) lastState(t *testing.T) resolver.State {
+	t.Helper()
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if len(cc.states) == 0 {
+		t.Fatal("resolver published no state")
 	}
-	return resolver.State{Endpoints: eps, ServiceConfig: sc}
+	return cc.states[len(cc.states)-1]
 }
 
-func addr(a, serverName string) struct{ addr, serverName string } {
-	return struct{ addr, serverName string }{a, serverName}
-}
-
-func TestNew(t *testing.T) {
-	t.Run("stores endpoints", func(t *testing.T) {
-		r := New("127.0.0.1:2379", "127.0.0.1:22379")
-		require.NotNil(t, r)
-		require.NotNil(t, r.Resolver)
-		assert.Equal(t, []string{"127.0.0.1:2379", "127.0.0.1:22379"}, r.endpoints)
-		// ServiceConfig is only populated once Build parses it.
-		assert.Nil(t, r.serviceConfig)
-	})
-
-	t.Run("no endpoints", func(t *testing.T) {
-		r := New()
-		require.NotNil(t, r)
-		assert.Empty(t, r.endpoints)
-	})
-
-	t.Run("uses the etcd-endpoints scheme", func(t *testing.T) {
-		r := New()
-		assert.Equal(t, Schema, r.Scheme())
-		assert.Equal(t, "etcd-endpoints", r.Scheme())
-	})
-}
-
-// TestBuildEmitsSingleResolverUpdate is a regression test for the double
-// resolver update that Build used to produce. Build must emit exactly one
-// update to the ClientConn, and that update must already carry both the
-// endpoints and the round_robin ServiceConfig. A second update carrying the
-// ServiceConfig separately would force gRPC to switch balancers mid-connection
-// and tear down an in-flight SubConn.
-func TestBuildEmitsSingleResolverUpdate(t *testing.T) {
-	sc := &serviceconfig.ParseResult{}
-	cc := &fakeClientConn{parsed: sc}
-
-	r := New("127.0.0.1:2379", "127.0.0.1:22379")
-
-	res, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-
-	// Build must request the round_robin load balancing policy.
-	assert.Equal(t, 1, cc.parseCalls)
-	assert.JSONEq(t, `{"loadBalancingPolicy": "round_robin"}`, cc.lastParsedArg)
-
-	// Exactly one resolver update, already carrying endpoints + ServiceConfig.
-	require.Len(t, cc.states, 1)
-	want := wantState(sc,
-		addr("127.0.0.1:2379", "127.0.0.1:2379"),
-		addr("127.0.0.1:22379", "127.0.0.1:22379"),
-	)
-	assert.Equal(t, want, cc.states[0])
-
-	cc2 := &fakeClientConn{parsed: sc}
-	res, err = r.Build(resolver.Target{}, cc2, resolver.BuildOptions{})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Len(t, cc2.states, 1)
-	assert.Equal(t, want, cc2.states[0])
-
-	assert.Same(t, cc2, r.CC())
-	assert.Same(t, cc2, getCC(*r))
-}
-
-func TestBuildReturnsServiceConfigParseError(t *testing.T) {
-	parseErr := errors.New("bad service config")
-	cc := &fakeClientConn{parsed: &serviceconfig.ParseResult{Err: parseErr}}
-
-	r := New("127.0.0.1:2379")
-
-	res, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-	require.Error(t, err)
-	assert.Equal(t, parseErr, err)
-	assert.Nil(t, res)
-
-	// No resolver update should be emitted when the service config is invalid.
-	assert.Empty(t, cc.states)
-}
-
-func TestBuildWithNoEndpoints(t *testing.T) {
-	cc := newFakeClientConn()
-
-	r := New()
-
-	_, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-	require.NoError(t, err)
-
-	// A single update is still emitted, with an empty (non-nil) endpoint slice
-	// and the parsed ServiceConfig.
-	require.Len(t, cc.states, 1)
-	assert.Equal(t, wantState(cc.parsed), cc.states[0])
-}
-
-func TestBuildInterpretsEndpointSchemes(t *testing.T) {
-	tests := []struct {
-		name           string
-		endpoint       string
-		wantAddr       string
-		wantServerName string
-	}{
-		{
-			name:           "plain host:port",
-			endpoint:       "127.0.0.1:2379",
-			wantAddr:       "127.0.0.1:2379",
-			wantServerName: "127.0.0.1:2379",
-		},
-		{
-			name:           "http scheme",
-			endpoint:       "http://127.0.0.1:2379",
-			wantAddr:       "127.0.0.1:2379",
-			wantServerName: "127.0.0.1:2379",
-		},
-		{
-			name:           "https scheme",
-			endpoint:       "https://etcd.local:2379",
-			wantAddr:       "etcd.local:2379",
-			wantServerName: "etcd.local:2379",
-		},
-		{
-			name:           "unix absolute path",
-			endpoint:       "unix:///tmp/etcd.sock",
-			wantAddr:       "unix:///tmp/etcd.sock",
-			wantServerName: "etcd.sock",
-		},
+func build(t *testing.T, r *ManualResolver) *fakeResolverClientConn {
+	t.Helper()
+	cc := &fakeResolverClientConn{}
+	if _, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{}); err != nil {
+		t.Fatalf("Build failed: %v", err)
 	}
+	return cc
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cc := newFakeClientConn()
-			r := New(tt.endpoint)
-
-			_, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-			require.NoError(t, err)
-
-			require.Len(t, cc.states, 1)
-			want := wantState(cc.parsed, addr(tt.wantAddr, tt.wantServerName))
-			assert.Equal(t, want, cc.states[0])
-		})
+func TestBalancerServiceConfig(t *testing.T) {
+	if got := BalancerServiceConfig(""); got != "{\"loadBalancingPolicy\": \"round_robin\"}" {
+		t.Errorf("BalancerServiceConfig(empty) = %s", got)
+	}
+	want := "{\"loadBalancingConfig\":[{\"etcd_leader_aware\":{}}]}"
+	if got := BalancerServiceConfig(leaderbalancer.Name); got != want {
+		t.Errorf("BalancerServiceConfig(%q) = %s, want %s", leaderbalancer.Name, got, want)
 	}
 }
 
-// TestSetEndpointsEmitsUpdateAfterBuild verifies that endpoint changes made
-// after Build still propagate to the ClientConn as additional updates that
-// keep carrying the ServiceConfig.
-func TestSetEndpointsEmitsUpdateAfterBuild(t *testing.T) {
-	sc := &serviceconfig.ParseResult{}
-	cc := &fakeClientConn{parsed: sc}
-
-	r := New("127.0.0.1:2379")
-
-	_, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-	require.NoError(t, err)
-	require.Len(t, cc.states, 1)
-
-	r.SetEndpoints([]string{"127.0.0.1:3379", "127.0.0.1:4379"})
-	require.Len(t, cc.states, 2)
-
-	want := wantState(sc,
-		addr("127.0.0.1:3379", "127.0.0.1:3379"),
-		addr("127.0.0.1:4379", "127.0.0.1:4379"),
-	)
-	assert.Equal(t, want, cc.states[1])
+func TestNewCopiesEndpoints(t *testing.T) {
+	eps := []string{"http://a:2379"}
+	r := New(eps...)
+	eps[0] = "http://mutated:2379"
+	if r.endpoints[0] != "http://a:2379" {
+		t.Fatalf("resolver shares the caller's backing array: %v", r.endpoints)
+	}
 }
 
-// TestSetEndpointsBeforeBuildDoesNotEmit verifies that SetEndpoints called
-// before Build stores the endpoints without touching a (not-yet-assigned)
-// ClientConn, and that the subsequent Build emits a single update carrying the
-// updated endpoints.
-func TestSetEndpointsBeforeBuildDoesNotEmit(t *testing.T) {
-	cc := newFakeClientConn()
-
-	r := New("127.0.0.1:2379")
-
-	// No ClientConn yet: this must not panic and must not emit an update.
-	r.SetEndpoints([]string{"127.0.0.1:9379"})
-	assert.Empty(t, cc.states)
-	assert.Equal(t, []string{"127.0.0.1:9379"}, r.endpoints)
-
-	_, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{})
-	require.NoError(t, err)
-
-	require.Len(t, cc.states, 1)
-	assert.Equal(t, wantState(cc.parsed, addr("127.0.0.1:9379", "127.0.0.1:9379")), cc.states[0])
+func TestBuildPublishesEndpoints(t *testing.T) {
+	r := NewWithBalancer(leaderbalancer.Name, "http://a:2379", "http://b:2379")
+	cc := build(t, r)
+	state := cc.lastState(t)
+	if len(state.Endpoints) != 2 {
+		t.Fatalf("published %d endpoints, want 2", len(state.Endpoints))
+	}
+	if got := state.Endpoints[0].Addresses[0].Addr; got != "a:2379" {
+		t.Fatalf("first endpoint address = %q, want a:2379", got)
+	}
 }
 
-func TestGetCCBeforeBuildReturnsNil(t *testing.T) {
-	r := New("127.0.0.1:2379")
-	// CC() panics before Build; getCC must recover and return nil.
-	assert.Nil(t, getCC(*r))
+func TestBuildConcurrentWithSetLeader(t *testing.T) {
+	r := NewWithBalancer(leaderbalancer.Name, "http://a:2379")
+	cc := build(t, r)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 1000 {
+			if _, err := r.Build(resolver.Target{}, cc, resolver.BuildOptions{}); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range 1000 {
+			r.SetLeader("http://a:2379", 0, uint64(i+1))
+		}
+	}()
+	wg.Wait()
+	if !cc.lastState(t).Attributes.Equal(r.state().Attributes) {
+		t.Fatal("rebuild overwrote the latest leader hint")
+	}
 }
 
-func TestState(t *testing.T) {
-	sc := &serviceconfig.ParseResult{}
-	r := New("http://127.0.0.1:2379", "unix:///tmp/etcd.sock")
-	r.serviceConfig = sc
+func TestSetLeaderFencing(t *testing.T) {
+	r := NewWithBalancer(leaderbalancer.Name, "http://a:2379")
+	cc := build(t, r)
+	if r.endpointGeneration != 0 {
+		t.Fatalf("initial generation = %d, want 0", r.endpointGeneration)
+	}
+	published := cc.stateCount()
 
-	want := wantState(sc,
-		addr("127.0.0.1:2379", "127.0.0.1:2379"),
-		addr("unix:///tmp/etcd.sock", "etcd.sock"),
-	)
-	assert.Equal(t, want, r.state())
+	if !r.SetLeader("http://a:2379", 0, 1) {
+		t.Fatal("SetLeader with the current generation was rejected")
+	}
+	if r.leader != "a:2379" || r.leaderHintID != 1 {
+		t.Fatalf("leader = %q hint %d, want a:2379 with hint 1", r.leader, r.leaderHintID)
+	}
+	published++
+	if got := cc.stateCount(); got != published {
+		t.Fatalf("published %d states after SetLeader, want %d", got, published)
+	}
+
+	// Republishing the same leader and hint is a no-op.
+	if !r.SetLeader("http://a:2379", 0, 1) {
+		t.Fatal("SetLeader with an unchanged hint was rejected")
+	}
+	if got := cc.stateCount(); got != published {
+		t.Fatalf("unchanged hint published state %d, want %d", got, published)
+	}
+
+	// An observation from another endpoint generation is rejected: only the
+	// current generation may publish.
+	if r.SetLeader("http://b:2379", 1, 2) {
+		t.Fatal("SetLeader accepted a future generation")
+	}
+	if r.leader != "a:2379" {
+		t.Fatalf("rejected SetLeader changed the leader to %q", r.leader)
+	}
+	if got := cc.stateCount(); got != published {
+		t.Fatalf("rejected SetLeader published state %d, want %d", got, published)
+	}
+
+	// An endpoint change clears the hint synchronously.
+	r.SetEndpoints([]string{"http://a:2379", "http://b:2379"}, 1)
+	if r.leader != "" || r.leaderHintID != 0 {
+		t.Fatalf("endpoint change left leader %q hint %d, want cleared", r.leader, r.leaderHintID)
+	}
+	published++
+	if got := cc.stateCount(); got != published {
+		t.Fatalf("SetEndpoints published %d states, want %d", got, published)
+	}
+	if got := len(cc.lastState(t).Endpoints); got != 2 {
+		t.Fatalf("SetEndpoints published %d endpoints, want 2", got)
+	}
+
+	// A stale observation is rejected even when its address repeats the
+	// pre-change leader: A -> B -> A endpoint churn must not revive a hint
+	// whose probes predate the change.
+	if r.SetLeader("http://a:2379", 0, 9) {
+		t.Fatal("SetLeader accepted a stale generation after endpoint churn")
+	}
+	if got := cc.stateCount(); got != published {
+		t.Fatalf("stale SetLeader published state %d, want %d", got, published)
+	}
+
+	if !r.SetLeader("http://b:2379", 1, 5) {
+		t.Fatal("SetLeader with the new generation was rejected")
+	}
+	if r.leader != "b:2379" || r.leaderHintID != 5 {
+		t.Fatalf("leader = %q hint %d, want b:2379 with hint 5", r.leader, r.leaderHintID)
+	}
+
+	if !r.SetLeader("", 1, 0) {
+		t.Fatal("clearing the leader was rejected")
+	}
+	if r.leader != "" || r.leaderHintID != 0 {
+		t.Fatalf("cleared leader = %q hint %d, want empty", r.leader, r.leaderHintID)
+	}
 }

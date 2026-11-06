@@ -21,8 +21,25 @@ import (
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/balancer/roundrobin"
 
 	"go.etcd.io/etcd/client/pkg/v3/transport"
+	"go.etcd.io/etcd/client/v3/internal/balancer/leader"
+)
+
+const (
+	// DefaultBalancerName is the load-balancing policy the client uses when
+	// Config does not select one.
+	DefaultBalancerName = roundrobin.Name
+
+	// LeaderAwareBalancerName routes eligible RPCs to the ready endpoint most
+	// recently observed as leader.
+	//
+	// Eligible RPCs are consensus writes and leader-only requests: KV mutations
+	// (including mutating transaction branches), lease grant and revoke, auth
+	// administration (including Authenticate), Alarm, and MoveLeader. All other
+	// application RPCs, and any request without a ready hint, use round_robin.
+	LeaderAwareBalancerName = leader.Name
 )
 
 type Config struct {
@@ -109,7 +126,48 @@ type Config struct {
 	// BackoffJitterFraction is the jitter fraction to randomize backoff wait time.
 	BackoffJitterFraction float64 `json:"backoff-jitter-fraction"`
 
-	// TODO: support custom balancer picker
+	balancerName                string
+	leaderAwareRefreshInterval  time.Duration
+	leaderAwareRediscoveryDelay time.Duration
+	leaderAwareStatusTimeout    time.Duration
+}
+
+// WithBalancer returns a copy of cfg that selects a registered gRPC balancer.
+//
+// An empty name restores the zero-value selection path.
+func (cfg Config) WithBalancer(name string) Config {
+	cfg.balancerName = name
+	return cfg
+}
+
+// WithLeaderAwareRefreshInterval returns a copy of cfg with the base delay
+// between leader Status rounds.
+//
+// Each delay has up to 10 percent jitter. A non-positive interval restores the
+// 30-second default. This setting applies only to LeaderAwareBalancerName.
+func (cfg Config) WithLeaderAwareRefreshInterval(interval time.Duration) Config {
+	cfg.leaderAwareRefreshInterval = interval
+	return cfg
+}
+
+// WithLeaderAwareRediscoveryDelay returns a copy of cfg with the maximum
+// full-jitter delay before initial discovery and after invalidation.
+//
+// A non-positive delay restores the 3-second default. This setting applies
+// only to LeaderAwareBalancerName.
+func (cfg Config) WithLeaderAwareRediscoveryDelay(delay time.Duration) Config {
+	cfg.leaderAwareRediscoveryDelay = delay
+	return cfg
+}
+
+// WithLeaderAwareStatusTimeout returns a copy of cfg with the timeout for one
+// leader Status round.
+//
+// A non-positive timeout restores the 5-second default. This setting applies
+// only to LeaderAwareBalancerName.
+func (cfg Config) WithLeaderAwareStatusTimeout(timeout time.Duration) Config {
+	cfg.leaderAwareStatusTimeout = timeout
+	return cfg
 }
 
 // ConfigSpec is the configuration from users, which comes from command-line flags,
