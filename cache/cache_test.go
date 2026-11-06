@@ -1001,3 +1001,134 @@ func TestWaitTillRevisionTriggersProgressRequests(t *testing.T) {
 		t.Fatalf("expected no new progress requests after completion, got %d initially, then changed", finalCount)
 	}
 }
+
+// failingKV records the virtual time of every bootstrap Get and always fails, so
+// the cache never leaves its retry loop.
+type failingKV struct {
+	clientv3.KV
+	mu    sync.Mutex
+	times []time.Time
+}
+
+func (f *failingKV) Get(_ context.Context, _ string, _ ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.times = append(f.times, time.Now())
+	return nil, errors.New("upstream unavailable")
+}
+
+func (f *failingKV) gaps() []time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	gaps := make([]time.Duration, 0, len(f.times))
+	for i := 1; i < len(f.times); i++ {
+		gaps = append(gaps, f.times[i].Sub(f.times[i-1]))
+	}
+	return gaps
+}
+
+// blockingKV never answers, so the only thing that can end a bootstrap Get is the
+// deadline the cache is supposed to put on it.
+type blockingKV struct {
+	clientv3.KV
+	mu   sync.Mutex
+	held []time.Duration
+}
+
+func (b *blockingKV) Get(ctx context.Context, _ string, _ ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	start := time.Now()
+	<-ctx.Done()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.held = append(b.held, time.Since(start))
+	return nil, ctx.Err()
+}
+
+func (b *blockingKV) first() (time.Duration, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.held) == 0 {
+		return 0, false
+	}
+	return b.held[0], true
+}
+
+// The retry loop takes its schedule from the cache's own Config: the first delay
+// from InitialBackoff, doubling after each failed attempt, capped by MaxBackoff.
+// Reading defaultConfig() instead made WithInitialBackoff a silent no-op, and a
+// constant delay left WithMaxBackoff with nothing to cap.
+func TestCacheRetriesUpstreamWatchWithConfiguredBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		kv := &failingKV{}
+		cfg := defaultConfig()
+		cfg.InitialBackoff = 100 * time.Millisecond
+		cfg.MaxBackoff = 400 * time.Millisecond
+
+		c, err := newCache(&clientv3.Client{KV: kv, Watcher: newMockWatcher(8)}, "", cfg, realClock{})
+		if err != nil {
+			t.Fatalf("newCache: %v", err)
+		}
+
+		// Attempts land at 0, 100, 300, 700 and 1100ms of virtual time.
+		time.Sleep(1150 * time.Millisecond)
+		c.Close()
+
+		want := []time.Duration{
+			100 * time.Millisecond,
+			200 * time.Millisecond,
+			400 * time.Millisecond,
+			400 * time.Millisecond,
+		}
+		if diff := cmp.Diff(want, kv.gaps()); diff != "" {
+			t.Errorf("retry schedule differs (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// GetTimeout bounds the bootstrap Get. Without it an unreachable endpoint parks
+// that Get on the cache's own lifetime context: the retry loop never gets another
+// turn and the cache never becomes ready.
+func TestCacheBoundsBootstrapGetByGetTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		kv := &blockingKV{}
+		cfg := defaultConfig()
+		cfg.GetTimeout = 250 * time.Millisecond
+
+		c, err := newCache(&clientv3.Client{KV: kv, Watcher: newMockWatcher(8)}, "", cfg, realClock{})
+		if err != nil {
+			t.Fatalf("newCache: %v", err)
+		}
+
+		time.Sleep(time.Second)
+		c.Close()
+
+		held, ok := kv.first()
+		if !ok {
+			t.Fatal("bootstrap Get was never called")
+		}
+		if held != cfg.GetTimeout {
+			t.Errorf("bootstrap Get was held for %v, want GetTimeout %v", held, cfg.GetTimeout)
+		}
+	})
+}
+
+func TestNewCacheRejectsUnusableRetrySettings(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"zero InitialBackoff", func(c *Config) { c.InitialBackoff = 0 }},
+		{"MaxBackoff below InitialBackoff", func(c *Config) { c.MaxBackoff = c.InitialBackoff - time.Nanosecond }},
+		{"zero GetTimeout", func(c *Config) { c.GetTimeout = 0 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			tc.mutate(&cfg)
+			c, err := newCache(&clientv3.Client{KV: newKVStub(), Watcher: newMockWatcher(8)}, "", cfg, realClock{})
+			if err == nil {
+				c.Close()
+				t.Fatal("expected an error, got none")
+			}
+		})
+	}
+}

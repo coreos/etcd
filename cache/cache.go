@@ -75,6 +75,15 @@ func newCache(client *clientv3.Client, prefix string, cfg Config, clock Clock) (
 	if cfg.BTreeDegree < 2 {
 		return nil, fmt.Errorf("invalid BTreeDegree %d (must be >= 2)", cfg.BTreeDegree)
 	}
+	if cfg.InitialBackoff <= 0 {
+		return nil, fmt.Errorf("invalid InitialBackoff %v (must be > 0)", cfg.InitialBackoff)
+	}
+	if cfg.MaxBackoff < cfg.InitialBackoff {
+		return nil, fmt.Errorf("invalid MaxBackoff %v (must be >= InitialBackoff %v)", cfg.MaxBackoff, cfg.InitialBackoff)
+	}
+	if cfg.GetTimeout <= 0 {
+		return nil, fmt.Errorf("invalid GetTimeout %v (must be > 0)", cfg.GetTimeout)
+	}
 
 	internalCtx, cancel := context.WithCancel(context.Background())
 
@@ -310,9 +319,8 @@ func (c *Cache) Close() {
 }
 
 func (c *Cache) getWatchLoop() {
-	cfg := defaultConfig()
 	ctx := c.internalCtx
-	backoff := cfg.InitialBackoff
+	backoff := c.cfg.InitialBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return
@@ -320,10 +328,16 @@ func (c *Cache) getWatchLoop() {
 		if err := c.getWatch(); err != nil { //nolint:staticcheck // SA4023: Related diagnostic for the defensive nil check in getWatchLoop.
 			fmt.Printf("getWatch failed, will retry after %v: %v\n", backoff, err)
 		}
+		timer := c.clock.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(backoff):
+		case <-timer.Chan():
+		}
+		backoff *= 2
+		if backoff > c.cfg.MaxBackoff {
+			backoff = c.cfg.MaxBackoff
 		}
 	}
 }
@@ -337,6 +351,9 @@ func (c *Cache) getWatch() error { //nolint:staticcheck // SA4023: never returns
 }
 
 func (c *Cache) get(ctx context.Context) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.GetTimeout)
+	defer cancel()
+
 	resp, err := c.kv.Get(ctx, c.prefix, clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
