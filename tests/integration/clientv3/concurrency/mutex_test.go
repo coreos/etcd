@@ -88,3 +88,44 @@ func TestMutexUnlock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestResumeMutex verifies that a Mutex can be reconstructed from a known
+// owner key and revision (e.g. after a process restart with a surviving
+// lease, via Session's WithLease option), mirroring TestResumeElection.
+func TestResumeMutex(t *testing.T) {
+	const prefix = "/resume-mutex/"
+
+	cli, err := integration.NewClient(t, clientv3.Config{Endpoints: exampleEndpoints()})
+	require.NoError(t, err)
+	defer cli.Close()
+
+	s1, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s1.Close()
+
+	m1 := concurrency.NewMutex(s1, prefix)
+	require.NoError(t, m1.Lock(t.Context()))
+
+	myKey := m1.Key()
+	getResp, err := cli.Get(t.Context(), myKey)
+	require.NoError(t, err)
+	require.Lenf(t, getResp.Kvs, 1, "lock key %q should exist on the server after Lock()", myKey)
+	myRev := getResp.Kvs[0].CreateRevision
+
+	// Recreate the mutex, as if this were a different process that only
+	// knows the session, the key it previously wrote, and that key's
+	// creation revision.
+	m2 := concurrency.ResumeMutex(s1, prefix, myKey, myRev)
+
+	// The resumed mutex must still be recognized as the lock owner.
+	txnResp, err := cli.Txn(t.Context()).If(m2.IsOwner()).Then(clientv3.OpGet(myKey)).Commit()
+	require.NoError(t, err)
+	require.Truef(t, txnResp.Succeeded, "resumed Mutex should still be recognized as lock owner via IsOwner()")
+
+	// Unlock() through the resumed handle must release the real key.
+	require.NoError(t, m2.Unlock(t.Context()))
+
+	getResp, err = cli.Get(t.Context(), myKey)
+	require.NoError(t, err)
+	require.Emptyf(t, getResp.Kvs, "Unlock() via resumed Mutex should have deleted the real lock key")
+}

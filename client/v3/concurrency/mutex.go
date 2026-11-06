@@ -46,6 +46,11 @@ func NewMutex(s *Session, pfx string) *Mutex {
 	return &Mutex{s, pfx + "/", "", -1, nil}
 }
 
+// ResumeMutex initializes a mutex with a known owner.
+func ResumeMutex(s *Session, pfx string, myKey string, myRev int64) *Mutex {
+	return &Mutex{s, pfx + "/", myKey, myRev, nil}
+}
+
 // TryLock locks the mutex if not already locked by another session.
 // If lock is held by another session, return immediately after attempting necessary cleanup
 // The ctx argument is used for the sending/receiving Txn RPC.
