@@ -1229,3 +1229,49 @@ func leaseExist(t *testing.T, clus *integration.Cluster, leaseID int64) bool {
 
 	return true
 }
+
+// TestV3LeaseKeepAliveReturnsUnavailableOnLeaderLoss verifies that when a
+// lease keepalive fails because the leader is lost, the client receives
+// codes.Unavailable so it can distinguish this transient error from permanent
+// failures and retry on another member.
+//
+// This exercises the gRPC error mapping for leadership-related lease errors
+// (ErrNotPrimary, ErrNoLeader) which should all surface as Unavailable.
+func TestV3LeaseKeepAliveReturnsUnavailableOnLeaderLoss(t *testing.T) {
+	integration.BeforeTest(t)
+	leader, follower, anotherFollower := setupLeaseForwardingCluster(t)
+	leaderClient := integration.ToGRPC(leader.Client).Lease
+	followerClient := integration.ToGRPC(follower.Client).Lease
+
+	grantResp, err := leaderClient.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err)
+	leaseID := grantResp.ID
+
+	// Verify keepalive works while leader is up.
+	keepAliveClient, err := followerClient.LeaseKeepAlive(t.Context())
+	require.NoError(t, err)
+	defer keepAliveClient.CloseSend()
+
+	require.NoError(t, keepAliveClient.Send(&pb.LeaseKeepAliveRequest{ID: leaseID}))
+	resp, err := keepAliveClient.Recv()
+	require.NoError(t, err)
+	require.Positive(t, resp.TTL)
+
+	// Stop leader and other follower so the remaining follower cannot
+	// forward the renewal.
+	leader.Stop(t)
+	anotherFollower.Stop(t)
+
+	// Send another keepalive. The follower should return Unavailable.
+	require.NoError(t, keepAliveClient.Send(&pb.LeaseKeepAliveRequest{ID: leaseID}))
+	_, err = keepAliveClient.Recv()
+	require.Error(t, err)
+
+	if integration.ThroughProxy {
+		// grpcproxy doesn't propagate the specific error code.
+		require.ErrorIs(t, err, context.Canceled)
+	} else {
+		require.Equalf(t, codes.Unavailable, status.Code(err),
+			"expected Unavailable on leader loss, got %v: %v", status.Code(err), err)
+	}
+}

@@ -36,6 +36,7 @@ var (
 	ErrGRPCLeaseNotFound    = status.Error(codes.NotFound, "etcdserver: requested lease not found")
 	ErrGRPCLeaseExist       = status.Error(codes.FailedPrecondition, "etcdserver: lease already exists")
 	ErrGRPCLeaseTTLTooLarge = status.Error(codes.OutOfRange, "etcdserver: too large lease TTL")
+	ErrGRPCLeaseNotPrimary  = status.Error(codes.Unavailable, "etcdserver: not primary lessor")
 
 	ErrGRPCWatchCanceled = status.Error(codes.Canceled, "etcdserver: watch canceled")
 
@@ -113,6 +114,7 @@ var (
 		ErrorDesc(ErrGRPCLeaseNotFound):    ErrGRPCLeaseNotFound,
 		ErrorDesc(ErrGRPCLeaseExist):       ErrGRPCLeaseExist,
 		ErrorDesc(ErrGRPCLeaseTTLTooLarge): ErrGRPCLeaseTTLTooLarge,
+		ErrorDesc(ErrGRPCLeaseNotPrimary):  ErrGRPCLeaseNotPrimary,
 
 		ErrorDesc(ErrGRPCMemberExist):            ErrGRPCMemberExist,
 		ErrorDesc(ErrGRPCPeerURLExist):           ErrGRPCPeerURLExist,
@@ -181,6 +183,7 @@ var (
 	ErrLeaseNotFound    = Error(ErrGRPCLeaseNotFound)
 	ErrLeaseExist       = Error(ErrGRPCLeaseExist)
 	ErrLeaseTTLTooLarge = Error(ErrGRPCLeaseTTLTooLarge)
+	ErrLeaseNotPrimary  = Error(ErrGRPCLeaseNotPrimary)
 
 	ErrMemberExist            = Error(ErrGRPCMemberExist)
 	ErrPeerURLExist           = Error(ErrGRPCPeerURLExist)

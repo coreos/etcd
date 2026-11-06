@@ -71,6 +71,7 @@ var toGRPCErrorMap = map[error]error{
 	lease.ErrLeaseNotFound:    rpctypes.ErrGRPCLeaseNotFound,
 	lease.ErrLeaseExists:      rpctypes.ErrGRPCLeaseExist,
 	lease.ErrLeaseTTLTooLarge: rpctypes.ErrGRPCLeaseTTLTooLarge,
+	lease.ErrNotPrimary:       rpctypes.ErrGRPCLeaseNotPrimary,
 
 	auth.ErrRootUserNotExist:     rpctypes.ErrGRPCRootUserNotExist,
 	auth.ErrRootRoleNotExist:     rpctypes.ErrGRPCRootRoleNotExist,
