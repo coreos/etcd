@@ -39,10 +39,12 @@ type watchBroadcast struct {
 	receivers map[*watcher]struct{}
 	// responses counts the number of responses
 	responses int
-	lg        *zap.Logger
+	// stopped indicates the underlying etcd watch has been disconnected.
+	stopped bool
+	lg      *zap.Logger
 }
 
-func newWatchBroadcast(lg *zap.Logger, wp *watchProxy, w *watcher, update func(*watchBroadcast)) *watchBroadcast {
+func newWatchBroadcast(lg *zap.Logger, wp *watchProxy, w *watcher, update func(*watchBroadcast), reattach func(*watchBroadcast)) *watchBroadcast {
 	cctx, cancel := context.WithCancel(wp.ctx)
 	wb := &watchBroadcast{
 		cancel:    cancel,
@@ -53,6 +55,7 @@ func newWatchBroadcast(lg *zap.Logger, wp *watchProxy, w *watcher, update func(*
 	}
 	wb.add(w)
 	go func() {
+		defer reattach(wb)
 		defer close(wb.donec)
 
 		opts := []clientv3.OpOption{
@@ -72,6 +75,10 @@ func newWatchBroadcast(lg *zap.Logger, wp *watchProxy, w *watcher, update func(*
 			wb.bcast(wr)
 			update(wb)
 		}
+
+		wb.mu.Lock()
+		wb.stopped = true
+		wb.mu.Unlock()
 	}()
 	return wb
 }
@@ -97,6 +104,9 @@ func (wb *watchBroadcast) bcast(wr clientv3.WatchResponse) {
 func (wb *watchBroadcast) add(w *watcher) bool {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
+	if wb.stopped {
+		return false
+	}
 	if wb.nextrev > w.nextrev || (wb.nextrev == 0 && w.nextrev != 0) {
 		// wb is too far ahead, w will miss events
 		// or wb is being established with a current watcher

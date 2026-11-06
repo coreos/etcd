@@ -55,6 +55,10 @@ func (wbs *watchBroadcasts) coalesce(wb *watchBroadcast) {
 		return
 	}
 	wbs.mu.Lock()
+	if _, ok := wbs.bcasts[wb]; !ok {
+		wbs.mu.Unlock()
+		return
+	}
 	for wbswb := range wbs.bcasts {
 		if wbswb == wb {
 			continue
@@ -64,7 +68,8 @@ func (wbs *watchBroadcasts) coalesce(wb *watchBroadcast) {
 		// 1. check if wbswb is behind wb so it won't skip any events in wb
 		// 2. ensure wbswb started; nextrev == 0 may mean wbswb is waiting
 		// for a current watcher and expects a create event from the server.
-		if wb.nextrev >= wbswb.nextrev && wbswb.responses > 0 {
+		// 3. do not migrate to a stopped wbswb to avoid losing events.
+		if wb.nextrev >= wbswb.nextrev && wbswb.responses > 0 && !wbswb.stopped {
 			for w := range wb.receivers {
 				wbswb.receivers[w] = struct{}{}
 				wbs.watchers[w] = wbswb
@@ -93,9 +98,58 @@ func (wbs *watchBroadcasts) add(w *watcher) {
 		}
 	}
 	// no fit; create a bcast
-	wb := newWatchBroadcast(wbs.wp.lg, wbs.wp, w, wbs.update)
+	wb := newWatchBroadcast(wbs.wp.lg, wbs.wp, w, wbs.update, wbs.reattach)
 	wbs.watchers[w] = wb
 	wbs.bcasts[wb] = struct{}{}
+}
+
+func (wbs *watchBroadcasts) reattach(wb *watchBroadcast) {
+	wbs.mu.Lock()
+	defer wbs.mu.Unlock()
+	if _, ok := wbs.bcasts[wb]; !ok {
+		return
+	}
+
+	// collect orphaned watchers that need to be reassigned
+	wb.mu.Lock()
+	orphans := make([]*watcher, 0, len(wb.receivers))
+	for w := range wb.receivers {
+		orphans = append(orphans, w)
+	}
+	wb.receivers = nil
+	wb.mu.Unlock()
+
+	delete(wbs.bcasts, wb)
+	wb.cancel()
+
+	// reassign each orphaned watcher to an existing or new broadcast.
+	var newWb *watchBroadcast
+	for _, w := range orphans {
+		placed := false
+		for existingWb := range wbs.bcasts {
+			existingWb.mu.Lock()
+			if !existingWb.stopped && existingWb.responses > 0 && w.nextrev >= existingWb.nextrev {
+				existingWb.receivers[w] = struct{}{}
+				wbs.watchers[w] = existingWb
+				placed = true
+			}
+			existingWb.mu.Unlock()
+			if placed {
+				break
+			}
+		}
+		if !placed {
+			if newWb == nil {
+				newWb = newWatchBroadcast(wbs.wp.lg, wbs.wp, w, wbs.update, wbs.reattach)
+				wbs.bcasts[newWb] = struct{}{}
+			} else {
+				newWb.mu.Lock()
+				newWb.receivers[w] = struct{}{}
+				newWb.mu.Unlock()
+			}
+			wbs.watchers[w] = newWb
+		}
+	}
 }
 
 // delete removes a watcher and returns the number of remaining watchers.
