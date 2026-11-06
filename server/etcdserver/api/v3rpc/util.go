@@ -139,9 +139,11 @@ func isClientCtxErr(ctxErr error, err error) bool {
 	return false
 }
 
-// in v3.4, learner is allowed to serve serializable read and endpoint status
+// in v3.4, learner is allowed to serve local maintenance, serializable read, and endpoint status
 func isRPCSupportedForLearner(req any) bool {
 	switch r := req.(type) {
+	case *pb.DefragmentRequest:
+		return true
 	case *pb.StatusRequest:
 		return true
 	case *pb.RangeRequest:

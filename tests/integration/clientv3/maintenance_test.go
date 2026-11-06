@@ -118,6 +118,29 @@ func (tc hashTestCase) Compact(ctx context.Context, rev int64) error {
 	return err
 }
 
+func TestMaintenanceDefragmentLearner(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 3, DisableStrictReconfigCheck: true})
+	defer clus.Terminate(t)
+
+	clus.AddAndLaunchLearnerMember(t)
+	require.Len(t, clus.Members, 4)
+
+	learner := clus.Members[3]
+	<-learner.ReadyNotify()
+
+	cli, err := integration.NewClient(t, clientv3.Config{
+		Endpoints:   []string{learner.GRPCURL},
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	defer cli.Close()
+
+	_, err = cli.Defragment(t.Context(), learner.GRPCURL)
+	require.NoError(t, err)
+}
+
 func TestMaintenanceMoveLeader(t *testing.T) {
 	integration.BeforeTest(t)
 

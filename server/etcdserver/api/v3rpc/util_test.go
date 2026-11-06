@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/server/v3/storage/mvcc"
 )
@@ -46,5 +47,11 @@ func TestGRPCError(t *testing.T) {
 			}
 			t.Errorf("#%d: got %v, expected %v", i, err, tt[i].exp)
 		}
+	}
+}
+
+func TestRPCSupportedForLearnerIncludesDefragment(t *testing.T) {
+	if !isRPCSupportedForLearner(&pb.DefragmentRequest{}) {
+		t.Fatal("expected learners to support maintenance defragment requests")
 	}
 }
