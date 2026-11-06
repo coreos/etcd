@@ -571,6 +571,13 @@ func (w *WAL) ReadAll() (metadata []byte, state *raftpb.HardState, ents []*raftp
 		if err = fileutil.ZeroToEnd(w.tail().File); err != nil {
 			return nil, state, nil, err
 		}
+		if !w.unsafeNoSync {
+			start := time.Now()
+			if err = fileutil.Fsync(w.tail().File); err != nil {
+				return nil, state, nil, err
+			}
+			walFsyncSec.Observe(time.Since(start).Seconds())
+		}
 	}
 
 	err = nil
