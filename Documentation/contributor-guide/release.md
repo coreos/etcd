@@ -6,16 +6,15 @@ The procedure includes some manual steps for sanity checking, but it can probabl
 
 ## Release management
 
-Under the leadership of **James Blair** [@jmhbnz](https://github.com/jmhbnz) and **Ivan Valdes Castillo** [@ivanvc](https://github.com/ivanvc), the following pool of release candidates manages the release of each etcd major/minor version as well as manages patches
+Under the leadership of **Ivan Valdes Castillo** [@ivanvc](https://github.com/ivanvc), the following pool of release candidates manages the release of each etcd major/minor version as well as manages patches
 to each stable release branch. They are responsible for communicating the timelines and status of each release and
 for ensuring the stability of the release branch.
 
 - Benjamin Wang [@ahrtr](https://github.com/ahrtr)
 - Fu Wei [@fuweid](https://github.com/fuweid)
-- James Blair [@jmhbnz](https://github.com/jmhbnz)
+- Josh Berkus [@jberkus](https://github.com/jberkus)
 - Ivan Valdes Castillo [@ivanvc](https://github.com/ivanvc)
 - Marek Siarkowicz [@serathius](https://github.com/serathius)
-- Sahdev Zala [@spzala](https://github.com/spzala)
 - Siyuan Zhang [@siyuanfoundation](https://github.com/siyuanfoundation)
 
 All release version numbers follow the format of [semantic versioning 2.0.0](http://semver.org/).
@@ -70,10 +69,15 @@ which don't need to be executed before releasing each version.
 
 ### Release steps
 
-At least one day before the release:
+About one week before the release:
 
 1. Raise an issue to publish the release plan, e.g. [issues/17350](https://github.com/etcd-io/etcd/issues/17350).
 2. Raise a `kubernetes/org` pull request ([example PR](https://github.com/kubernetes/org/pull/5582)) to ensure members of the release team are added to the [release github team](https://github.com/orgs/etcd-io/teams/release-etcd).
+3. Start a draft of the release announcement for the blog and mailing list.  If mirroring to Kubernetes blog (see Announcing), notify sig-docs-blog and raise a placeholder PR there.  If engaging sig-contribex-comms, open a comms request.
+
+About one day before the release:
+
+1. If this is the first RC release for a major/minor update, then make the new version of the docs live, and generate a new draft version for the next minor release.
 
 On the day of the release:
 
@@ -111,31 +115,39 @@ On the day of the release:
      release version (v3.4 & v3.5 no checkboxes, v3.6 has the set as latest release checkbox checked,
      v3.7 has the set as pre-release checkbox checked)
    - Then, publish the release
-5. Announce to the etcd-dev googlegroup
+5. Update the changelog to reflect the correct release date.
+6. Announce the release, see [Announcing](#announcing) below.
+7. If this is a minor/major release, update the documentation to remove the "draft" tag from the latest version of the documentation, and create a new docs tree for the next version.
+8. Paste the release link to the issue raised in Step 1 and close the issue.
+9. Raise a follow-up `kubernetes/org` pull request to return the GitHub release team to empty, least privilege state.
+10. Create a new stable branch through `git push origin release-${VERSION_MAJOR}.${VERSION_MINOR}` if this is a new major or minor stable release.
+11. Re-generate a new password for quay.io if needed (e.g. shared to a contributor who isn't in the release team, and we should rotate the password at least once every 3 months).
+12. Bump the new etcd release in Kubernetes, refer to [Bump etcd Version in Kubernetes](bump_etcd_version_k8s.md).
 
-   Follow the format of previous release emails sent to etcd-dev@googlegroups.com, see an example below. After sending out the email, ask one of the mailing list maintainers to approve the email from the pending list. Additionally, label the release email as `Release`.
-
-   ```text
-   Hello,
-
-   etcd v3.4.30 is now public!
-
-   https://github.com/etcd-io/etcd/releases/tag/v3.4.30
-
-   Thanks to everyone who contributed to the release!
-
-   etcd team
-   ```
-
-6. Update the changelog to reflect the correct release date.
-7. Paste the release link to the issue raised in Step 1 and close the issue.
-8. Raise a follow-up `kubernetes/org` pull request to return the GitHub release team to empty, least privilege state.
-9. Create a new stable branch through `git push origin release-${VERSION_MAJOR}.${VERSION_MINOR}` if this is a new major or minor stable release.
-10. Re-generate a new password for quay.io if needed (e.g. shared to a contributor who isn't in the release team, and we should rotate the password at least once every 3 months).
-11. Bump the new etcd release in Kubernetes, refer to [Bump etcd Version in Kubernetes](bump_etcd_version_k8s.md).
-
-- For etcd 3.6 patches, bump it to Kubernetes 1.34 and all newer minor versions (including `master` branch)
+- For etcd 3.7 patches, bump it to Kubernetes 1.35 and all newer minor versions (including `master` branch)
 - For etcd 3.5 patches, bump it to Kubernetes 1.33 and all older supported versions
+
+#### Announcing
+
+Usually, release announcements are handled by the SIG-etcd docs team, sometimes with support from SIG-Contribex and/or SIG-Docs Blog subproject.  We have several channels available for announcing releases:
+
+- #sig-etcd Slack channel
+- etcd-dev mailing list
+- etcd.io blog
+- Kubernetes blog
+- Kubernetes community social media channels
+- Kubernetes dev mailing list
+- Additional Kubernetes Slack channels, such as #announcements
+
+etcd releases are announced in different places depending on the content of the release. All releases, patch, minor, or major are announced in etcd's slack channel, mailing list, and blog. Releases which require more awareness are announced additional places:
+
+- Patch releases which fix critical CVEs or data loss bugs that affect Kubernetes users and/or most etcd users: kubernetes dev mailing list, additional Kubernetes Slack channels, possibly social media channels, depending on severity and affected users
+- First beta (or RC if no betas) of a new major/minor release: Kubernetes blog, Kubernetes community social media channels
+- Major/Minor final release: Kubernetes blog, Kubernetes social media channels, Kubernetes dev mailing list, #announcements Slack channel
+
+For patch releases, the text of the blog post and the release email will be the same, and should cover the basics of what's in the patch release and how it affects users; see previous announcements for examples.  Announcements on Slack will be abbreviated versions, with a link to the blog post.
+
+For minor/major releases, the blog post will be extensive and will cover features and contribution stories in detail. Announcements elsewhere will be shorter, and will link back to this blog post.
 
 #### Release known issues
 
