@@ -15,6 +15,7 @@
 package clientv3test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -54,9 +55,12 @@ func TestDetectKvOrderViolation(t *testing.T) {
 
 	// stop third member in order to force the member to have an outdated revision
 	clus.Members[2].Stop(t)
-	time.Sleep(1 * time.Second) // give enough time for operation
-	_, err = cli.Put(ctx, "foo", "buzz")
-	require.NoError(t, err)
+	require.Eventuallyf(t, func() bool {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, err = cli.Put(timeoutCtx, "foo", "buzz")
+		return err == nil
+	}, 5*time.Second, 50*time.Millisecond, "failed to execute Put after member stop")
 
 	// perform get request against the first member, in order to
 	// set up kvOrdering to expect "foo" revisions greater than that of
@@ -76,7 +80,12 @@ func TestDetectKvOrderViolation(t *testing.T) {
 	require.NoError(t, clus.Members[2].Restart(t))
 	// force OrderingKv to query the third member
 	cli.SetEndpoints(clus.Members[2].GRPCURL)
-	time.Sleep(2 * time.Second) // FIXME: Figure out how pause SetEndpoints sufficiently that this is not needed
+	require.Eventuallyf(t, func() bool {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, err = cli.Get(timeoutCtx, "foo", clientv3.WithSerializable())
+		return err == nil
+	}, 5*time.Second, 50*time.Millisecond, "failed to establish gRPC connection to restarted member")
 
 	t.Logf("Quering m2 after restart")
 	v, err = orderingKv.Get(ctx, "foo", clientv3.WithSerializable())
@@ -113,9 +122,12 @@ func TestDetectTxnOrderViolation(t *testing.T) {
 
 	// stop third member in order to force the member to have an outdated revision
 	clus.Members[2].Stop(t)
-	time.Sleep(1 * time.Second) // give enough time for operation
-	_, err = clus.Client(1).Put(ctx, "foo", "buzz")
-	require.NoError(t, err)
+	require.Eventuallyf(t, func() bool {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, err = clus.Client(1).Put(timeoutCtx, "foo", "buzz")
+		return err == nil
+	}, 5*time.Second, 50*time.Millisecond, "failed to execute Put after member stop")
 
 	// perform get request against the first member, in order to
 	// set up kvOrdering to expect "foo" revisions greater than that of
@@ -138,7 +150,13 @@ func TestDetectTxnOrderViolation(t *testing.T) {
 	require.NoError(t, clus.Members[2].Restart(t))
 	// force OrderingKv to query the third member
 	cli.SetEndpoints(clus.Members[2].GRPCURL)
-	time.Sleep(2 * time.Second) // FIXME: Figure out how pause SetEndpoints sufficiently that this is not needed
+	require.Eventuallyf(t, func() bool {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_, err = cli.Get(timeoutCtx, "foo", clientv3.WithSerializable())
+		return err == nil
+	}, 5*time.Second, 50*time.Millisecond, "failed to establish gRPC connection to restarted member")
+
 	_, err = orderingKv.Get(ctx, "foo", clientv3.WithSerializable())
 	if !errors.Is(err, errOrderViolation) {
 		t.Fatalf("expected %v, got %v", errOrderViolation, err)
