@@ -49,7 +49,7 @@ func lockCommandFunc(cmd *cobra.Command, args []string) {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, errors.New("lock takes a lock name argument and an optional command to execute"))
 	}
 	c := mustClientFromCmd(cmd)
-	if err := lockUntilSignal(c, args[0], args[1:]); err != nil {
+	if err := lockUntilSignal(cmd, c, args[0], args[1:]); err != nil {
 		code := getExitCodeFromError(err)
 		cobrautl.ExitWithError(code, err)
 	}
@@ -70,14 +70,14 @@ func getExitCodeFromError(err error) int {
 	return cobrautl.ExitError
 }
 
-func lockUntilSignal(c *clientv3.Client, lockname string, cmdArgs []string) error {
+func lockUntilSignal(cmd *cobra.Command, c *clientv3.Client, lockname string, cmdArgs []string) error {
 	s, err := concurrency.NewSession(c, concurrency.WithTTL(lockTTL))
 	if err != nil {
 		return err
 	}
 
 	m := concurrency.NewMutex(s, lockname)
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// unlock in case of ordinary shutdown
 	donec := make(chan struct{})
@@ -94,11 +94,13 @@ func lockUntilSignal(c *clientv3.Client, lockname string, cmdArgs []string) erro
 	}
 
 	if len(cmdArgs) > 0 {
-		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-		cmd.Env = append(environLockResponse(m), os.Environ()...)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		err := cmd.Run()
-		unlockErr := m.Unlock(context.TODO())
+		cmnd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		cmnd.Env = append(environLockResponse(m), os.Environ()...)
+		cmnd.Stdout, cmnd.Stderr = os.Stdout, os.Stderr
+		err := cmnd.Run()
+		cmdCtx, cmdCancel := commandCtx(cmd)
+		unlockErr := m.Unlock(cmdCtx)
+		cmdCancel()
 		if err != nil {
 			return err
 		}
@@ -116,7 +118,9 @@ func lockUntilSignal(c *clientv3.Client, lockname string, cmdArgs []string) erro
 
 	select {
 	case <-donec:
-		return m.Unlock(context.TODO())
+		cmdCtx, cmdCancel := commandCtx(cmd)
+		defer cmdCancel()
+		return m.Unlock(cmdCtx)
 	case <-s.Done():
 	}
 
