@@ -4,13 +4,13 @@ etcd is Apache 2.0 licensed and accepts contributions via GitHub pull requests.
 This document outlines the basics of contributing to etcd.
 
 This is a rough outline of what a contributor's workflow looks like:
-* [Find something to work on](#Find-something-to-work-on)
-  * [Check for flaky tests](#Check-for-flaky-tests)
-* [Set up development environment](#Set-up-development-environment)
-* [Implement your change](#Implement-your-change)
-* [Commit your change](#Commit-your-change)
-* [Create a pull request](#Create-a-pull-request)
-* [Get your pull request reviewed](#Get-your-pull-request-reviewed)
+* [Find something to work on](#find-something-to-work-on)
+  * [Check for flaky tests](#check-for-flaky-tests)
+* [Set up development environment](#set-up-development-environment)
+* [Implement your change](#implement-your-change)
+* [Commit your change](#commit-your-change)
+* [Create a pull request](#create-a-pull-request)
+* [Get your pull request reviewed](#get-your-pull-request-reviewed)
 
 If you have any questions, please reach out using one of the methods listed in [contact].
 
