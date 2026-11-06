@@ -15,6 +15,7 @@
 package leasing
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -24,6 +25,32 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	v3 "go.etcd.io/etcd/client/v3"
 )
+
+func TestLeaseCacheDeleteClearsCount(t *testing.T) {
+	lc := &leaseCache{entries: make(map[string]*leaseKey)}
+	lc.Add("k", &v3.GetResponse{
+		Header: &v3pb.ResponseHeader{Revision: 1},
+		Kvs: []*mvccpb.KeyValue{{
+			Key:            []byte("k"),
+			CreateRevision: 1,
+			ModRevision:    1,
+			Version:        1,
+		}},
+		Count: 1,
+	}, v3.OpGet("k"))
+
+	resp, ok := lc.Get(context.Background(), v3.OpGet("k"))
+	require.True(t, ok)
+	require.Equal(t, int64(1), resp.Count)
+	require.Len(t, resp.Kvs, 1)
+
+	lc.Delete("k", &v3pb.ResponseHeader{Revision: 2})
+
+	resp, ok = lc.Get(context.Background(), v3.OpGet("k"))
+	require.True(t, ok)
+	require.Empty(t, resp.Kvs)
+	require.Zero(t, resp.Count)
+}
 
 func TestCopyHeader(t *testing.T) {
 	t.Run("ResponseHeader should have 5 protobuf fields", func(t *testing.T) {

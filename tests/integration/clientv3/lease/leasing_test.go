@@ -400,14 +400,16 @@ func TestLeasingDeleteOwner(t *testing.T) {
 	require.NoError(t, err)
 
 	// get+own / delete / get
-	_, err = lkv.Get(t.Context(), "k")
+	resp, err := lkv.Get(t.Context(), "k")
 	require.NoError(t, err)
+	require.Equal(t, int64(1), resp.Count)
 	_, err = lkv.Delete(t.Context(), "k")
 	require.NoError(t, err)
-	resp, err := lkv.Get(t.Context(), "k")
+	resp, err = lkv.Get(t.Context(), "k")
 	require.NoError(t, err)
 
 	require.Emptyf(t, resp.Kvs, `expected "k" to be deleted, got response %+v`, resp)
+	require.Zero(t, resp.Count)
 	// try to double delete
 	_, err = lkv.Delete(t.Context(), "k")
 	require.NoError(t, err)
@@ -429,16 +431,18 @@ func TestLeasingDeleteNonOwner(t *testing.T) {
 	_, err = clus.Client(0).Put(t.Context(), "k", "abc")
 	require.NoError(t, err)
 	// acquire ownership
-	_, err = lkv1.Get(t.Context(), "k")
+	resp, err := lkv1.Get(t.Context(), "k")
 	require.NoError(t, err)
+	require.Equal(t, int64(1), resp.Count)
 	// delete via non-owner
 	_, err = lkv2.Delete(t.Context(), "k")
 	require.NoError(t, err)
 
 	// key should be removed from lkv1
-	resp, err := lkv1.Get(t.Context(), "k")
+	resp, err = lkv1.Get(t.Context(), "k")
 	require.NoError(t, err)
 	require.Emptyf(t, resp.Kvs, `expected "k" to be deleted, got response %+v`, resp)
+	require.Zero(t, resp.Count)
 }
 
 func TestLeasingOverwriteResponse(t *testing.T) {
