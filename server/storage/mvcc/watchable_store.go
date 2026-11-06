@@ -241,11 +241,15 @@ func (s *watchableStore) syncWatchersLoop() {
 
 		delayTicker.Reset(watchResyncPeriod)
 		// more work pending?
+		// more work pending?
 		if unsyncedWatchers != 0 && lastUnsyncedWatchers > unsyncedWatchers {
-			// be fair to other store operations by yielding time taken
-			delayTicker.Reset(syncDuration)
+			// be fair to other store operations by yielding time taken, ensuring d > 0
+			d := syncDuration
+			if d <= 0 {
+				d = time.Millisecond
+			}
+			delayTicker.Reset(d)
 		}
-
 		select {
 		case <-delayTicker.C:
 		case <-s.stopc:
@@ -576,24 +580,42 @@ type watcher struct {
 
 func (w *watcher) send(wr WatchResponse) bool {
 	progressEvent := len(wr.Events) == 0
-
-	if len(w.fcs) != 0 {
-		ne := make([]*mvccpb.Event, 0, len(wr.Events))
-		for i := range wr.Events {
-			filtered := false
+if len(w.fcs) != 0 {
+		// Fast path: check if ANY event actually gets filtered first.
+		firstFiltered := -1
+		for i, ev := range wr.Events {
 			for _, filter := range w.fcs {
-				if filter(wr.Events[i]) {
-					filtered = true
+				if filter(ev) {
+					firstFiltered = i
 					break
 				}
 			}
-			if !filtered {
-				ne = append(ne, wr.Events[i])
+			if firstFiltered != -1 {
+				break
 			}
 		}
-		wr.Events = ne
-	}
 
+		// Only allocate a new slice IF an event was actually filtered out!
+		if firstFiltered != -1 {
+			ne := make([]*mvccpb.Event, 0, len(wr.Events)-1)
+			ne = append(ne, wr.Events[:firstFiltered]...)
+			for i := firstFiltered + 1; i < len(wr.Events); i++ {
+				ev := wr.Events[i]
+				filtered := false
+				for _, filter := range w.fcs {
+					if filter(ev) {
+						filtered = true
+						break
+					}
+				}
+				if !filtered {
+					ne = append(ne, ev)
+				}
+			}
+			wr.Events = ne
+		}
+	}
+	if w.startRev > 0 {
 	verify.Verify("Event.ModRevision is less than the w.startRev for watchID", func() (bool, map[string]any) {
 		if w.startRev > 0 {
 			for _, ev := range wr.Events {
@@ -607,7 +629,7 @@ func (w *watcher) send(wr WatchResponse) bool {
 			}
 		}
 		return true, nil
-	})
+	})}
 
 	// if all events are filtered out, we should send nothing.
 	if !progressEvent && len(wr.Events) == 0 {
