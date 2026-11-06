@@ -204,3 +204,28 @@ func TestServeSubstreamLogsSlowConsumer(t *testing.T) {
 	}
 	w.wg.Wait()
 }
+
+
+// TestBroadcastResponseSkipsRemovedSubstream ensures a canceled substream that
+// has been removed from the map is not targeted by progress notify broadcasts.
+// Regression for #21969 (panic: send on closed channel).
+func TestBroadcastResponseSkipsRemovedSubstream(t *testing.T) {
+	activeRecvc := make(chan *WatchResponse, 1)
+	w := &watchGRPCStream{
+		substreams: map[int64]*watcherStream{
+			1: {recvc: activeRecvc, donec: make(chan struct{})},
+		},
+	}
+	wr := &WatchResponse{Header: &pb.ResponseHeader{Revision: 1}}
+	if !w.broadcastResponse(wr) {
+		t.Fatal("broadcastResponse returned false")
+	}
+	select {
+	case got := <-activeRecvc:
+		if got != wr {
+			t.Fatalf("unexpected response pointer")
+		}
+	default:
+		t.Fatal("active substream did not receive response")
+	}
+}
