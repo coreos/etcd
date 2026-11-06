@@ -48,7 +48,13 @@ func (s *Snapshotter) SaveDBFrom(r io.Reader, id uint64) (int64, error) {
 		err = fileutil.Fsync(f)
 		snapDBFsyncSec.Observe(time.Since(fsyncStart).Seconds())
 	}
-	f.Close()
+	// Some filesystems report delayed writeback errors only on Close.
+	// Never publish the snapshot or acknowledge it to Raft in that case.
+	// Preserve the original copy/sync error unchanged when Close succeeds.
+	// Join only when Close itself reports an additional failure.
+	if closeErr := s.closeFile(f); closeErr != nil {
+		err = errors.Join(err, closeErr)
+	}
 	if err != nil {
 		os.Remove(f.Name())
 		return n, err
