@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"crypto/fips140"
+
 	"go.etcd.io/etcd/client/pkg/v3/types"
 )
 
@@ -32,6 +34,9 @@ func timeParse(value string) *time.Time {
 }
 
 func TestMemberTime(t *testing.T) {
+	if fips140.Enabled() {
+		t.Skip("TestMemberTime uses SHA-1-derived expected values, skipping in FIPS mode")
+	}
 	tests := []struct {
 		mem *Member
 		id  types.ID

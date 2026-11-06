@@ -16,7 +16,9 @@ package membership
 
 import (
 	"context"
+	"crypto/fips140"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -234,7 +236,14 @@ func (c *RaftCluster) genID() {
 	for i, id := range mIDs {
 		binary.BigEndian.PutUint64(b[8*i:], uint64(id))
 	}
-	hash := sha1.Sum(b)
+	hash := [20]byte{}
+	if fips140.Enabled() {
+		h := sha256.Sum256(b)
+		copy(hash[:], h[:8])
+	} else {
+		h := sha1.Sum(b)
+		copy(hash[:], h[:8])
+	}
 	c.cid = types.ID(binary.BigEndian.Uint64(hash[:8]))
 }
 

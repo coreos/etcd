@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"crypto/fips140"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -38,6 +40,9 @@ import (
 // The expected hash value must not be changed.
 // If it changes, there must be some backwards incompatible change introduced.
 func TestSnapshotStatus(t *testing.T) {
+	if fips140.Enabled() {
+		t.Skip("TestSnapshotStatus uses SHA-1-derived expected hash, skipping in FIPS mode")
+	}
 	dbpath := createDB(t, insertKeys(t, 10, 100))
 
 	status, err := NewV3(zap.NewNop()).Status(dbpath)

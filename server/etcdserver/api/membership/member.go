@@ -15,7 +15,9 @@
 package membership
 
 import (
+	"crypto/fips140"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -71,7 +73,14 @@ func computeMemberID(peerURLs types.URLs, clusterName string, now *time.Time) ty
 		b = append(b, []byte(fmt.Sprintf("%d", now.Unix()))...)
 	}
 
-	hash := sha1.Sum(b)
+	hash := [20]byte{}
+	if fips140.Enabled() {
+		h := sha256.Sum256(b)
+		copy(hash[:], h[:8])
+	} else {
+		h := sha1.Sum(b)
+		copy(hash[:], h[:8])
+	}
 	return types.ID(binary.BigEndian.Uint64(hash[:8]))
 }
 
