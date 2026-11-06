@@ -51,6 +51,14 @@ type decoder struct {
 	lastValidOff int64
 	crc          hash.Hash32
 
+	// scratch is a buffer reused across Decode calls to avoid allocating a
+	// fresh buffer for every record. Reuse is safe: no reference to it (or a
+	// subslice) escapes decodeRecord, because proto.Unmarshal copies the
+	// record bytes out of it (there is no unsafe unmarshal in this package).
+	// The buffer grows to the largest record decoded and is retained for the
+	// lifetime of the decoder.
+	scratch []byte
+
 	// continueOnCrcError - causes the decoder to continue working even in case of crc mismatch.
 	// This is a desired mode for tools performing inspection of the corrupted WAL logs.
 	// See comments on 'Decode' method for semantic.
@@ -113,7 +121,19 @@ func (d *decoder) decodeRecord(rec *walpb.Record) error {
 			io.ErrUnexpectedEOF, fileBufReader.FileInfo().Name(), recBytes, fileBufReader.FileInfo().Size(), d.lastValidOff, padBytes, maxEntryLimit)
 	}
 
-	data := make([]byte, recBytes+padBytes)
+	// Reuse the decoder's scratch buffer instead of allocating a
+	// record-sized buffer per record. WAL replay at startup reads every
+	// record in one burst, so a per-record allocation here doubles the
+	// garbage produced during recovery (this frame buffer plus proto's
+	// copy of the record). Reuse is safe because nothing aliases the
+	// buffer beyond the current call; see the comment on the scratch
+	// field. The buffer is grown on demand to the largest record seen and
+	// never shrinks.
+	bufLen := int(recBytes + padBytes)
+	if cap(d.scratch) < bufLen {
+		d.scratch = make([]byte, bufLen)
+	}
+	data := d.scratch[:bufLen]
 	if _, err = io.ReadFull(fileBufReader, data); err != nil {
 		// ReadFull returns io.EOF only if no bytes were read
 		// the decoder should treat this as an ErrUnexpectedEOF instead.
@@ -224,8 +244,15 @@ func MustUnmarshalState(d []byte) *raftpb.HardState {
 	return &s
 }
 
+// readInt64 reads a little-endian int64. It is equivalent to
+// binary.Read(r, binary.LittleEndian, &n), but avoids the interface
+// conversions and type-switch dispatch inside binary.Read — this runs once
+// per WAL record during replay. Error semantics are identical: io.EOF when
+// no bytes were read, io.ErrUnexpectedEOF on a partial read.
 func readInt64(r io.Reader) (int64, error) {
-	var n int64
-	err := binary.Read(r, binary.LittleEndian, &n)
-	return n, err
+	var b [8]byte
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(b[:])), nil
 }
