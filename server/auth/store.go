@@ -826,9 +826,20 @@ func (as *authStore) RoleGrantPermission(r *pb.AuthRoleGrantPermissionRequest) (
 		return bytes.Compare(role.KeyPermission[i].Key, r.Perm.Key) >= 0
 	})
 
-	if idx < len(role.KeyPermission) && bytes.Equal(role.KeyPermission[idx].Key, r.Perm.Key) && bytes.Equal(role.KeyPermission[idx].RangeEnd, r.Perm.RangeEnd) {
+	// KeyPermission is sorted by Key only, so a role may hold several
+	// permissions sharing Key but differing in RangeEnd. Scan all of them
+	// for the exact (Key, RangeEnd) pair instead of only the first match.
+	existing := -1
+	for i := idx; i < len(role.KeyPermission) && bytes.Equal(role.KeyPermission[i].Key, r.Perm.Key); i++ {
+		if bytes.Equal(role.KeyPermission[i].RangeEnd, r.Perm.RangeEnd) {
+			existing = i
+			break
+		}
+	}
+
+	if existing >= 0 {
 		// update existing permission
-		role.KeyPermission[idx].PermType = r.Perm.PermType
+		role.KeyPermission[existing].PermType = r.Perm.PermType
 	} else {
 		// append new permission to the role
 		newPerm := &authpb.Permission{

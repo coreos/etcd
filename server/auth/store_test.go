@@ -509,6 +509,38 @@ func TestRoleGrantPermission(t *testing.T) {
 	assert.Equal(t, perm, r.Perm[0])
 }
 
+func TestRoleGrantPermissionSameKeyDifferentRangeEnd(t *testing.T) {
+	as, tearDown := setupAuthStore(t)
+	defer tearDown(t)
+
+	_, err := as.RoleAdd(&pb.AuthRoleAddRequest{Name: "role-test-1"})
+	require.NoError(t, err)
+
+	grant := func(rangeEnd []byte, pt authpb.Permission_Type) {
+		t.Helper()
+		_, err := as.RoleGrantPermission(&pb.AuthRoleGrantPermissionRequest{
+			Name: "role-test-1",
+			Perm: &authpb.Permission{PermType: pt, Key: []byte("foo"), RangeEnd: rangeEnd},
+		})
+		require.NoError(t, err)
+	}
+
+	grant([]byte("fop"), authpb.Permission_WRITE)
+	grant([]byte("foq"), authpb.Permission_WRITE)
+	// updating an existing permission must not append a duplicate when the
+	// role already holds another permission with the same Key.
+	grant([]byte("foq"), authpb.Permission_READ)
+
+	r, err := as.RoleGet(&pb.AuthRoleGetRequest{Role: "role-test-1"})
+	require.NoError(t, err)
+	require.Len(t, r.Perm, 2)
+	for _, p := range r.Perm {
+		if string(p.RangeEnd) == "foq" {
+			assert.Equal(t, authpb.Permission_READ, p.PermType)
+		}
+	}
+}
+
 func TestRoleGrantInvalidPermission(t *testing.T) {
 	as, tearDown := setupAuthStore(t)
 	defer tearDown(t)
