@@ -83,7 +83,19 @@ func (wb *watchBroadcast) bcast(wr clientv3.WatchResponse) {
 	if wb.responses > 0 || wb.nextrev == 0 {
 		wb.nextrev = wr.Header.Revision + 1
 	}
+	firstResponse := wb.responses == 0
 	wb.responses++
+	// A plain Created response after the broadcast's first response means the
+	// underlying etcd watcher was re-established (e.g. after an etcd restart or
+	// a transient disconnect). The client already received its Created when the
+	// broadcast was first set up; forwarding a second one corrupts clientv3's
+	// positional Created<->substream matching and can deliver this broadcast's
+	// events to a different watcher (cross-prefix delivery). Drop it. A Created
+	// that also carries a cancel (e.g. compaction) is not a plain re-create and
+	// still flows through so the client re-watches.
+	if !firstResponse && wr.Created && !wr.Canceled && wr.Err() == nil {
+		return
+	}
 	for r := range wb.receivers {
 		r.send(wr)
 	}
