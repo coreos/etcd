@@ -103,3 +103,66 @@ func TestResumeElection(t *testing.T) {
 		t.Errorf("expected new leader to be 'candidate1' got %q", string(kv.Value))
 	}
 }
+
+// If Campaign fails after acquiring its leader key (e.g. waitDeletes fails with a
+// compacted error), the leader key must be removed rather than left dangling.
+//
+// Regression test for https://github.com/etcd-io/etcd/issues/21128.
+func TestElectionCampaignCleanupOnWaitDeletesError(t *testing.T) {
+	const prefix = "/test-election-cleanup/"
+
+	// Candidate1 wins and continues to hold the lock for the duration of the
+	// test, so candidate2 will block in waitDeletes waiting for it.
+	cli, err := integration.NewClient(t, clientv3.Config{Endpoints: exampleEndpoints()})
+	require.NoError(t, err)
+	defer cli.Close()
+
+	s1, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s1.Close()
+
+	e1 := concurrency.NewElection(s1, prefix)
+	require.NoError(t, e1.Campaign(t.Context(), "candidate1"))
+
+	// Candidate2 uses a separate client whose Watcher is wrapped to return a fake 
+	// compacted error for any watch on the election prefix.
+	cli2, err := integration.NewClient(t, clientv3.Config{Endpoints: exampleEndpoints()})
+	require.NoError(t, err)
+	defer cli2.Close()
+	cli2.Watcher = &fakeCompactedWatcher{Watcher: cli2.Watcher, prefix: prefix}
+
+	s2, err := concurrency.NewSession(cli2)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	e2 := concurrency.NewElection(s2, prefix)
+
+	err = e2.Campaign(t.Context(), "candidate2")
+	require.Errorf(t, err, "expected Campaign to fail with injected compacted error")
+
+	// Candidate2's leader key must not remain on the server.
+	// Verify Campaign has already removed it.
+	resp, err := cli.Get(t.Context(), prefix, clientv3.WithPrefix())
+	require.NoError(t, err)
+	for _, kv := range resp.Kvs {
+		require.NotEqualf(t, "candidate2", string(kv.Value),
+			"candidate2's key %q was not cleaned up after Campaign error", string(kv.Key))
+	}
+}
+
+// Wraps a Watcher and returns a fake compacted-error response for any watch on a key 
+// whose name has the given prefix. All other watches are passed through to the wrapped Watcher.
+type fakeCompactedWatcher struct {
+	clientv3.Watcher
+	prefix string
+}
+
+func (w *fakeCompactedWatcher) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
+	if strings.HasPrefix(key, w.prefix) {
+		ch := make(chan clientv3.WatchResponse, 1)
+		ch <- clientv3.WatchResponse{CompactRevision: 1} // Non-0 compact revision indicates an error.
+		close(ch)
+		return ch
+	}
+	return w.Watcher.Watch(ctx, key, opts...)
+}

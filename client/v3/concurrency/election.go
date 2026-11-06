@@ -92,13 +92,7 @@ func (e *Election) Campaign(ctx context.Context, val string) error {
 
 	err = waitDeletes(ctx, client, e.keyPrefix, e.leaderRev-1)
 	if err != nil {
-		// clean up in case of context cancel
-		select {
-		case <-ctx.Done():
-			e.Resign(client.Ctx())
-		default:
-			e.leaderSession = nil
-		}
+		e.Resign(client.Ctx())
 		return err
 	}
 	e.hdr = resp.Header
