@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -870,40 +871,71 @@ func TestNewMapwatcherToEventMap(t *testing.T) {
 // TestWatchVictims tests that watchable store delivers watch events
 // when the watch channel is temporarily clogged with too many events.
 func TestWatchVictims(t *testing.T) {
+
 	oldChanBufLen, oldMaxWatchersPerSync := chanBufLen, maxWatchersPerSync
-
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	s := New(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
-
 	defer func() {
-		cleanup(s, b)
 		chanBufLen, maxWatchersPerSync = oldChanBufLen, oldMaxWatchersPerSync
 	}()
 
 	chanBufLen, maxWatchersPerSync = 1, 2
 	numPuts := chanBufLen * 64
 	testKey, testValue := []byte("foo"), []byte("bar")
-
-	var wg sync.WaitGroup
 	numWatches := maxWatchersPerSync * 128
 	errc := make(chan error, numWatches)
-	wg.Add(numWatches)
-	for i := 0; i < numWatches; i++ {
+	donec := make(chan struct{})
+
+	go synctest.Test(t, func(t *testing.T) {
+		// detect deadlocks fast by simulating minutes of synctest time
+		// see https://pkg.go.dev/testing/synctest#hdr-Time for more
+		// about simulated time
+
+		deadlockSimTimeLimit := 5 * time.Minute
+
+		// deadlock detector goroutine
 		go func() {
-			w := s.NewWatchStream()
-			w.Watch(t.Context(), 0, testKey, nil, 1)
-			defer func() {
-				w.Close()
-				wg.Done()
-			}()
-			tc := time.After(10 * time.Second)
-			evs, nextRev := 0, int64(2)
-			for evs < numPuts {
-				select {
-				case <-tc:
-					errc <- fmt.Errorf("time out")
-					return
-				case wr := <-w.Chan():
+			time.Sleep(deadlockSimTimeLimit)
+			select {
+			case <-donec:
+			default:
+				errc <- fmt.Errorf("deadlock detected with synctest")
+			}
+		}()
+
+		b, _ := betesting.NewDefaultTmpBackend(t)
+		s := New(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+
+		defer func() {
+			cleanup(s, b)
+			close(donec)
+			// close the root synctest goroutine after the deadlock
+			// detection goroutine
+			time.Sleep(deadlockSimTimeLimit)
+		}()
+
+		var watchersDone sync.WaitGroup
+
+		watchersDone.Add(numWatches)
+
+		var watchersReady sync.WaitGroup
+		watchersReady.Add(numWatches)
+
+		startc := make(chan struct{})
+
+		for range numWatches {
+			go func() {
+				w := s.NewWatchStream()
+				w.Watch(t.Context(), 0, testKey, nil, 1)
+				defer func() {
+					w.Close()
+					watchersDone.Done()
+				}()
+
+				watchersReady.Done()
+				<-startc
+
+				evs, nextRev := 0, int64(2)
+				for evs < numPuts {
+					wr := <-w.Chan()
 					evs += len(wr.Events)
 					for _, ev := range wr.Events {
 						if ev.Kv.ModRevision != nextRev {
@@ -912,37 +944,40 @@ func TestWatchVictims(t *testing.T) {
 						}
 						nextRev++
 					}
-					time.Sleep(time.Millisecond)
+					// ensure that we watch slower than we put
+					time.Sleep(time.Duration(numWatches) * time.Nanosecond)
 				}
-			}
-			if evs != numPuts {
-				errc <- fmt.Errorf("expected %d events, got %d", numPuts, evs)
-				return
-			}
-			select {
-			case <-w.Chan():
-				errc <- fmt.Errorf("unexpected response")
-			default:
-			}
-		}()
-		time.Sleep(time.Millisecond)
-	}
+				if evs != numPuts {
+					errc <- fmt.Errorf("expected %d events, got %d", numPuts, evs)
+					return
+				}
+				select {
+				case <-w.Chan():
+					errc <- fmt.Errorf("unexpected response")
+				default:
+				}
+			}()
+		}
+		watchersReady.Wait()
+		close(startc)
 
-	var wgPut sync.WaitGroup
-	wgPut.Add(numPuts)
-	for i := 0; i < numPuts; i++ {
-		go func() {
-			defer wgPut.Done()
-			s.Put(testKey, testValue, lease.NoLease)
-		}()
-	}
-	wgPut.Wait()
+		var wgPut sync.WaitGroup
+		wgPut.Add(numPuts)
+		for range numPuts {
+			go func() {
+				defer wgPut.Done()
+				s.Put(testKey, testValue, lease.NoLease)
+			}()
+			time.Sleep(time.Nanosecond)
+		}
+		wgPut.Wait()
+		watchersDone.Wait()
+	})
 
-	wg.Wait()
 	select {
 	case err := <-errc:
 		t.Fatal(err)
-	default:
+	case <-donec:
 	}
 }
 

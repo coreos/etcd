@@ -237,7 +237,10 @@ func (s *watchableStore) syncWatchersLoop() {
 		if lastUnsyncedWatchers > 0 {
 			unsyncedWatchers = s.syncWatchers()
 		}
-		syncDuration := time.Since(st)
+
+		// set to at least a nonzero value to avoid panics when
+		// testing with synctest
+		syncDuration := max(time.Since(st), time.Nanosecond)
 
 		delayTicker.Reset(watchResyncPeriod)
 		// more work pending?
