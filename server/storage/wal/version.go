@@ -20,6 +20,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/golang/protobuf/proto" //nolint:staticcheck // TODO: remove for a supported version
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
@@ -107,7 +108,17 @@ func visitEntryData(entryType raftpb.EntryType, data []byte, visitor Visitor) er
 	case raftpb.EntryNormal:
 		var raftReq etcdserverpb.InternalRaftRequest
 		if err := proto.Unmarshal(data, &raftReq); err != nil {
-			return err
+			// etcd 3.5 or earlier could write legacy v2 metadata requests
+			// (member attributes and the cluster version) to the WAL (the
+			// Request message has since been removed). Such entries carry
+			// no etcd version annotation and are dropped during replay, so
+			// skip those. Any other entry that fails to decode is
+			// corruption and must surface the original error instead of
+			// being silently ignored, matching the release-3.6 behaviour.
+			if !looksLikeLegacyV2MetadataRequest(data) {
+				return err
+			}
+			return nil
 		}
 		msg = proto.MessageReflect(&raftReq)
 		if raftReq.DowngradeVersionTest != nil {
@@ -277,4 +288,50 @@ func etcdVersionFromOptionsString(opts string) (*semver.Version, error) {
 		return nil, err
 	}
 	return ver, nil
+}
+
+
+// looksLikeLegacyV2MetadataRequest reports whether the raw WAL entry data
+// parses as one of the legacy v2 metadata requests written by etcd 3.5 and
+// earlier: member attribute updates and cluster version updates. The v2
+// Request message itself has been removed from the API, so the check walks
+// the protobuf wire format directly and validates the method and path.
+func looksLikeLegacyV2MetadataRequest(data []byte) bool {
+	var method, path string
+	for len(data) > 0 {
+		number, typ, n := protowire.ConsumeTag(data)
+		if n < 0 {
+			return false
+		}
+		data = data[n:]
+		switch number {
+		case 2, 3: // method, path
+			if typ != protowire.BytesType {
+				return false
+			}
+			value, n := protowire.ConsumeBytes(data)
+			if n < 0 {
+				return false
+			}
+			if number == 2 {
+				method = string(value)
+			} else {
+				path = string(value)
+			}
+			data = data[n:]
+		default:
+			n := protowire.ConsumeFieldValue(number, typ, data)
+			if n < 0 {
+				return false
+			}
+			data = data[n:]
+		}
+	}
+	if method != "PUT" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if strings.HasSuffix(path, "/version") && !strings.Contains(path, "/members/") {
+		return true
+	}
+	return strings.HasSuffix(path, "/attributes") && strings.Contains(path, "/members/")
 }
