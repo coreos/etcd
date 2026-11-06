@@ -23,6 +23,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -43,6 +44,8 @@ const (
 	streamTypeMsgAppV2 streamType = "msgappv2"
 
 	streamBufSize = 4096
+
+	maxPendingBytes = 50 * 1024 * 1024 // 50MB
 )
 
 var (
@@ -134,6 +137,8 @@ type streamWriter struct {
 	connc chan *outgoingConn
 	stopc chan struct{}
 	done  chan struct{}
+
+	pendingBytes int64
 }
 
 // startStreamWriter creates a streamWrite and starts a long running go-routine that accepts
@@ -206,6 +211,7 @@ func (cw *streamWriter) run() {
 			heartbeatc, msgc = nil, nil
 
 		case m := <-msgc:
+			atomic.AddInt64(&cw.pendingBytes, int64(-proto.Size(m)))
 			err := enc.encode(m)
 			if err == nil {
 				unflushed += proto.Size(m)

@@ -17,10 +17,12 @@ package rafthttp
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+	"google.golang.org/protobuf/proto"
 
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
@@ -243,9 +245,44 @@ func (p *peer) send(m *raftpb.Message) {
 	}
 
 	writec, name := p.pick(m)
+
+	var pendingBytes *int64
+	if name == streamAppV2 {
+		pendingBytes = &p.msgAppV2Writer.pendingBytes
+	} else if name == streamMsg {
+		pendingBytes = &p.writer.pendingBytes
+	}
+
+	if pendingBytes != nil {
+		msgSize := int64(proto.Size(m))
+		if atomic.LoadInt64(pendingBytes)+msgSize > maxPendingBytes {
+			p.r.ReportUnreachable(m.GetTo())
+			if isMsgSnap(m) {
+				p.r.ReportSnapshot(m.GetTo(), raft.SnapshotFailure)
+			}
+			if p.lg != nil {
+				p.lg.Warn(
+					"dropped internal Raft message since sending buffer is full (byte limit exceeded)",
+					zap.String("message-type", m.GetType().String()),
+					zap.String("local-member-id", p.localID.String()),
+					zap.String("from", types.ID(m.GetFrom()).String()),
+					zap.String("remote-peer-id", p.id.String()),
+					zap.String("remote-peer-name", name),
+					zap.Bool("remote-peer-active", p.status.isActive()),
+				)
+			}
+			sentFailures.WithLabelValues(types.ID(m.GetTo()).String()).Inc()
+			return
+		}
+		atomic.AddInt64(pendingBytes, msgSize)
+	}
+
 	select {
 	case writec <- m:
 	default:
+		if pendingBytes != nil {
+			atomic.AddInt64(pendingBytes, -int64(proto.Size(m)))
+		}
 		p.r.ReportUnreachable(m.GetTo())
 		if isMsgSnap(m) {
 			p.r.ReportSnapshot(m.GetTo(), raft.SnapshotFailure)
