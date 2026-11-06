@@ -27,15 +27,6 @@
 		]
 	},
 	{
-		"project": "github.com/antithesishq/antithesis-sdk-go",
-		"licenses": [
-			{
-				"type": "MIT License",
-				"confidence": 1
-			}
-		]
-	},
-	{
 		"project": "github.com/beorn7/perks/quantile",
 		"licenses": [
 			{

@@ -108,6 +108,7 @@ Previous change logs can be found at [CHANGELOG-3.6](https://github.com/etcd-io/
 
 ### etcd server
 
+- [Add `AutoPromoteLearners` feature gate (alpha, off by default) which lets the leader automatically promote a learner that has caught up with the leader's log](https://github.com/etcd-io/etcd/issues/21611)
 - [Prioritize LeaseRevoke requests to ensure timely lease expiration during overload conditions](https://github.com/etcd-io/etcd/pull/20492)
 - [Update go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc to v0.61.0 and replaced the deprecated `UnaryServerInterceptor` and `StreamServerInterceptor` with `NewServerHandler`](https://github.com/etcd-io/etcd/pull/20017)
 - [Add Support for Unix Socket endpoints](https://github.com/etcd-io/etcd/pull/19760)

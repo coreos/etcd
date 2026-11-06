@@ -542,6 +542,9 @@ func (s *EtcdServer) Start() {
 	s.GoAttach(s.monitorKVHash)
 	s.GoAttach(s.monitorCompactHash)
 	s.GoAttach(s.monitorDowngrade)
+	if s.FeatureEnabled(features.AutoPromoteLearners) {
+		s.GoAttach(s.monitorAutoPromoteLearners)
+	}
 }
 
 // start prepares and starts server in a new goroutine. It is no longer safe to
@@ -2346,6 +2349,83 @@ func (s *EtcdServer) monitorDowngrade() {
 			continue
 		}
 		monitor.CancelDowngradeIfNeeded()
+	}
+}
+
+// monitorAutoPromoteLearners periodically scans for learner members that have caught up with the leader and promotes them in-band.
+func (s *EtcdServer) monitorAutoPromoteLearners() {
+	lg := s.Logger()
+	lg.Info("starting auto-promote-learners monitor")
+	for {
+		select {
+		case <-s.firstCommitInTerm.Receive():
+		case <-time.After(monitorVersionInterval):
+		case <-s.stopping:
+			lg.Info("server has stopped; stopping auto-promote-learners monitor")
+			return
+		}
+
+		if !s.isLeader() {
+			continue
+		}
+		s.tryAutoPromoteLearners()
+	}
+}
+
+func (s *EtcdServer) tryAutoPromoteLearners() {
+	lg := s.Logger()
+	ctx := s.authStore.WithRoot(s.ctx)
+	for _, m := range s.cluster.Members() {
+		if !m.IsLearner {
+			continue
+		}
+		_, err := s.promoteMember(ctx, uint64(m.ID))
+		if err == nil {
+			learnerPromoteSucceed.Inc()
+			lg.Info(
+				"auto-promoted learner to voting member",
+				zap.String("local-member-id", s.MemberID().String()),
+				zap.String("learner-id", m.ID.String()),
+			)
+			continue
+		}
+		switch {
+		// Expected during normal operation:
+		// - ErrLearnerNotReady: learner is still catching up.
+		// - ErrNotEnoughStartedMembers: cluster is briefly degraded.
+		// - ErrNotLeader / ErrLeaderChanged: leadership flipped between
+		//   isLeader() and the proposal.
+		// - ErrMemberNotLearner: member was already promoted (e.g. by
+		//   another caller racing with this loop).
+		// - ErrIDNotFound: member was removed between Members() and the
+		//   proposal.
+		// - ErrTimeout / ErrTimeoutWaitAppliedIndex: transient
+		//   backpressure or proposal timeout; the next tick will retry.
+		// - ErrStopped / ErrCanceled: server is shutting down; the
+		//   monitor's stopping select will exit on the next iteration.
+		case errorspkg.Is(err, errors.ErrLearnerNotReady),
+			errorspkg.Is(err, errors.ErrNotEnoughStartedMembers),
+			errorspkg.Is(err, errors.ErrNotLeader),
+			errorspkg.Is(err, errors.ErrLeaderChanged),
+			errorspkg.Is(err, errors.ErrTimeout),
+			errorspkg.Is(err, errors.ErrTimeoutWaitAppliedIndex),
+			errorspkg.Is(err, errors.ErrStopped),
+			errorspkg.Is(err, errors.ErrCanceled),
+			errorspkg.Is(err, membership.ErrMemberNotLearner),
+			errorspkg.Is(err, membership.ErrIDNotFound):
+			lg.Debug(
+				"auto-promote skipped",
+				zap.String("learner-id", m.ID.String()),
+				zap.Error(err),
+			)
+		default:
+			learnerPromoteFailed.WithLabelValues(err.Error()).Inc()
+			lg.Warn(
+				"auto-promote failed",
+				zap.String("learner-id", m.ID.String()),
+				zap.Error(err),
+			)
+		}
 	}
 }
 

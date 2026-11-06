@@ -322,6 +322,51 @@ func TestMemberPromote(t *testing.T) {
 	}
 }
 
+// TestAutoPromoteLearner verifies that, when the AutoPromoteLearners
+// feature gate is enabled on every cluster member, a learner that has
+// caught up with the leader is promoted to a voting member without an
+// explicit MemberPromote call.
+func TestAutoPromoteLearner(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{
+		Size:                       3,
+		DisableStrictReconfigCheck: true,
+		EnableAutoPromoteLearners:  true,
+	})
+	defer clus.Terminate(t)
+
+	leaderIdx := clus.WaitLeader(t)
+	capi := clus.Client(leaderIdx)
+
+	learnerMember := clus.MustNewMember(t)
+	urls := learnerMember.PeerURLs.StringSlice()
+	memberAddResp, err := capi.MemberAddAsLearner(t.Context(), urls)
+	require.NoError(t, err)
+	require.Truef(t, memberAddResp.Member.IsLearner, "expected new member to be a learner")
+	learnerID := memberAddResp.Member.ID
+
+	// Initialize and launch the learner so it can start catching up.
+	clus.InitializeMemberWithResponse(t, learnerMember, memberAddResp)
+	require.NoError(t, learnerMember.Launch())
+
+	// Poll MemberList until the learner has been auto-promoted, or fail
+	// after a generous deadline. The auto-promote loop ticks at
+	// monitorVersionInterval (~4s), so allow a few iterations.
+	require.Eventuallyf(t, func() bool {
+		resp, lerr := capi.MemberList(t.Context())
+		if lerr != nil {
+			return false
+		}
+		for _, m := range resp.Members {
+			if m.ID == learnerID {
+				return !m.IsLearner
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond, "learner %x was not auto-promoted within deadline", learnerID)
+}
+
 // TestMemberPromoteMemberNotLearner ensures that promoting a voting member fails.
 func TestMemberPromoteMemberNotLearner(t *testing.T) {
 	integration.BeforeTest(t, integration.WithFailpoint("raftBeforeAdvance", `sleep(100)`))
