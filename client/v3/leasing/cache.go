@@ -160,6 +160,7 @@ func (lc *leaseCache) Delete(key string, hdr *v3pb.ResponseHeader) {
 func (lc *leaseCache) delete(key string, hdr *v3pb.ResponseHeader) {
 	if li := lc.entries[key]; li != nil && hdr.Revision >= li.response.Header.Revision {
 		li.response.Kvs = nil
+		li.response.Count = 0
 		li.response.Header = copyHeader(hdr)
 	}
 }

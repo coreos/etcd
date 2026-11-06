@@ -627,6 +627,32 @@ func TestLeasingTxnOwnerDeleteRange(t *testing.T) {
 	require.Emptyf(t, resp.Kvs, "expected no keys, got %d", len(resp.Kvs))
 }
 
+func TestLeasingDeleteCachedCount(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lkv, closeLKV, err := leasing.NewKV(clus.Client(0), "pfx/")
+	require.NoError(t, err)
+	defer closeLKV()
+
+	_, err = clus.Client(0).Put(t.Context(), "k", "abc")
+	require.NoError(t, err)
+
+	// cache in lkv
+	resp, err := lkv.Get(t.Context(), "k")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), resp.Count)
+
+	_, derr := lkv.Delete(t.Context(), "k")
+	require.NoError(t, derr)
+
+	resp, err = lkv.Get(t.Context(), "k")
+	require.NoError(t, err)
+	require.Emptyf(t, resp.Kvs, "expected no keys, got %d", len(resp.Kvs))
+	require.Equal(t, int64(0), resp.Count, "expected Count to be reset after delete")
+}
+
 func TestLeasingTxnOwnerDelete(t *testing.T) {
 	integration.BeforeTest(t)
 	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
