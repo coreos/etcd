@@ -608,6 +608,80 @@ func TestV3LeaseCheckpoint(t *testing.T) {
 	}
 }
 
+// TestV3LeaseCheckpointSwallowedApplyError ensures a lease renewal surfaces a
+// real error when the checkpoint-clear raft request behind it actually fails,
+// instead of silently reporting success with the full TTL. The lessor's
+// Renew() already rejects a failed checkpoint clear (see lease/lessor.go),
+// but the server's Checkpointer wiring used to discard raftRequest's error
+// unconditionally, so Renew() never saw the failure and lied to the client.
+func TestV3LeaseCheckpointSwallowedApplyError(t *testing.T) {
+	integration.BeforeTest(t)
+	// checkpointInterval is kept well above the failpoint's injected 8s delay
+	// so only the one deliberate checkpoint queues behind it, not several
+	// periodic ones piling up on etcd's single-threaded apply loop.
+	checkpointInterval := 3 * time.Second
+	clus := integration.NewCluster(t, &integration.ClusterConfig{
+		Size:                    1,
+		EnableLeaseCheckpoint:   true,
+		LeaseCheckpointInterval: checkpointInterval,
+	})
+	defer clus.Terminate(t)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// ttl must comfortably outlast the real wall-clock time this test needs
+	// (checkpointInterval + ~5.2s KeepAliveOnce timeout + 9s drain sleep,
+	// ~18s total) since LeaseCheckpoint persists the countdown, it doesn't
+	// reset it -- too short a ttl here makes the lease expire for real
+	// during the test, which is correct etcd behavior, not the bug under test.
+	ttl := 30 * time.Second
+	c := integration.ToGRPC(clus.RandClient())
+	lresp, err := c.Lease.LeaseGrant(ctx, &pb.LeaseGrantRequest{TTL: int64(ttl.Seconds())})
+	require.NoError(t, err)
+
+	// Wait for at least one periodic checkpoint to shrink the persisted
+	// remainingTTL below the original grant.
+	time.Sleep(checkpointInterval + 500*time.Millisecond)
+
+	// Delay the next raft entry apply (a generic failpoint, not lease-specific)
+	// past the server's request timeout (5s + 2*ElectionTicks*TickMs = 5.2s in
+	// this config), so the renewal's checkpoint-clear raft request times out.
+	failpointName := "beforeApplyOneEntryNormal"
+	require.NoError(t, gofail.Enable(failpointName, "sleep(\"8s\")"))
+	disabled := false
+	disableFailpoint := func() {
+		if disabled {
+			return
+		}
+		disabled = true
+		terr := gofail.Disable(failpointName)
+		if terr != nil && !errors.Is(terr, gofail.ErrDisabled) {
+			t.Fatalf("failed to disable failpoint %v, got error: %v", failpointName, terr)
+		}
+	}
+	defer disableFailpoint()
+
+	_, keepAliveErr := clus.RandClient().KeepAliveOnce(ctx, clientv3.LeaseID(lresp.ID))
+	require.Error(t, keepAliveErr, "KeepAliveOnce must surface the checkpoint-clear's real raft error instead of silently reporting success with the full TTL")
+
+	// The one in-flight 8s sleep is still running against a single-threaded
+	// apply loop; disable the failpoint now so later checkpoints aren't
+	// delayed too, then let the in-flight entry finish applying.
+	disableFailpoint()
+	time.Sleep(9 * time.Second)
+
+	// The lease itself must still be alive and independently renewable after
+	// the delayed entry clears -- this was a timed-out checkpoint clear, not
+	// an actual lease failure.
+	ttlresp, err := c.Lease.LeaseTimeToLive(ctx, &pb.LeaseTimeToLiveRequest{ID: lresp.ID})
+	require.NoError(t, err)
+	require.Greater(t, ttlresp.TTL, int64(0), "lease must not have been silently revoked")
+
+	_, err = clus.RandClient().KeepAliveOnce(ctx, clientv3.LeaseID(lresp.ID))
+	require.NoError(t, err, "a normal renewal once the delayed apply clears must succeed")
+}
+
 // TestV3LeaseExists creates a lease on a random client and confirms it exists in the cluster.
 func TestV3LeaseExists(t *testing.T) {
 	integration.BeforeTest(t)
