@@ -377,7 +377,35 @@ func (lkv *leasingKV) deleteRange(ctx context.Context, op v3.Op) (*v3.DeleteResp
 	return nil, ctx.Err()
 }
 
+func (lkv *leasingKV) deleteIntersectsLeasingPrefix(op v3.Op) bool {
+	key, end := string(op.KeyBytes()), string(op.RangeBytes())
+	prefixEnd := v3.GetPrefixRangeEnd(lkv.pfx)
+	if end == "" {
+		return inRange(key, lkv.pfx, prefixEnd)
+	}
+	return inRange(key, lkv.pfx, prefixEnd) || inRange(lkv.pfx, key, end)
+}
+
+func (lkv *leasingKV) validateDelete(op v3.Op) error {
+	if op.IsDelete() && lkv.deleteIntersectsLeasingPrefix(op) {
+		return status.Errorf(codes.InvalidArgument, "leasing: delete range intersects leasing prefix %q", lkv.pfx)
+	}
+	return nil
+}
+
+func (lkv *leasingKV) validateDeleteOps(ops []v3.Op) error {
+	for _, op := range gatherOps(ops) {
+		if err := lkv.validateDelete(op); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (lkv *leasingKV) delete(ctx context.Context, op v3.Op) (dr *v3.DeleteResponse, err error) {
+	if err := lkv.validateDelete(op); err != nil {
+		return nil, err
+	}
 	if err := lkv.waitSession(ctx); err != nil {
 		return nil, err
 	}

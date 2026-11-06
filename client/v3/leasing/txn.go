@@ -50,6 +50,12 @@ func (txn *txnLeasing) Else(ops ...v3.Op) v3.Txn {
 }
 
 func (txn *txnLeasing) Commit() (*v3.TxnResponse, error) {
+	if err := txn.lkv.validateDeleteOps(txn.opst); err != nil {
+		return nil, err
+	}
+	if err := txn.lkv.validateDeleteOps(txn.opse); err != nil {
+		return nil, err
+	}
 	if resp, err := txn.eval(); resp != nil || err != nil {
 		return resp, err
 	}

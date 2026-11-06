@@ -27,6 +27,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -439,6 +441,56 @@ func TestLeasingDeleteNonOwner(t *testing.T) {
 	resp, err := lkv1.Get(t.Context(), "k")
 	require.NoError(t, err)
 	require.Emptyf(t, resp.Kvs, `expected "k" to be deleted, got response %+v`, resp)
+}
+
+func TestLeasingDeleteProtectsProtocolKeys(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lkv, closeLKV, err := leasing.NewKV(clus.Client(0), "pfx/")
+	require.NoError(t, err)
+	defer closeLKV()
+
+	for _, key := range []string{"a", "b"} {
+		_, err = lkv.Put(t.Context(), key, key)
+		require.NoError(t, err)
+		_, err = lkv.Get(t.Context(), key)
+		require.NoError(t, err)
+	}
+
+	deleteFromB := clientv3.OpDelete("b", clientv3.WithFromKey())
+	deleteCalls := map[string]func() error{
+		"Delete": func() error {
+			_, callErr := lkv.Delete(t.Context(), "b", clientv3.WithFromKey())
+			return callErr
+		},
+		"Do": func() error {
+			_, callErr := lkv.Do(t.Context(), deleteFromB)
+			return callErr
+		},
+		"Txn": func() error {
+			_, callErr := lkv.Txn(t.Context()).Then(deleteFromB).Commit()
+			return callErr
+		},
+		"nested Txn": func() error {
+			nestedTxn := clientv3.OpTxn(nil, []clientv3.Op{deleteFromB}, nil)
+			_, callErr := lkv.Txn(t.Context()).Then(nestedTxn).Commit()
+			return callErr
+		},
+	}
+	for name, call := range deleteCalls {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, codes.InvalidArgument, status.Code(call()))
+		})
+	}
+
+	userKeys, err := clus.Client(0).Get(t.Context(), "a", clientv3.WithRange("c"))
+	require.NoError(t, err)
+	require.Len(t, userKeys.Kvs, 2)
+	protocolKeys, err := clus.Client(0).Get(t.Context(), "pfx/", clientv3.WithPrefix())
+	require.NoError(t, err)
+	require.Len(t, protocolKeys.Kvs, 2)
 }
 
 func TestLeasingOverwriteResponse(t *testing.T) {

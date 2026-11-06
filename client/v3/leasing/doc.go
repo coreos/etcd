@@ -24,6 +24,9 @@
 //	    // handle error
 //	}
 //
+// The supplied prefix reserves a key range for leasing protocol state. Delete
+// operations that intersect this range fail with a gRPC InvalidArgument status.
+//
 // A range request for a key "abc" tries to acquire a leasing key so it can cache the range's
 // key locally. On the server, the leasing key is stored to "leasing-prefix/abc":
 //

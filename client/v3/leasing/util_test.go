@@ -155,6 +155,67 @@ func TestCopyKeyValue(t *testing.T) {
 	})
 }
 
+func TestDeleteIntersectsLeasingPrefix(t *testing.T) {
+	tests := []struct {
+		name string
+		op   v3.Op
+		want bool
+	}{
+		{
+			name: "single key before prefix",
+			op:   v3.OpDelete("a"),
+		},
+		{
+			name: "single key in prefix",
+			op:   v3.OpDelete("pfx/a"),
+			want: true,
+		},
+		{
+			name: "range ending at prefix",
+			op:   v3.OpDelete("a", v3.WithRange("pfx/")),
+		},
+		{
+			name: "range overlapping prefix",
+			op:   v3.OpDelete("a", v3.WithRange("pfx0")),
+			want: true,
+		},
+		{
+			name: "range starting in prefix",
+			op:   v3.OpDelete("pfx/a", v3.WithRange("z")),
+			want: true,
+		},
+		{
+			name: "range starting after prefix",
+			op:   v3.OpDelete("pfx0", v3.WithRange("z")),
+		},
+		{
+			name: "from key before prefix",
+			op:   v3.OpDelete("b", v3.WithFromKey()),
+			want: true,
+		},
+		{
+			name: "from key after prefix",
+			op:   v3.OpDelete("pfx0", v3.WithFromKey()),
+		},
+		{
+			name: "matching prefix",
+			op:   v3.OpDelete("pfx/", v3.WithPrefix()),
+			want: true,
+		},
+		{
+			name: "non-matching prefix",
+			op:   v3.OpDelete("user/", v3.WithPrefix()),
+		},
+	}
+
+	lkv := &leasingKV{pfx: "pfx/"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, lkv.deleteIntersectsLeasingPrefix(tt.op))
+		})
+	}
+}
+
 func countProtobufFields(v any) int {
 	t := reflect.TypeOf(v)
 	if t.Kind() == reflect.Pointer {
