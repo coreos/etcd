@@ -419,8 +419,11 @@ func (s *v3Manager) unsafeMarkRevisionCompacted(tx backend.UnsafeWriter, latest 
 
 func (s *v3Manager) unsafeGetLatestRevision(tx backend.UnsafeReader) (mvcc.Revision, error) {
 	var latest mvcc.Revision
-	err := tx.UnsafeForEach(schema.Key, func(k, _ []byte) (err error) {
-		rev := mvcc.BytesToRev(k)
+	err := tx.UnsafeForEach(schema.Key, func(k, _ []byte) error {
+		rev, err := bytesToRev(k)
+		if err != nil {
+			return fmt.Errorf("cannot parse revision key: %q err: %w", k, err)
+		}
 
 		if rev.GreaterThan(latest) {
 			latest = rev

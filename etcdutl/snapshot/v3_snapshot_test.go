@@ -29,6 +29,7 @@ import (
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.etcd.io/etcd/server/v3/etcdserver"
+	"go.etcd.io/etcd/server/v3/storage/backend"
 	"go.etcd.io/etcd/server/v3/storage/mvcc"
 	"go.etcd.io/etcd/server/v3/storage/schema"
 )
@@ -257,4 +258,27 @@ func createDB(t *testing.T, generateContent func(*etcdserver.EtcdServer)) string
 	generateContent(etcd.Server)
 
 	return filepath.Join(cfg.Dir, "member", "snap", "db")
+}
+
+// TestUnsafeGetLatestRevisionMalformedKey verifies that a snapshot whose key
+// bucket holds a revision key of unexpected length is reported as a parse
+// error rather than panicking the restore.
+func TestUnsafeGetLatestRevisionMalformedKey(t *testing.T) {
+	be := backend.NewDefaultBackend(zap.NewNop(), filepath.Join(t.TempDir(), "db"))
+	defer be.Close()
+
+	tx := be.BatchTx()
+	tx.LockOutsideApply()
+	tx.UnsafeCreateBucket(schema.Key)
+	tx.UnsafePut(schema.Key, []byte("short"), []byte{})
+	tx.Unlock()
+	be.ForceCommit()
+
+	s := &v3Manager{lg: zap.NewNop()}
+	rtx := be.ReadTx()
+	rtx.RLock()
+	defer rtx.RUnlock()
+
+	_, err := s.unsafeGetLatestRevision(rtx)
+	require.Error(t, err)
 }
