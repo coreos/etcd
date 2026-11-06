@@ -4,6 +4,8 @@ The guide talks about how to release a new version of etcd.
 
 The procedure includes some manual steps for sanity checking, but it can probably be further scripted. Please keep this document up-to-date if making changes to the release process.
 
+For information about ending support for etcd versions, see [EOL Process](eol.md).
+
 ## Release management
 
 Under the leadership of **James Blair** [@jmhbnz](https://github.com/jmhbnz) and **Ivan Valdes Castillo** [@ivanvc](https://github.com/ivanvc), the following pool of release candidates manages the release of each etcd major/minor version as well as manages patches
