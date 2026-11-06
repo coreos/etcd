@@ -36,8 +36,7 @@ type Config struct {
 	DataDir string
 
 	// ExactIndex requires consistent_index in backend exactly match the last committed WAL entry.
-	// Usually backend's consistent_index needs to be <= WAL.commit, but for backups the match
-	// is expected to be exact.
+	// For backups the match is expected to be exact.
 	ExactIndex bool
 
 	Logger *zap.Logger
@@ -49,10 +48,10 @@ type Config struct {
 // The function is expected to work on not-in-use data model, i.e.
 // no file-locks should be taken. Verify does not modified the data.
 func Verify(cfg Config) (retErr error) {
-	lg := cfg.Logger
-	if lg == nil {
-		lg = zap.NewNop()
+	if cfg.Logger == nil {
+		cfg.Logger = zap.NewNop()
 	}
+	lg := cfg.Logger
 
 	if !fileutil.Exist(datadir.ToBackendFileName(cfg.DataDir)) {
 		lg.Info("verification skipped due to non exist db file")
@@ -116,18 +115,14 @@ func validateConsistentIndex(cfg Config, hardstate *raftpb.HardState, snapshot *
 	if cfg.ExactIndex && term != hardstate.GetTerm() {
 		return fmt.Errorf("backend.Term (%v) expected == WAL.HardState.term, (%v)", term, hardstate.GetTerm())
 	}
-	if index > hardstate.GetCommit() {
-		return fmt.Errorf("backend.ConsistentIndex (%v) must be <= WAL.HardState.commit (%v)", index, hardstate.GetCommit())
-	}
-	if term > hardstate.GetTerm() {
-		return fmt.Errorf("backend.Term (%v) must be <= WAL.HardState.term, (%v)", term, hardstate.GetTerm())
-	}
 
 	if index < snapshot.GetIndex() {
 		return fmt.Errorf("backend.ConsistentIndex (%v) must be >= last snapshot index (%v)", index, snapshot.GetIndex())
 	}
 
-	cfg.Logger.Info("verification: consistentIndex OK", zap.Uint64("backend-consistent-index", index), zap.Uint64("hardstate-commit", hardstate.GetCommit()))
+	if cfg.Logger != nil {
+		cfg.Logger.Info("verification: consistentIndex OK", zap.Uint64("backend-consistent-index", index), zap.Uint64("hardstate-commit", hardstate.GetCommit()))
+	}
 	return nil
 }
 
