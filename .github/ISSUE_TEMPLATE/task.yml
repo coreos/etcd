@@ -1,0 +1,30 @@
+---
+name: Task
+description: Assigned task for a current etcd contributor
+labels:
+  - type/task
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What task needs to be done?
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: What is the source of this task?  (meeting, request, discussion)
+    validations:
+      required: false
+  - type: textarea
+    id: assigned
+    attributes:
+      label: Who is assigned to the task?
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the task to be carried out, including steps and requirements.
+    validations:
+      required: true
