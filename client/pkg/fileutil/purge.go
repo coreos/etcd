@@ -73,7 +73,13 @@ func purgeFile(lg *zap.Logger, dirname string, suffix string, max uint, interval
 						break
 					}
 				}
-				if err = os.Remove(f); err != nil {
+				if err = os.Remove(f); os.IsNotExist(err) {
+					// Another cleanup may have removed the file, but not the directory.
+					if _, dirErr := ReadDir(dirname); dirErr == nil {
+						err = nil
+					}
+				}
+				if err != nil {
 					if flock {
 						if closeErr := l.Close(); closeErr != nil {
 							lg.Error("failed to unlock/close", zap.String("path", l.Name()), zap.Error(closeErr))
