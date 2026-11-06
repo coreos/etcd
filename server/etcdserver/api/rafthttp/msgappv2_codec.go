@@ -203,12 +203,18 @@ func (dec *msgAppV2Decoder) decode() (*raftpb.Message, error) {
 			return nil, err
 		}
 		l := binary.BigEndian.Uint64(dec.uint64buf)
+		if l > readBytesLimit {
+			return nil, ErrExceedSizeLimit
+		}
 		m.Entries = make([]*raftpb.Entry, int(l))
 		for i := 0; i < int(l); i++ {
 			if _, err := io.ReadFull(dec.r, dec.uint64buf); err != nil {
 				return nil, err
 			}
 			size := binary.BigEndian.Uint64(dec.uint64buf)
+			if size > readBytesLimit {
+				return nil, ErrExceedSizeLimit
+			}
 			var buf []byte
 			if size < msgAppV2BufSize {
 				buf = dec.buf[:size]
@@ -235,6 +241,9 @@ func (dec *msgAppV2Decoder) decode() (*raftpb.Message, error) {
 		var size uint64
 		if err := binary.Read(dec.r, binary.BigEndian, &size); err != nil {
 			return nil, err
+		}
+		if size > readBytesLimit {
+			return nil, ErrExceedSizeLimit
 		}
 		buf := make([]byte, int(size))
 		if _, err := io.ReadFull(dec.r, buf); err != nil {

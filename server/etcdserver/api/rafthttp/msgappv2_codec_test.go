@@ -16,6 +16,7 @@ package rafthttp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -123,4 +124,39 @@ func TestMsgAppV2(t *testing.T) {
 			t.Errorf("#%d: message = %+v, want %+v", i, m, tt)
 		}
 	}
+}
+
+// TestMsgAppV2DecodeOversize ensures a peer cannot make the decoder allocate
+// (or panic via uint64->int narrowing) by claiming an oversized entry count or
+// entry/message length, matching the limit enforced by the message stream.
+func TestMsgAppV2DecodeOversize(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "entry count",
+			data: appendUint64([]byte{msgTypeAppEntries}, ^uint64(0)),
+		},
+		{
+			name: "entry size",
+			data: appendUint64(appendUint64([]byte{msgTypeAppEntries}, 1), readBytesLimit+1),
+		},
+		{
+			name: "message size",
+			data: appendUint64([]byte{msgTypeApp}, readBytesLimit+1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dec := newMsgAppV2Decoder(bytes.NewReader(tt.data), types.ID(2), types.ID(1))
+			if _, err := dec.decode(); err != ErrExceedSizeLimit {
+				t.Fatalf("error = %v, want %v", err, ErrExceedSizeLimit)
+			}
+		})
+	}
+}
+
+func appendUint64(b []byte, v uint64) []byte {
+	return binary.BigEndian.AppendUint64(b, v)
 }
