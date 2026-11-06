@@ -1424,12 +1424,6 @@ func TestV3WatchCloseCancelRace(t *testing.T) {
 // TestV3WatchProgressWaitsForSync checks that progress notifications
 // don't get sent until the watcher is synchronised
 func TestV3WatchProgressWaitsForSync(t *testing.T) {
-	// Disable for gRPC proxy, as it does not support requesting
-	// progress notifications
-	if integration.ThroughProxy {
-		t.Skip("grpc proxy currently does not support requesting progress notifications")
-	}
-
 	integration.BeforeTest(t)
 
 	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
@@ -1490,9 +1484,6 @@ func TestV3WatchProgressWaitsForSync(t *testing.T) {
 }
 
 func TestV3WatchProgressWaitsForSyncNoEvents(t *testing.T) {
-	if integration.ThroughProxy {
-		t.Skip("grpc proxy currently does not support requesting progress notifications")
-	}
 	integration.BeforeTest(t)
 
 	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
@@ -1536,9 +1527,6 @@ func TestV3WatchProgressWaitsForSyncNoEvents(t *testing.T) {
 // TestV3NoEventsLostOnCompact verifies that slow watchers exit with compacted watch response
 // if its next revision of events are compacted and no lost events sent to client.
 func TestV3NoEventsLostOnCompact(t *testing.T) {
-	if integration.ThroughProxy {
-		t.Skip("grpc proxy currently does not support requesting progress notifications")
-	}
 	integration.BeforeTest(t)
 	integration.SkipIfNoGoFail(t)
 	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})

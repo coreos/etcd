@@ -15,6 +15,7 @@
 package grpcproxy
 
 import (
+	"sync/atomic"
 	"time"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -34,10 +35,12 @@ func (wr *watchRange) valid() bool {
 type watcher struct {
 	// user configuration
 
-	wr       watchRange
-	filters  []mvcc.FilterFunc
-	progress bool
-	prevKV   bool
+	wr           watchRange
+	filters      []mvcc.FilterFunc
+	progress     bool
+	nextProgress atomic.Bool
+
+	prevKV bool
 
 	// id is the id returned to the client on its watch stream.
 	id int64
@@ -50,10 +53,16 @@ type watcher struct {
 	wps *watchProxyStream
 }
 
+// requestNextProgress sets the nextProgress to true to ensure next progress notification
+// is forwarded to the client.
+func (w *watcher) requestNextProgress() {
+	w.nextProgress.Store(true)
+}
+
 // send filters out repeated events by discarding revisions older
 // than the last one sent over the watch channel.
 func (w *watcher) send(wr clientv3.WatchResponse) {
-	if wr.IsProgressNotify() && !w.progress {
+	if wr.IsProgressNotify() && !w.progress && !w.nextProgress.CompareAndSwap(true, false) {
 		return
 	}
 	if w.nextrev > wr.Header.Revision && len(wr.Events) > 0 {
