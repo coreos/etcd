@@ -95,10 +95,10 @@ func newConfig() *config {
 	}
 	cfg.ec.AddFlags(fs)
 	fs.StringVar(&cfg.configFile, "config-file", "", "Path to the server configuration file. Note that if a configuration file is provided, other command line flags and environment variables will be ignored.")
-	fs.Var(cfg.cf.fallback, "discovery-fallback", fmt.Sprintf("Valid values include %q", cfg.cf.fallback.Valids()))
+	fs.Var(cfg.cf.fallback, "discovery-fallback", "Expected behavior ('exit') when discovery services fails. Note that v2 proxy is removed.")
 	fs.Var(cfg.cf.clusterState, "initial-cluster-state", "Initial cluster state ('new' when bootstrapping a new cluster or 'existing' when adding new members to an existing cluster). After successful initialization (bootstrapping or adding), flag is ignored on restarts.")
 
-	fs.BoolVar(&cfg.printVersion, "version", false, "Print the version and exit.")
+	fs.BoolVar(&cfg.printVersion, "version", false, "Show the version of etcd.")
 	// ignored
 	for _, f := range cfg.ignored {
 		fs.Var(&flags.IgnoredFlag{Name: f}, f, "")

@@ -388,6 +388,10 @@ func TestConfigFileElectionTimeout(t *testing.T) {
 }
 
 func TestFlagsPresentInHelp(t *testing.T) {
+	// help.go wraps descriptions across lines, so compare with whitespace collapsed.
+	normalize := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	help := normalize(flagsline + usageline)
+
 	cfg := newConfig()
 	cfg.cf.flagSet.VisitAll(func(f *flag.Flag) {
 		if _, ok := f.Value.(*flags.IgnoredFlag); ok {
@@ -398,6 +402,14 @@ func TestFlagsPresentInHelp(t *testing.T) {
 		flagText := fmt.Sprintf("--%s", f.Name)
 		if !strings.Contains(flagsline, flagText) && !strings.Contains(usageline, flagText) {
 			t.Errorf("Neither flagsline nor usageline in help.go contains flag named %s", flagText)
+		}
+
+		// The feature-gates usage comes from the shared pkg/featuregate, help.go builds its own.
+		if f.Name == embed.ServerFeatureGateFlagName {
+			return
+		}
+		if !strings.Contains(help, normalize(f.Usage)) {
+			t.Errorf("Usage of flag %s does not match its description in help.go: %q", flagText, f.Usage)
 		}
 	})
 }

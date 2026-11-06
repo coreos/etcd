@@ -117,7 +117,7 @@ Clustering:
     Initial cluster configuration for bootstrapping.
   --initial-cluster-state 'new'
     Initial cluster state ('new' when bootstrapping a new cluster or 'existing' when adding new members to an existing cluster).
-    After successful initialization (bootstrapping or adding), flag is ignored on restarts
+    After successful initialization (bootstrapping or adding), flag is ignored on restarts.
   --initial-cluster-token 'etcd-cluster'
     Initial cluster token for the etcd cluster during bootstrap.
     Specifying this can protect you from unintended cross-cluster interaction when running multiple clusters.
@@ -227,7 +227,7 @@ Auth:
   --bcrypt-cost ` + fmt.Sprintf("%d", bcrypt.DefaultCost) + `
     Specify the cost / strength of the bcrypt algorithm for hashing auth passwords. Valid values are between ` + fmt.Sprintf("%d", bcrypt.MinCost) + ` and ` + fmt.Sprintf("%d", bcrypt.MaxCost) + `.
   --auth-token-ttl 300
-    Time (in seconds) of the auth-token-ttl.
+    The lifetime in seconds of the auth token.
 
 Profiling and Monitoring:
   --enable-pprof 'false'
@@ -249,7 +249,7 @@ Logging:
   --enable-log-rotation 'false'
     Enable log rotation of a single log-outputs file target.
   --log-rotation-config-json '{"maxsize": 100, "maxage": 0, "maxbackups": 0, "localtime": false, "compress": false}'
-    Configures log rotation if enabled with a JSON logger config. MaxSize(MB), MaxAge(days,0=no limit), MaxBackups(0=no limit), LocalTime(use computers local time), Compress(gzip)".
+    Configures log rotation if enabled with a JSON logger config. MaxSize(MB), MaxAge(days,0=no limit), MaxBackups(0=no limit), LocalTime(use computers local time), Compress(gzip).
   --warning-unary-request-duration '300ms'
     Set time duration after which a warning is logged if a unary request takes more than this duration.
 

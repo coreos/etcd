@@ -605,7 +605,7 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.Var(
 		flags.NewUniqueURLsWithExceptions("", ""),
 		"listen-metrics-urls",
-		"List of URLs to listen on for the metrics and health endpoints.",
+		"List of URLs to listen on for the /metrics and /health endpoints. For https, the client URL TLS info is used.",
 	)
 	fs.UintVar(&cfg.MaxWalFiles, "max-wals", cfg.MaxWalFiles, "Maximum number of wal files to retain (0 is unlimited).")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "Human-readable name for this member.")
@@ -619,11 +619,11 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.IntVar(&cfg.BackendBatchLimit, "backend-batch-limit", cfg.BackendBatchLimit, "BackendBatchLimit is the maximum operations before commit the backend transaction.")
 	fs.UintVar(&cfg.MaxTxnOps, "max-txn-ops", cfg.MaxTxnOps, "Maximum number of operations permitted in a transaction.")
 	fs.UintVar(&cfg.MaxRequestBytes, "max-request-bytes", cfg.MaxRequestBytes, "Maximum client request size in bytes the server will accept.")
-	fs.DurationVar(&cfg.GRPCKeepAliveMinTime, "grpc-keepalive-min-time", cfg.GRPCKeepAliveMinTime, "Minimum interval duration that a client should wait before pinging server.")
+	fs.DurationVar(&cfg.GRPCKeepAliveMinTime, "grpc-keepalive-min-time", cfg.GRPCKeepAliveMinTime, "Minimum duration interval that a client should wait before pinging server.")
 	fs.DurationVar(&cfg.GRPCKeepAliveInterval, "grpc-keepalive-interval", cfg.GRPCKeepAliveInterval, "Frequency duration of server-to-client ping to check if a connection is alive (0 to disable).")
 	fs.DurationVar(&cfg.GRPCKeepAliveTimeout, "grpc-keepalive-timeout", cfg.GRPCKeepAliveTimeout, "Additional duration of wait before closing a non-responsive connection (0 to disable).")
 	fs.BoolVar(&cfg.SocketOpts.ReusePort, "socket-reuse-port", cfg.SocketOpts.ReusePort, "Enable to set socket option SO_REUSEPORT on listeners allowing rebinding of a port already in use.")
-	fs.BoolVar(&cfg.SocketOpts.ReuseAddress, "socket-reuse-address", cfg.SocketOpts.ReuseAddress, "Enable to set socket option SO_REUSEADDR on listeners allowing binding to an address in `TIME_WAIT` state.")
+	fs.BoolVar(&cfg.SocketOpts.ReuseAddress, "socket-reuse-address", cfg.SocketOpts.ReuseAddress, "Enable to set socket option SO_REUSEADDR on listeners allowing binding to an address in TIME_WAIT state.")
 
 	fs.Var(flags.NewUint32Value(cfg.MaxConcurrentStreams), "max-concurrent-streams", "Maximum concurrent streams that each client can open at a time.")
 
@@ -662,8 +662,8 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.StringVar(&cfg.DiscoveryCfg.Auth.Username, "discovery-user", "", "V3 discovery: username[:password] for authentication (prompt if password is not supplied).")
 	fs.StringVar(&cfg.DiscoveryCfg.Auth.Password, "discovery-password", "", "V3 discovery: password for authentication (if this option is used, --user option shouldn't include password).")
 
-	fs.StringVar(&cfg.DNSCluster, "discovery-srv", cfg.DNSCluster, "DNS domain used to bootstrap initial cluster.")
-	fs.StringVar(&cfg.DNSClusterServiceName, "discovery-srv-name", cfg.DNSClusterServiceName, "Service name to query when using DNS discovery.")
+	fs.StringVar(&cfg.DNSCluster, "discovery-srv", cfg.DNSCluster, "DNS srv domain used to bootstrap the cluster.")
+	fs.StringVar(&cfg.DNSClusterServiceName, "discovery-srv-name", cfg.DNSClusterServiceName, "Suffix to the dns srv name queried when bootstrapping.")
 	fs.StringVar(&cfg.InitialCluster, "initial-cluster", cfg.InitialCluster, "Initial cluster configuration for bootstrapping.")
 	fs.StringVar(&cfg.InitialClusterToken, "initial-cluster-token", cfg.InitialClusterToken, "Initial cluster token for the etcd cluster during bootstrap.")
 	fs.BoolVar(&cfg.StrictReconfigCheck, "strict-reconfig-check", cfg.StrictReconfigCheck, "Reject reconfiguration requests that would cause quorum loss.")
@@ -677,7 +677,7 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.StringVar(&cfg.ClientTLSInfo.ClientKeyFile, "client-key-file", "", "Path to an explicit peer client TLS key file otherwise key file will be used when client auth is required.")
 	fs.BoolVar(&cfg.ClientTLSInfo.ClientCertAuth, "client-cert-auth", false, "Enable client cert authentication.")
 	fs.StringVar(&cfg.ClientTLSInfo.CRLFile, "client-crl-file", "", "Path to the client certificate revocation list file.")
-	fs.Var(flags.NewStringsValue(""), "client-cert-allowed-hostname", "Comma-separated list of allowed SAN hostnames for client cert authentication.")
+	fs.Var(flags.NewStringsValue(""), "client-cert-allowed-hostname", "Comma-separated list of SAN hostnames for client cert authentication.")
 	fs.StringVar(&cfg.ClientTLSInfo.TrustedCAFile, "trusted-ca-file", "", "Path to the client server TLS trusted CA cert file.")
 	fs.BoolVar(&cfg.ClientAutoTLS, "auto-tls", false, "Client TLS using generated certificates")
 	fs.StringVar(&cfg.PeerTLSInfo.CertFile, "peer-cert-file", "", "Path to the peer server TLS cert file.")
@@ -686,33 +686,33 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.StringVar(&cfg.PeerTLSInfo.ClientKeyFile, "peer-client-key-file", "", "Path to an explicit peer client TLS key file otherwise peer key file will be used when client auth is required.")
 	fs.BoolVar(&cfg.PeerTLSInfo.ClientCertAuth, "peer-client-cert-auth", false, "Enable peer client cert authentication.")
 	fs.StringVar(&cfg.PeerTLSInfo.TrustedCAFile, "peer-trusted-ca-file", "", "Path to the peer server TLS trusted CA file.")
-	fs.BoolVar(&cfg.PeerAutoTLS, "peer-auto-tls", false, "Peer TLS using generated certificates")
-	fs.UintVar(&cfg.SelfSignedCertValidity, "self-signed-cert-validity", 1, "The validity period of the client and peer certificates, unit is year")
+	fs.BoolVar(&cfg.PeerAutoTLS, "peer-auto-tls", false, "Peer TLS using self-generated certificates if --peer-key-file and --peer-cert-file are not provided.")
+	fs.UintVar(&cfg.SelfSignedCertValidity, "self-signed-cert-validity", 1, "The validity period of the client and peer certificates that are automatically generated by etcd when you specify ClientAutoTLS and PeerAutoTLS, the unit is year, and the default is 1.")
 	fs.StringVar(&cfg.PeerTLSInfo.CRLFile, "peer-crl-file", "", "Path to the peer certificate revocation list file.")
 	fs.Var(flags.NewStringsValue(""), "peer-cert-allowed-cn", "Comma-separated list of allowed CNs for inter-peer TLS authentication.")
 	fs.Var(flags.NewStringsValue(""), "peer-cert-allowed-hostname", "Comma-separated list of allowed SAN hostnames for inter-peer TLS authentication.")
 	fs.Var(flags.NewStringsValue(""), "cipher-suites", "Comma-separated list of supported TLS cipher suites between client/server and peers (empty will be auto-populated by Go).")
 	fs.BoolVar(&cfg.PeerTLSInfo.SkipClientSANVerify, "peer-skip-client-san-verification", false, "Skip verification of SAN field in client certificate for peer connections.")
 	fs.StringVar(&cfg.TlsMinVersion, "tls-min-version", string(tlsutil.TLSVersion12), "Minimum TLS version supported by etcd. Possible values: TLS1.2, TLS1.3.")
-	fs.StringVar(&cfg.TlsMaxVersion, "tls-max-version", string(tlsutil.TLSVersionDefault), "Maximum TLS version supported by etcd. Possible values: TLS1.2, TLS1.3 (empty defers to Go).")
+	fs.StringVar(&cfg.TlsMaxVersion, "tls-max-version", string(tlsutil.TLSVersionDefault), "Maximum TLS version supported by etcd. Possible values: TLS1.2, TLS1.3 (empty will be auto-populated by Go).")
 
 	fs.Var(
 		flags.NewUniqueURLsWithExceptions("*", "*"),
 		"cors",
-		"Comma-separated white list of origins for CORS, or cross-origin resource sharing, (empty or * means allow all)",
+		"Comma-separated whitelist of origins for CORS, or cross-origin resource sharing, (empty or * means allow all).",
 	)
-	fs.Var(flags.NewUniqueStringsValue("*"), "host-whitelist", "Comma-separated acceptable hostnames from HTTP client requests, if server is not secure (empty means allow all).")
+	fs.Var(flags.NewUniqueStringsValue("*"), "host-whitelist", "Acceptable hostnames from HTTP client requests, if server is not secure (empty or * means allow all).")
 
 	// logging
 	fs.StringVar(&cfg.Logger, "logger", "zap", "Currently only supports 'zap' for structured logging.")
 	fs.Var(flags.NewUniqueStringsValue(DefaultLogOutput), "log-outputs", "Specify 'stdout' or 'stderr' to skip journald logging even when running under systemd, or list of comma separated output targets.")
-	fs.StringVar(&cfg.LogLevel, "log-level", logutil.DefaultLogLevel, "Configures log level. Only supports debug, info, warn, error, panic, or fatal. Default 'info'.")
-	fs.StringVar(&cfg.LogFormat, "log-format", logutil.DefaultLogFormat, "Configures log format. Only supports json, console. Default is 'json'.")
+	fs.StringVar(&cfg.LogLevel, "log-level", logutil.DefaultLogLevel, "Configures log level. Only supports debug, info, warn, error, panic, or fatal.")
+	fs.StringVar(&cfg.LogFormat, "log-format", logutil.DefaultLogFormat, "Configures log format. Only supports json, console.")
 	fs.BoolVar(&cfg.EnableLogRotation, "enable-log-rotation", false, "Enable log rotation of a single log-outputs file target.")
-	fs.StringVar(&cfg.LogRotationConfigJSON, "log-rotation-config-json", DefaultLogRotationConfig, "Configures log rotation if enabled with a JSON logger config. Default: MaxSize=100(MB), MaxAge=0(days,no limit), MaxBackups=0(no limit), LocalTime=false(UTC), Compress=false(gzip)")
+	fs.StringVar(&cfg.LogRotationConfigJSON, "log-rotation-config-json", DefaultLogRotationConfig, "Configures log rotation if enabled with a JSON logger config. MaxSize(MB), MaxAge(days,0=no limit), MaxBackups(0=no limit), LocalTime(use computers local time), Compress(gzip).")
 
-	fs.StringVar(&cfg.AutoCompactionRetention, "auto-compaction-retention", "0", "Auto compaction retention for mvcc key value store. 0 means disable auto compaction.")
-	fs.StringVar(&cfg.AutoCompactionMode, "auto-compaction-mode", "periodic", "interpret 'auto-compaction-retention' one of: periodic|revision. 'periodic' for duration based retention, defaulting to hours if no time unit is provided (e.g. '5m'). 'revision' for revision number based retention.")
+	fs.StringVar(&cfg.AutoCompactionRetention, "auto-compaction-retention", "0", "Auto compaction retention length. 0 means disable auto compaction.")
+	fs.StringVar(&cfg.AutoCompactionMode, "auto-compaction-mode", "periodic", "Interpret 'auto-compaction-retention' one of: periodic|revision. 'periodic' for duration based retention, defaulting to hours if no time unit is provided (e.g. '5m'). 'revision' for revision number based retention.")
 
 	// pprof profiler via HTTP
 	fs.BoolVar(&cfg.EnablePprof, "enable-pprof", false, "Enable runtime profiling data via HTTP server. Address is at client URL + \"/debug/pprof/\"")
@@ -720,15 +720,15 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	// additional metrics
 	fs.StringVar(&cfg.Metrics, "metrics", cfg.Metrics, "Set level of detail for exported metrics, specify 'extensive' to include server side grpc histogram metrics and the full Go runtime metrics set")
 
-	fs.BoolVar(&cfg.EnableDistributedTracing, "enable-distributed-tracing", false, "Enable distributed tracing using OpenTelemetry Tracing.")
-	fs.StringVar(&cfg.DistributedTracingAddress, "distributed-tracing-address", cfg.DistributedTracingAddress, "Address for distributed tracing used for OpenTelemetry Tracing (if enabled with enable-distributed-tracing flag).")
-	fs.StringVar(&cfg.DistributedTracingServiceName, "distributed-tracing-service-name", cfg.DistributedTracingServiceName, "Configures service name for distributed tracing to be used to define service name for OpenTelemetry Tracing (if enabled with enable-distributed-tracing flag). 'etcd' is the default service name. Use the same service name for all instances of etcd.")
-	fs.StringVar(&cfg.DistributedTracingServiceInstanceID, "distributed-tracing-instance-id", "", "Configures service instance ID for distributed tracing to be used to define service instance ID key for OpenTelemetry Tracing (if enabled with enable-distributed-tracing flag). There is no default value set. This ID must be unique per etcd instance.")
-	fs.IntVar(&cfg.DistributedTracingSamplingRatePerMillion, "distributed-tracing-sampling-rate", 0, "Number of samples to collect per million spans for OpenTelemetry Tracing (if enabled with enable-distributed-tracing flag).")
+	fs.BoolVar(&cfg.EnableDistributedTracing, "enable-distributed-tracing", false, "Enable distributed tracing.")
+	fs.StringVar(&cfg.DistributedTracingAddress, "distributed-tracing-address", cfg.DistributedTracingAddress, "Distributed tracing collector address.")
+	fs.StringVar(&cfg.DistributedTracingServiceName, "distributed-tracing-service-name", cfg.DistributedTracingServiceName, "Distributed tracing service name, must be same across all etcd instances.")
+	fs.StringVar(&cfg.DistributedTracingServiceInstanceID, "distributed-tracing-instance-id", "", "Distributed tracing instance ID, must be unique per each etcd instance.")
+	fs.IntVar(&cfg.DistributedTracingSamplingRatePerMillion, "distributed-tracing-sampling-rate", 0, "Number of samples to collect per million spans for distributed tracing.")
 
 	// auth
-	fs.StringVar(&cfg.AuthToken, "auth-token", cfg.AuthToken, "Specify auth token specific options.")
-	fs.UintVar(&cfg.BcryptCost, "bcrypt-cost", cfg.BcryptCost, "Specify bcrypt algorithm cost factor for auth password hashing.")
+	fs.StringVar(&cfg.AuthToken, "auth-token", cfg.AuthToken, "Specify a v3 authentication token type and its options ('simple' or 'jwt').")
+	fs.UintVar(&cfg.BcryptCost, "bcrypt-cost", cfg.BcryptCost, fmt.Sprintf("Specify the cost / strength of the bcrypt algorithm for hashing auth passwords. Valid values are between %d and %d.", bcrypt.MinCost, bcrypt.MaxCost))
 	fs.UintVar(&cfg.AuthTokenTTL, "auth-token-ttl", cfg.AuthTokenTTL, "The lifetime in seconds of the auth token.")
 
 	// gateway
@@ -736,20 +736,20 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.DurationVar(&cfg.CorruptCheckTime, "corrupt-check-time", cfg.CorruptCheckTime, "Duration of time between cluster corruption check passes.")
 	fs.DurationVar(&cfg.CompactHashCheckTime, "compact-hash-check-time", cfg.CompactHashCheckTime, "Duration of time between leader checks followers compaction hashes.")
 
-	fs.IntVar(&cfg.CompactionBatchLimit, "compaction-batch-limit", cfg.CompactionBatchLimit, "Sets the maximum revisions deleted in each compaction batch.")
+	fs.IntVar(&cfg.CompactionBatchLimit, "compaction-batch-limit", cfg.CompactionBatchLimit, "CompactionBatchLimit sets the maximum revisions deleted in each compaction batch.")
 	fs.DurationVar(&cfg.CompactionSleepInterval, "compaction-sleep-interval", cfg.CompactionSleepInterval, "Sets the sleep interval between each compaction batch.")
-	fs.DurationVar(&cfg.WatchProgressNotifyInterval, "watch-progress-notify-interval", cfg.WatchProgressNotifyInterval, "Duration of periodic watch progress notifications.")
+	fs.DurationVar(&cfg.WatchProgressNotifyInterval, "watch-progress-notify-interval", cfg.WatchProgressNotifyInterval, "Duration of periodical watch progress notification.")
 	fs.DurationVar(&cfg.DowngradeCheckTime, "downgrade-check-time", cfg.DowngradeCheckTime, "Duration of time between two downgrade status checks.")
-	fs.DurationVar(&cfg.WarningApplyDuration, "warning-apply-duration", cfg.WarningApplyDuration, "Time duration after which a warning is generated if watch progress takes more time.")
-	fs.DurationVar(&cfg.WarningUnaryRequestDuration, "warning-unary-request-duration", cfg.WarningUnaryRequestDuration, "Time duration after which a warning is generated if a unary request takes more time.")
+	fs.DurationVar(&cfg.WarningApplyDuration, "warning-apply-duration", cfg.WarningApplyDuration, "Warning is generated if requests take more than this duration.")
+	fs.DurationVar(&cfg.WarningUnaryRequestDuration, "warning-unary-request-duration", cfg.WarningUnaryRequestDuration, "Set time duration after which a warning is logged if a unary request takes more than this duration.")
 	fs.BoolVar(&cfg.MemoryMlock, "memory-mlock", cfg.MemoryMlock, "Enable to enforce etcd pages (in particular bbolt) to stay in RAM.")
 	fs.UintVar(&cfg.BootstrapDefragThresholdMegabytes, "bootstrap-defrag-threshold-megabytes", 0, "Enable the defrag during etcd server bootstrap on condition that it will free at least the provided threshold of disk space. Needs to be set to non-zero value to take effect.")
-	fs.IntVar(&cfg.MaxLearners, "max-learners", membership.DefaultMaxLearners, "Sets the maximum number of learners that can be available in the cluster membership.")
+	fs.IntVar(&cfg.MaxLearners, "max-learners", membership.DefaultMaxLearners, "Set the max number of learner members allowed in the cluster membership.")
 	fs.Uint64Var(&cfg.SnapshotCatchUpEntries, "snapshot-catchup-entries", cfg.SnapshotCatchUpEntries, "Number of entries for a slow follower to catch up after compacting the raft storage entries.")
 
 	// unsafe
 	fs.BoolVar(&cfg.UnsafeNoFsync, "unsafe-no-fsync", false, "Disables fsync, unsafe, will cause data loss.")
-	fs.BoolVar(&cfg.ForceNewCluster, "force-new-cluster", false, "Force to create a new one member cluster.")
+	fs.BoolVar(&cfg.ForceNewCluster, "force-new-cluster", false, "Force to create a new one-member cluster.")
 
 	// featuregate
 	cfg.ServerFeatureGate.(featuregate.MutableFeatureGate).AddFlag(fs, ServerFeatureGateFlagName)
