@@ -17,12 +17,15 @@ package mvcc
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"go.etcd.io/etcd/server/v3/lease"
 	"go.etcd.io/etcd/server/v3/storage/backend"
 	betesting "go.etcd.io/etcd/server/v3/storage/backend/testing"
 	"go.etcd.io/etcd/server/v3/storage/schema"
@@ -104,4 +107,44 @@ func TestFinishedCompact(t *testing.T) {
 			assert.Equal(t, tc.value, v)
 		})
 	}
+}
+
+type storage struct {
+	name  string
+	store WatchableKV
+	dir   string
+	close func()
+}
+
+func (s *storage) Close() {
+	if s.close != nil {
+		s.close()
+	}
+}
+
+type StorageDriver struct {
+	Name                   string
+	Setup                  func(dir string) (*storage, error)
+	SkipDefragInBenchmarks bool
+}
+
+var DefaultStorageDrivers = []StorageDriver{
+	{
+		Name:                   "bbolt",
+		SkipDefragInBenchmarks: true, // Defrag is blocking for bbolt
+		Setup: func(dir string) (*storage, error) {
+			dbPath := filepath.Join(dir, "bbolt.db")
+			be := backend.NewDefaultBackend(zap.NewNop(), dbPath)
+			st := New(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
+			return &storage{
+				name:  "bbolt",
+				store: st,
+				dir:   dir,
+				close: func() {
+					_ = st.Close()
+					_ = be.Close()
+				},
+			}, nil
+		},
+	},
 }
