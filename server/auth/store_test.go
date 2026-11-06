@@ -203,6 +203,73 @@ func TestRecoverWithEmptyRangePermCache(t *testing.T) {
 	require.Truef(t, ok, "user \"foo\" should be created by setupAuthStore() but doesn't exist in rangePermCache")
 }
 
+func TestRecoverInvalidatesRevokedToken(t *testing.T) {
+	as, tearDown := setupAuthStore(t)
+	defer tearDown(t)
+
+	ctx := context.WithValue(context.WithValue(t.Context(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
+	resp, err := as.Authenticate(ctx, "foo", "bar")
+	require.NoError(t, err)
+
+	// A snapshot brings the new password and auth revision, but this member
+	// never ran UserChangePassword, so its in-memory state is not updated.
+	password, err := bcrypt.GenerateFromPassword([]byte("baz"), bcrypt.MinCost)
+	require.NoError(t, err)
+	tx := as.be.BatchTx()
+	tx.Lock()
+	user := tx.UnsafeGetUser("foo")
+	user.Password = password
+	tx.UnsafePutUser(user)
+	tx.UnsafeSaveAuthRevision(as.Revision() + 1)
+	tx.Unlock()
+
+	as.Recover(as.be)
+
+	ctx = metadata.NewIncomingContext(t.Context(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: resp.Token}))
+	_, err = as.AuthInfoFromCtx(ctx)
+	require.ErrorIs(t, err, ErrInvalidAuthToken)
+}
+
+func TestRecoverWithAuthDisabledInvalidatesToken(t *testing.T) {
+	as, tearDown := setupAuthStore(t)
+	defer tearDown(t)
+
+	ctx := context.WithValue(context.WithValue(t.Context(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
+	resp, err := as.Authenticate(ctx, "foo", "bar")
+	require.NoError(t, err)
+
+	// A snapshot brings auth disabled and a new auth revision, but this member
+	// never ran AuthDisable, so its in-memory state is not updated.
+	tx := as.be.BatchTx()
+	tx.Lock()
+	tx.UnsafeSaveAuthEnabled(false)
+	tx.UnsafeSaveAuthRevision(as.Revision() + 1)
+	tx.Unlock()
+
+	as.Recover(as.be)
+	require.NoError(t, as.AuthEnable())
+
+	ctx = metadata.NewIncomingContext(t.Context(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: resp.Token}))
+	_, err = as.AuthInfoFromCtx(ctx)
+	require.ErrorIs(t, err, ErrInvalidAuthToken)
+}
+
+func TestRecoverKeepsTokenWithoutAuthChange(t *testing.T) {
+	as, tearDown := setupAuthStore(t)
+	defer tearDown(t)
+
+	ctx := context.WithValue(context.WithValue(t.Context(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
+	resp, err := as.Authenticate(ctx, "foo", "bar")
+	require.NoError(t, err)
+
+	as.Recover(as.be)
+
+	ctx = metadata.NewIncomingContext(t.Context(), metadata.New(map[string]string{rpctypes.TokenFieldNameGRPC: resp.Token}))
+	ai, err := as.AuthInfoFromCtx(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "foo", ai.Username)
+}
+
 func TestCheckPassword(t *testing.T) {
 	as, tearDown := setupAuthStore(t)
 	defer tearDown(t)

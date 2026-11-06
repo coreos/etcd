@@ -399,12 +399,19 @@ func (as *authStore) Recover(be AuthBackend) {
 	tx.RLock()
 
 	enabled := tx.UnsafeReadAuthEnabled()
+	// The backend can contain auth changes that this member never applied,
+	// e.g. a password change. Each change bumps the revision, and then the
+	// tokens that this member has issued until now can be revoked.
+	stale := as.Revision() != tx.UnsafeReadAuthRevision()
 	as.setRevision(tx.UnsafeReadAuthRevision())
 	as.refreshRangePermCache(tx)
 
 	tx.RUnlock()
 
 	as.enabledMu.Lock()
+	if stale && as.tokenProvider != nil {
+		as.tokenProvider.disable()
+	}
 	as.enabled = enabled
 	if enabled {
 		as.tokenProvider.enable()

@@ -17,6 +17,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"go.etcd.io/etcd/api/v3/authpb"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -667,4 +671,114 @@ func TestV3AuthWatchErrorAndWatchId0(t *testing.T) {
 	require.NoErrorf(t, err, "Unexpected error from Put: %v", err)
 
 	<-watchEndCh
+}
+
+// TestV3AuthRecoverFromSnapshotInvalidatesToken verifies that a simple token
+// revoked by a password change is rejected on a member that caught up through a
+// raft snapshot. The member keeps the token in memory across the snapshot, so
+// authStore.Recover must drop it; otherwise the revoked token stays valid there.
+func TestV3AuthRecoverFromSnapshotInvalidatesToken(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{
+		Size:                   3,
+		SnapshotCount:          10,
+		SnapshotCatchUpEntries: 5,
+	})
+	defer clus.Terminate(t)
+
+	// grant alice readwrite on ["/a/", "/a0") and enable auth
+	api0 := integration.ToGRPC(clus.Client(0))
+	authSetupUsers(t, api0.Auth, []user{{
+		name: "alice", password: "alice-pass", role: "alice-role",
+		perm: "readwrite", key: "/a/", end: "/a0",
+	}})
+	authSetupRoot(t, api0.Auth)
+
+	// mint alice's token on member 0; it stays in that member's memory
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	aresp, err := api0.Auth.Authenticate(ctx, &pb.AuthenticateRequest{Name: "alice", Password: "alice-pass"})
+	require.NoError(t, err)
+
+	md := metadata.Pairs(rpctypes.TokenFieldNameGRPC, aresp.Token)
+	tokenRange := func(kv pb.KVClient) error {
+		rctx, rcancel := context.WithTimeout(metadata.NewOutgoingContext(t.Context(), md), 10*time.Second)
+		defer rcancel()
+		_, rerr := kv.Range(rctx, &pb.RangeRequest{Key: []byte("/a/x"), Serializable: true})
+		return rerr
+	}
+	// the token works on member 0 before the password change
+	require.NoError(t, tokenRange(rawKVClient(t, clus.Members[0])))
+
+	// authenticate root while the cluster is healthy, before the partition
+	rootc, err := integration.NewClient(t, clientv3.Config{
+		Endpoints: clus.Client(1).Endpoints(), Username: "root", Password: "123"})
+	require.NoError(t, err)
+	defer rootc.Close()
+
+	// isolate member 0 so it misses the password change and catches up by snapshot
+	clus.Members[0].InjectPartition(t, clus.Members[1], clus.Members[2])
+	survivors := []*integration.Member{clus.Members[1], clus.Members[2]}
+	leaderAmong(t, survivors) // wait for the survivors to re-elect before writing
+
+	_, err = rootc.UserChangePassword(t.Context(), "alice", "alice-new")
+	require.NoError(t, err)
+
+	// drive writes so the leader snapshots and compacts its log past member 0
+	for i := 0; i < 15; i++ {
+		_, err = rootc.Put(t.Context(), fmt.Sprintf("/a/fill%d", i), "v")
+		require.NoError(t, err)
+	}
+	expectMemberLog(t, leaderAmong(t, survivors), 5*time.Second, "saved snapshot to disk", 2)
+
+	// member 0 rejoins and restores from the leader's snapshot. Wait for the
+	// auth store restore, which runs authStore.Recover; the "received ... snapshot"
+	// log fires earlier, at download time, before Recover drops the tokens.
+	clus.Members[0].RecoverPartition(t, clus.Members[1], clus.Members[2])
+	expectMemberLog(t, clus.Members[0], 5*time.Second, "restored auth store", 1)
+
+	// the revoked token must now be rejected on member 0. Dial member 0
+	// directly: the clientv3 interceptor would loop refreshing the token on an
+	// invalid-token reply, because the cluster client carries no credentials.
+	err = tokenRange(rawKVClient(t, clus.Members[0]))
+	require.Truef(t, eqErrGRPC(err, rpctypes.ErrGRPCInvalidAuthToken), "got %v, want %v", err, rpctypes.ErrGRPCInvalidAuthToken)
+}
+
+// rawKVClient dials the member's gRPC socket without the clientv3 interceptors.
+func rawKVClient(t *testing.T, m *integration.Member) pb.KVClient {
+	t.Helper()
+	sock := strings.TrimPrefix(m.GRPCURL, "unix://")
+	conn, err := grpc.NewClient("passthrough:///"+m.Name,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return pb.NewKVClient(conn)
+}
+
+func expectMemberLog(t *testing.T, m *integration.Member, timeout time.Duration, s string, count int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	_, err := m.LogObserver.Expect(ctx, s, count)
+	require.NoErrorf(t, err, "failed to expect (log:%s, count:%v)", s, count)
+}
+
+// leaderAmong returns the member in membs that currently believes it is leader.
+func leaderAmong(t *testing.T, membs []*integration.Member) *integration.Member {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		for _, m := range membs {
+			if m.Server.Lead() == uint64(m.Server.MemberID()) {
+				return m
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("no leader found among members")
+	return nil
 }
