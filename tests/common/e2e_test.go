@@ -100,6 +100,10 @@ func e2eClusterTestCases() []testCase {
 	return tcs
 }
 
+func WatchOptionsSupported(opts config.WatchOptions) bool {
+	return !opts.FromKey && !opts.CreatedNotify
+}
+
 func WithAuth(userName, password string) config.ClientOption {
 	return e2e.WithAuth(userName, password)
 }

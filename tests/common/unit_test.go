@@ -30,6 +30,10 @@ func unitClusterTestCases() []testCase {
 	return nil
 }
 
+func WatchOptionsSupported(_ config.WatchOptions) bool {
+	return true
+}
+
 // WithAuth is when a build tag (e.g. e2e or integration) isn't configured
 // in IDE, then IDE may complain "Unresolved reference 'WithAuth'".
 // So we need to define a default WithAuth to resolve such case.

@@ -44,6 +44,10 @@ func integrationClusterTestCases() []testCase {
 	}
 }
 
+func WatchOptionsSupported(_ config.WatchOptions) bool {
+	return true
+}
+
 func WithAuth(userName, password string) config.ClientOption {
 	return integration.WithAuth(userName, password)
 }
