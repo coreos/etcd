@@ -100,6 +100,29 @@ var (
 			Buckets: prometheus.ExponentialBuckets(0.001, 2, 14),
 		},
 	)
+
+	clientCertExpirationSecs = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "etcd",
+		Subsystem: "server",
+		Name:      "client_cert_expiration_seconds",
+		Help:      "Distribution of remaining lifetime on client certificate for TLS connections.",
+		Buckets: []float64{
+			0,
+			1800,     // 30 minutes
+			3600,     // 1 hour
+			7200,     // 2 hours
+			21600,    // 6 hours
+			43200,    // 12 hours
+			86400,    // 1 day
+			172800,   // 2 days
+			345600,   // 4 days
+			604800,   // 1 week
+			2592000,  // 1 month
+			7776000,  // 3 months
+			15552000, // 6 months
+			31104000, // 1 year
+		},
+	})
 )
 
 func init() {
@@ -111,4 +134,10 @@ func init() {
 	prometheus.MustRegister(watchSendLoopWatchStreamDurationPerEvent)
 	prometheus.MustRegister(watchSendLoopControlStreamDuration)
 	prometheus.MustRegister(watchSendLoopProgressDuration)
+	prometheus.MustRegister(clientCertExpirationSecs)
+}
+
+// RecordClientCertExpiration observes the remaining lifetime (in seconds) of a client certificate.
+func RecordClientCertExpiration(secsUntilExpiry float64) {
+	clientCertExpirationSecs.Observe(secsUntilExpiry)
 }
