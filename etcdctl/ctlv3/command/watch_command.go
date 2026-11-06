@@ -106,13 +106,13 @@ func watchInteractiveFunc(cmd *cobra.Command, osArgs []string, envKey, envRange 
 
 		args := Argify(l)
 		if len(args) < 1 {
-			fmt.Fprintf(os.Stderr, "Invalid command: %s (watch and progress supported)\n", l)
+			fmt.Fprintf(os.Stderr, "Invalid command: '%s' (only `watch` and `progress` are supported)\n", l)
 			continue
 		}
 		switch args[0] {
 		case "watch":
 			if len(args) < 2 && envKey == "" {
-				fmt.Fprintf(os.Stderr, "Invalid command %s (command type or key is not provided)\n", l)
+				fmt.Fprintf(os.Stderr, "Invalid command: '%s' (the key/prefix is not provided)\n", l)
 				continue
 			}
 			watchArgs, execArgs, perr := parseWatchArgs(osArgs, args, envKey, envRange, true)
@@ -122,7 +122,7 @@ func watchInteractiveFunc(cmd *cobra.Command, osArgs []string, envKey, envRange 
 
 			ch, err := getWatchChan(c, watchArgs)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid command %s (%v)\n", l, err)
+				fmt.Fprintf(os.Stderr, "Invalid command: '%s' (%v)\n", l, err)
 				continue
 			}
 			go printWatchCh(c, ch, execArgs)
@@ -132,7 +132,7 @@ func watchInteractiveFunc(cmd *cobra.Command, osArgs []string, envKey, envRange 
 				cobrautl.ExitWithError(cobrautl.ExitError, err)
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "Invalid command %s (only support watch)\n", l)
+			fmt.Fprintf(os.Stderr, "Invalid command: '%s' (only `watch` and `progress` are supported)\n", l)
 			continue
 		}
 	}
