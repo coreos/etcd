@@ -56,7 +56,7 @@
           {
             alert: 'etcdHighNumberOfLeaderChanges',
             expr: |||
-              increase((max without (%(etcd_instance_labels)s) (etcd_server_leader_changes_seen_total{%(etcd_selector)s}) or 0*absent(etcd_server_leader_changes_seen_total{%(etcd_selector)s}))[15m:1m]) >= 4
+              max without (%(etcd_instance_labels)s) (increase(etcd_server_leader_changes_seen_total{%(etcd_selector)s}[15m]) or 0*absent(etcd_server_leader_changes_seen_total{%(etcd_selector)s})) >= 4
             ||| % $._config,
             'for': '5m',
             labels: {

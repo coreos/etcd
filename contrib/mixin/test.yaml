@@ -85,7 +85,7 @@ tests:
   - interval: 1m
     input_series:
       - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.0"}
-        values: 0 0 2 0 0 1 0 0 0 0 0 0 0 0 0 0
+        values: 0 2 0 2 0 0 0 0 0 0 0 0 0 0 0 0
       - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.1"}
         values: 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0
       - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.2"}
@@ -110,6 +110,18 @@ tests:
         values: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
     alert_rule_test:
       - eval_time: 10m
+        alertname: etcdHighNumberOfLeaderChanges
+        exp_alerts:
+  - interval: 1m
+    input_series:
+      - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.0"}
+        values: 6 6 6 6 6 6 6 6 6 6 _ _ _ 1 1 1 1 1 1 1
+      - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.1"}
+        values: 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 2
+      - series: etcd_server_leader_changes_seen_total{job="etcd",instance="10.10.10.2"}
+        values: 4 4 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5
+    alert_rule_test:
+      - eval_time: 19m
         alertname: etcdHighNumberOfLeaderChanges
         exp_alerts:
   - interval: 1m
