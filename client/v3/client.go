@@ -179,7 +179,9 @@ func (c *Client) SetEndpoints(eps ...string) {
 	defer c.epMu.Unlock()
 	c.endpoints = eps
 
-	c.resolver.SetEndpoints(eps)
+	if c.resolver != nil {
+		c.resolver.SetEndpoints(eps)
+	}
 }
 
 // Sync synchronizes client's endpoints with the known endpoints from the etcd membership.

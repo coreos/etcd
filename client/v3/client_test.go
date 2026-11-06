@@ -233,6 +233,17 @@ func TestZapWithLogger(t *testing.T) {
 	}
 }
 
+func TestCtxClientEndpoints(t *testing.T) {
+	c := NewCtxClient(t.Context())
+
+	c.SetEndpoints("http://254.0.0.1:12345")
+
+	eps := c.Endpoints()
+	if len(eps) != 1 || eps[0] != "http://254.0.0.1:12345" {
+		t.Errorf("unexpected endpoints: %v", eps)
+	}
+}
+
 func TestAuthTokenBundleNoOverwrite(t *testing.T) {
 	// This call in particular changes working directory to the tmp dir of
 	// the test. The `etcd-auth-test:0` can be created in local directory,
