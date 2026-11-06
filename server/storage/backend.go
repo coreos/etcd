@@ -21,6 +21,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/server/v3/config"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/etcd/server/v3/features"
@@ -59,6 +60,17 @@ func newBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 	return backend.New(bcfg)
 }
 
+// syncSnapDir persists a rename inside the snap directory; a variable so
+// tests can observe calls and inject errors.
+var syncSnapDir = func(dir string) error {
+	d, err := fileutil.OpenDir(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return fileutil.Fsync(d)
+}
+
 // OpenSnapshotBackend renames a snapshot db to the current etcd db and opens it.
 func OpenSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot *raftpb.Snapshot, hooks *BackendHooks) (backend.Backend, error) {
 	snapPath, err := ss.DBFilePath(snapshot.Metadata.GetIndex())
@@ -68,6 +80,13 @@ func OpenSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot
 	if err := os.Rename(snapPath, cfg.BackendPath()); err != nil {
 		return nil, fmt.Errorf("failed to rename database snapshot file (%w)", err)
 	}
+
+	// Sync the snap directory so the rename survives a crash; otherwise the
+	// old db file can reappear with a consistent index ahead of its data.
+	if err := syncSnapDir(cfg.SnapDir()); err != nil {
+		return nil, fmt.Errorf("failed to sync snap directory after renaming database snapshot file (%w)", err)
+	}
+
 	return OpenBackend(cfg, hooks), nil
 }
 
