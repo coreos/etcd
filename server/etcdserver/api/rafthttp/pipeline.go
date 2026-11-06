@@ -137,6 +137,7 @@ func (p *pipeline) post(data []byte) (err error) {
 
 	done := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	req = req.WithContext(ctx)
 	go func() {
 		select {

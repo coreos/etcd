@@ -159,7 +159,10 @@ func (s *snapshotSender) post(req *http.Request) (err error) {
 	go func() {
 		resp, err := s.tr.pipelineRt.RoundTrip(req)
 		if err != nil {
-			result <- responseAndError{resp, nil, err}
+			if resp != nil {
+				resp.Body.Close()
+			}
+			result <- responseAndError{nil, nil, err}
 			return
 		}
 
