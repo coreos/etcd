@@ -282,6 +282,14 @@ func (c *Client) Dial(ep string) (*grpc.ClientConn, error) {
 	return c.dial(creds, grpc.WithResolvers(resolver.New(ep)))
 }
 
+// UpdateAuthToken allows updating the JWT auth token held by the
+// client. It is safe to call this function concurrently with other
+// operations.
+func (c *Client) UpdateAuthToken(token string) {
+	c.Token = token
+	c.authTokenBundle.UpdateAuthToken(token)
+}
+
 func (c *Client) getToken(ctx context.Context) error {
 	var err error // return last error in a case of fail
 

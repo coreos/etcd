@@ -120,9 +120,10 @@ func testJWTInfo(t *testing.T, opts map[string]string) {
 				t.Fatal(err)
 			}
 
-			ai, ok := verify.info(ctx, token, 123)
+			// make sure that the token with revision claim 123 can be validated using revision 1234
+			ai, ok := verify.info(ctx, token, 1234)
 			require.Truef(t, ok, "failed to authenticate with token %s", token)
-			require.Equalf(t, uint64(123), ai.Revision, "expected revision 123, got %d", ai.Revision)
+			require.Equalf(t, uint64(1234), ai.Revision, "expected revision 1234, got %d", ai.Revision)
 			ai, ok = verify.info(ctx, "aaa", 120)
 			if ok || ai != nil {
 				t.Fatalf("expected aaa to fail to authenticate, got %+v", ai)

@@ -40,7 +40,7 @@ func (t *tokenJWT) invalidateUser(string)           {}
 func (t *tokenJWT) genTokenPrefix() (string, error) { return "", nil }
 
 func (t *tokenJWT) info(ctx context.Context, token string, rev uint64) (*AuthInfo, bool) {
-	// rev isn't used in JWT, it is only used in simple token
+	// rev is used if tokenJWT is a verify-only JWT provider and uses an external token management system for token generation
 	var (
 		username string
 		revision float64
@@ -87,6 +87,11 @@ func (t *tokenJWT) info(ctx context.Context, token string, rev uint64) (*AuthInf
 		return nil, false
 	}
 
+	if t.verifyOnly {
+		// skip revision validation by returning the current revision from the authStore
+		return &AuthInfo{Username: username, Revision: rev}, true
+	}
+	// use revision from token claims for validation
 	return &AuthInfo{Username: username, Revision: uint64(revision)}, true
 }
 

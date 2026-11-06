@@ -86,6 +86,8 @@ type Client interface {
 	MemberRemove(ctx context.Context, id uint64) (*clientv3.MemberRemoveResponse, error)
 
 	Watch(ctx context.Context, key string, opts config.WatchOptions) clientv3.WatchChan
+
+	UpdateAuthToken(token string)
 }
 
 type TemplateEndpoints interface {

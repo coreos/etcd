@@ -96,7 +96,7 @@ func createUsers(c interfaces.Client, users []authUser) error {
 	return nil
 }
 
-func createSignedJWT(keyPath, alg, username string, authRevision uint64) (string, error) {
+func createSignedJWT(keyPath, alg, username string, authRevision uint64, expires int64) (string, error) {
 	signMethod := jwt.GetSigningMethod(alg)
 
 	keyBytes, err := os.ReadFile(keyPath)
@@ -109,11 +109,15 @@ func createSignedJWT(keyPath, alg, username string, authRevision uint64) (string
 		return "", err
 	}
 
+	if expires <= 0 {
+		expires = time.Now().Add(time.Minute).Unix()
+	}
+
 	tk := jwt.NewWithClaims(signMethod,
 		jwt.MapClaims{
 			"username": username,
 			"revision": authRevision,
-			"exp":      time.Now().Add(time.Minute).Unix(),
+			"exp":      expires,
 		})
 
 	return tk.SignedString(key)
@@ -143,10 +147,7 @@ func setupAuthAndGetRevision(c interfaces.Client, roles []authRole, users []auth
 		return 0, err
 	}
 
-	// This needs to happen before enabling auth for the TestAuthJWTOnly
-	// test case because once auth is enabled we can no longer mint a valid
-	// auth token without the revision, which we won't be able to obtain
-	// without a valid auth token.
+	// Retrieve the current auth revision after creating roles and users but before enabling auth
 	authrev, err := c.AuthStatus(context.TODO())
 	if err != nil {
 		return 0, err
