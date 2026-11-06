@@ -40,14 +40,25 @@ type Result struct {
 
 func (res *Result) Duration() time.Duration { return res.End.Sub(res.Start) }
 
-type report struct {
-	generatePerfReport bool
-	benchmarkOp        string
-	precision          string
-	results            chan Result
+type MetricSummary struct {
+	Name string
+	Max  float64
+}
 
-	stats Stats
-	sps   *secondPoints
+type Options struct {
+	GeneratePerfReport bool
+	MetricSummaries    func() []MetricSummary
+}
+
+type report struct {
+	opts        Options
+	benchmarkOp string
+	precision   string
+	results     chan Result
+
+	stats           Stats
+	sps             *secondPoints
+	metricSummaries []MetricSummary
 }
 
 // Stats exposes results raw data.
@@ -84,22 +95,30 @@ type Report interface {
 }
 
 func NewReport(precision, benchmarkOp string, generatePerfReport bool) Report {
-	return newReport(precision, benchmarkOp, generatePerfReport)
+	return NewReportWithOptions(precision, benchmarkOp, Options{GeneratePerfReport: generatePerfReport})
 }
 
-func newReport(precision, benchmarkOp string, generatePerfReport bool) *report {
+func NewReportWithOptions(precision, benchmarkOp string, opts Options) Report {
+	return newReport(precision, benchmarkOp, opts)
+}
+
+func newReport(precision, benchmarkOp string, opts Options) *report {
 	r := &report{
-		results:            make(chan Result, 16),
-		precision:          precision,
-		generatePerfReport: generatePerfReport,
-		benchmarkOp:        benchmarkOp,
+		results:     make(chan Result, 16),
+		precision:   precision,
+		opts:        opts,
+		benchmarkOp: benchmarkOp,
 	}
 	r.stats.ErrorDist = make(map[string]int)
 	return r
 }
 
 func NewReportSample(precision, benchmarkOp string, generatePerfReport bool) Report {
-	r := NewReport(precision, benchmarkOp, generatePerfReport).(*report)
+	return NewReportSampleWithOptions(precision, benchmarkOp, Options{GeneratePerfReport: generatePerfReport})
+}
+
+func NewReportSampleWithOptions(precision, benchmarkOp string, opts Options) Report {
+	r := NewReportWithOptions(precision, benchmarkOp, opts).(*report)
 	r.sps = newSecondPoints()
 	return r
 }
@@ -111,8 +130,11 @@ func (r *report) Run() <-chan string {
 	go func() {
 		defer close(donec)
 		r.processResults()
-		if r.generatePerfReport {
-			r.writePerfDashReport(r.benchmarkOp)
+		if r.opts.MetricSummaries != nil {
+			r.metricSummaries = r.opts.MetricSummaries()
+		}
+		if r.opts.GeneratePerfReport {
+			r.writePerfDashReport(r.benchmarkOp, r.metricSummaries)
 		}
 		donec <- r.String()
 	}()
@@ -154,6 +176,9 @@ func (r *report) String() (s string) {
 			s += fmt.Sprintf("%v\n", r.sps.getTimeSeries())
 		}
 	}
+	if len(r.metricSummaries) > 0 {
+		s += r.resourceMetrics()
+	}
 	if len(r.stats.ErrorDist) > 0 {
 		s += r.errors()
 	}
@@ -165,7 +190,7 @@ func (r *report) sec2str(sec float64) string { return fmt.Sprintf(r.precision+" 
 type reportRate struct{ *report }
 
 func NewReportRate(precision, benchmarkOp string, generatePerfReport bool) Report {
-	return &reportRate{NewReport(precision, benchmarkOp, generatePerfReport).(*report)}
+	return &reportRate{NewReportWithOptions(precision, benchmarkOp, Options{GeneratePerfReport: generatePerfReport}).(*report)}
 }
 
 func (r *reportRate) String() string {
@@ -234,6 +259,18 @@ func (r *report) sprintLatencies() string {
 		if data[i] > 0 {
 			s += fmt.Sprintf("  %v%% in %s.\n", pctls[i], r.sec2str(data[i]))
 		}
+	}
+	return s
+}
+
+func (r *report) resourceMetrics() string {
+	s := "\nResource metrics:\n"
+	for _, summary := range r.metricSummaries {
+		unit := metricUnit(summary.Name)
+		if unit != "" {
+			unit = " " + unit
+		}
+		s += fmt.Sprintf("  %s max:\t"+r.precision+"%s\n", summary.Name, summary.Max, unit)
 	}
 	return s
 }

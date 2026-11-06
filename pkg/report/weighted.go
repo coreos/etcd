@@ -33,7 +33,7 @@ type weightedReport struct {
 func NewWeightedReport(r Report, precision, benchmarkOp string, generatePerfReport bool) Report {
 	return &weightedReport{
 		baseReport: r,
-		report:     newReport(precision, benchmarkOp, generatePerfReport),
+		report:     newReport(precision, benchmarkOp, Options{GeneratePerfReport: generatePerfReport}),
 		results:    make(chan Result, 16),
 	}
 }

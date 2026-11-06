@@ -19,7 +19,7 @@ set -euo pipefail
 
 source ./scripts/test_lib.sh
 
-COMMON_BENCHMARK_FLAGS="--report-perfdash"
+COMMON_BENCHMARK_FLAGS="--report-perfdash --metrics=process_resident_memory_bytes,go_memstats_heap_alloc_bytes,go_memstats_heap_inuse_bytes"
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <benchmark-name> [tester args...]"
@@ -38,7 +38,7 @@ DATA_DIR=$(mktemp -d /tmp/etcd/data-XXXXXX)
 etcd_pid=$!
 
 trap 'log_warning -e "Stopping etcd server - PID $etcd_pid";
-      kill $etcd_pid 2>/dev/null;
+      kill $etcd_pid 2>/dev/null || true;
       rm -rf $DATA_DIR;
       log_success "Deleted the contents from $DATA_DIR related to benchmark test"' EXIT
 
