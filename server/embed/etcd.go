@@ -531,6 +531,9 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 	if err = updateCipherSuites(&cfg.PeerTLSInfo, cfg.CipherSuites); err != nil {
 		return nil, err
 	}
+	if err = updateListenCurvePreferences(&cfg.PeerTLSInfo, cfg.ListenCurvePreferences); err != nil {
+		return nil, err
+	}
 	if err = cfg.PeerSelfCert(); err != nil {
 		cfg.logger.Fatal("failed to get peer self-signed certs", zap.Error(err))
 	}
@@ -643,6 +646,9 @@ func (e *Etcd) servePeers() {
 
 func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err error) {
 	if err = updateCipherSuites(&cfg.ClientTLSInfo, cfg.CipherSuites); err != nil {
+		return nil, err
+	}
+	if err = updateListenCurvePreferences(&cfg.ClientTLSInfo, cfg.ListenCurvePreferences); err != nil {
 		return nil, err
 	}
 	if err = cfg.ClientSelfCert(); err != nil {

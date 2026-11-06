@@ -165,6 +165,10 @@ type TLSInfo struct {
 	// Note that cipher suites are prioritized in the given order.
 	CipherSuites []uint16
 
+	// ListenCurvePreferences is a list of supported elliptic curves (TLS key exchange groups) used
+	// in the TLS handshake. If empty, Go's default selection is used.
+	ListenCurvePreferences []tls.CurveID
+
 	// MinVersion is the minimum TLS version that is acceptable.
 	// If not set, the minimum version is TLS 1.2.
 	MinVersion uint16
@@ -530,6 +534,10 @@ func (info TLSInfo) ServerConfig() (*tls.Config, error) {
 	cfg, err := info.baseConfig()
 	if err != nil {
 		return nil, err
+	}
+
+	if len(info.ListenCurvePreferences) > 0 {
+		cfg.CurvePreferences = info.ListenCurvePreferences
 	}
 
 	if info.Logger == nil {

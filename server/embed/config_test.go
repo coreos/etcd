@@ -792,6 +792,62 @@ func TestTLSVersionMinMax(t *testing.T) {
 	}
 }
 
+func TestUpdateListenCurvePreferences(t *testing.T) {
+	tests := []struct {
+		name            string
+		givenCurves     []string
+		preset          []tls.CurveID
+		expectError     bool
+		expectedCurveID []tls.CurveID
+	}{
+		{
+			name:            "No curves configured",
+			givenCurves:     nil,
+			expectedCurveID: nil,
+		},
+		{
+			name:            "Single curve configured",
+			givenCurves:     []string{"X25519"},
+			expectedCurveID: []tls.CurveID{tls.X25519},
+		},
+		{
+			name:            "Multiple curves preserve order",
+			givenCurves:     []string{"CurveP384", "X25519", "CurveP256"},
+			expectedCurveID: []tls.CurveID{tls.CurveP384, tls.X25519, tls.CurveP256},
+		},
+		{
+			name:        "Unknown curve",
+			givenCurves: []string{"bogus"},
+			expectError: true,
+		},
+		{
+			name:        "Already specified on TLSInfo",
+			givenCurves: []string{"X25519"},
+			preset:      []tls.CurveID{tls.CurveP256},
+			expectError: true,
+		},
+		{
+			name:            "No global curves preserves existing TLSInfo",
+			givenCurves:     nil,
+			preset:          []tls.CurveID{tls.CurveP256},
+			expectedCurveID: []tls.CurveID{tls.CurveP256},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := &transport.TLSInfo{ListenCurvePreferences: tt.preset}
+			err := updateListenCurvePreferences(info, tt.givenCurves)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedCurveID, info.ListenCurvePreferences)
+		})
+	}
+}
+
 func TestUndefinedAutoCompactionModeValidate(t *testing.T) {
 	cfg := *NewConfig()
 	cfg.AutoCompactionMode = ""

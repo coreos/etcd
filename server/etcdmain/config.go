@@ -203,6 +203,7 @@ func (cfg *config) configFromCmdLine() error {
 	cfg.ec.PeerTLSInfo.AllowedHostnames = flags.StringsFromFlag(cfg.cf.flagSet, "peer-cert-allowed-hostname")
 
 	cfg.ec.CipherSuites = flags.StringsFromFlag(cfg.cf.flagSet, "cipher-suites")
+	cfg.ec.ListenCurvePreferences = flags.StringsFromFlag(cfg.cf.flagSet, "listen-curve-preferences")
 
 	cfg.ec.MaxConcurrentStreams = flags.Uint32FromFlag(cfg.cf.flagSet, "max-concurrent-streams")
 

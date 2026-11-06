@@ -674,3 +674,19 @@ func TestNewListenerWithACRLFile(t *testing.T) {
 		})
 	}
 }
+
+func TestListenCurvePreferencesServerOnly(t *testing.T) {
+	tlsinfo, err := createSelfCert(t)
+	require.NoErrorf(t, err, "unable to create cert")
+
+	curves := []tls.CurveID{tls.CurveP384}
+	tlsinfo.ListenCurvePreferences = curves
+
+	serverCfg, err := tlsinfo.ServerConfig()
+	require.NoError(t, err)
+	assert.Equalf(t, curves, serverCfg.CurvePreferences, "ServerConfig() should apply ListenCurvePreferences")
+
+	clientCfg, err := tlsinfo.ClientConfig()
+	require.NoError(t, err)
+	assert.Emptyf(t, clientCfg.CurvePreferences, "ClientConfig() should not apply ListenCurvePreferences")
+}
