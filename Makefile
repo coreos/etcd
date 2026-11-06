@@ -187,6 +187,10 @@ fix-yamllint:
 run-govulncheck:
 	PASSES="govuln" ./scripts/test.sh
 
+.PHONY: verify-container-scan
+verify-container-scan:
+	./scripts/container_scan.sh
+
 # Tools
 
 .PHONY: install-golangci-lint

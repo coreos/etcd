@@ -1,0 +1,50 @@
+---
+# Copyright 2026 The etcd Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Container image CVE scan
+
+on:
+  schedule:
+    - cron: '20 14 * * 5'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  scan:
+    name: Scan released container image for CVEs
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ["release-3.4", "release-3.5", "release-3.6", "release-3.7", "main"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Scan released image with Trivy
+        run: |
+          ./scripts/container_scan.sh origin/${{ matrix.branch }} sarif "trivy-results-${{ matrix.branch }}.sarif"
+
+      - name: Upload Trivy results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
+        with:
+          sarif_file: "trivy-results-${{ matrix.branch }}.sarif"
