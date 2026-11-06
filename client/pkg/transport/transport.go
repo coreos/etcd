@@ -25,6 +25,12 @@ import (
 type unixTransport struct{ *http.Transport }
 
 func NewTransport(info TLSInfo, dialtimeoutd time.Duration) (*http.Transport, error) {
+	return newTransport(info, dialtimeoutd, 0, 0)
+}
+
+// newTransport is NewTransport whose connections, TCP and unix alike, apply
+// the given read and write timeouts.
+func newTransport(info TLSInfo, dialtimeoutd, rdtimeoutd, wtimeoutd time.Duration) (*http.Transport, error) {
 	cfg, err := info.ClientConfig()
 	if err != nil {
 		return nil, err
@@ -40,12 +46,12 @@ func NewTransport(info TLSInfo, dialtimeoutd time.Duration) (*http.Transport, er
 
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
+		DialContext: withTimeouts((&net.Dialer{
 			Timeout:   dialtimeoutd,
 			LocalAddr: ipAddr,
 			// value taken from http.DefaultTransport
 			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		}).DialContext, rdtimeoutd, wtimeoutd),
 		// value taken from http.DefaultTransport
 		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig:     cfg,
@@ -61,7 +67,7 @@ func NewTransport(info TLSInfo, dialtimeoutd time.Duration) (*http.Transport, er
 	}
 	tu := &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         dialContext,
+		DialContext:         withTimeouts(dialContext, rdtimeoutd, wtimeoutd),
 		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig:     cfg,
 		// Cost of reopening connection on sockets is low, and they are mostly used in testing.

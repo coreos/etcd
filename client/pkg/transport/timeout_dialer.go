@@ -15,22 +15,27 @@
 package transport
 
 import (
+	"context"
 	"net"
 	"time"
 )
 
-type rwTimeoutDialer struct {
-	wtimeoutd  time.Duration
-	rdtimeoutd time.Duration
-	net.Dialer
-}
-
-func (d *rwTimeoutDialer) Dial(network, address string) (net.Conn, error) {
-	conn, err := d.Dialer.Dial(network, address)
-	tconn := &timeoutConn{
-		readTimeout:  d.rdtimeoutd,
-		writeTimeout: d.wtimeoutd,
-		Conn:         conn,
+// withTimeouts wraps dial so that the connections it returns apply the read
+// and write timeouts. Wrapping the configured dial function, rather than
+// building another dialer, keeps every dialer option of NewTransport.
+func withTimeouts(dial func(ctx context.Context, network, address string) (net.Conn, error), rdtimeoutd, wtimeoutd time.Duration) func(ctx context.Context, network, address string) (net.Conn, error) {
+	if rdtimeoutd == 0 && wtimeoutd == 0 {
+		return dial
 	}
-	return tconn, err
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &timeoutConn{
+			readTimeout:  rdtimeoutd,
+			writeTimeout: wtimeoutd,
+			Conn:         conn,
+		}, nil
+	}
 }

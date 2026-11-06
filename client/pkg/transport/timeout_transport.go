@@ -15,7 +15,6 @@
 package transport
 
 import (
-	"net"
 	"net/http"
 	"time"
 )
@@ -25,7 +24,7 @@ import (
 // it will return timeout error.
 // If read/write timeout is set, transport will not be able to reuse connection.
 func NewTimeoutTransport(info TLSInfo, dialtimeoutd, rdtimeoutd, wtimeoutd time.Duration) (*http.Transport, error) {
-	tr, err := NewTransport(info, dialtimeoutd)
+	tr, err := newTransport(info, dialtimeoutd, rdtimeoutd, wtimeoutd)
 	if err != nil {
 		return nil, err
 	}
@@ -39,13 +38,5 @@ func NewTimeoutTransport(info TLSInfo, dialtimeoutd, rdtimeoutd, wtimeoutd time.
 		tr.MaxIdleConnsPerHost = 1024
 	}
 
-	tr.Dial = (&rwTimeoutDialer{ //nolint:staticcheck // TODO: remove for a supported version
-		Dialer: net.Dialer{
-			Timeout:   dialtimeoutd,
-			KeepAlive: 30 * time.Second,
-		},
-		rdtimeoutd: rdtimeoutd,
-		wtimeoutd:  wtimeoutd,
-	}).Dial
 	return tr, nil
 }

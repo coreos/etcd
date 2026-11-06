@@ -15,6 +15,7 @@
 package transport
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -23,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadWriteTimeoutDialer(t *testing.T) {
+func TestWithTimeouts(t *testing.T) {
 	stop := make(chan struct{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -34,11 +35,9 @@ func TestReadWriteTimeoutDialer(t *testing.T) {
 	ts := testBlockingServer{ln, 2, stop}
 	go ts.Start(t)
 
-	d := rwTimeoutDialer{
-		wtimeoutd:  10 * time.Millisecond,
-		rdtimeoutd: 10 * time.Millisecond,
-	}
-	conn, err := d.Dial("tcp", ln.Addr().String())
+	const wtimeoutd, rdtimeoutd = 10 * time.Millisecond, 10 * time.Millisecond
+	dial := withTimeouts((&net.Dialer{}).DialContext, rdtimeoutd, wtimeoutd)
+	conn, err := dial(context.Background(), "tcp", ln.Addr().String())
 	require.NoErrorf(t, err, "unexpected dial error")
 	defer conn.Close()
 
@@ -54,7 +53,7 @@ func TestReadWriteTimeoutDialer(t *testing.T) {
 	case <-done:
 	// Wait 5s more than timeout to avoid delay in low-end systems;
 	// the slack was 1s extra, but that wasn't enough for CI.
-	case <-time.After(d.wtimeoutd*10 + 5*time.Second):
+	case <-time.After(wtimeoutd*10 + 5*time.Second):
 		t.Fatal("wait timeout")
 	}
 
@@ -63,7 +62,7 @@ func TestReadWriteTimeoutDialer(t *testing.T) {
 		t.Errorf("err = %v, want write i/o timeout error", err)
 	}
 
-	conn, err = d.Dial("tcp", ln.Addr().String())
+	conn, err = dial(context.Background(), "tcp", ln.Addr().String())
 	require.NoErrorf(t, err, "unexpected dial error")
 	defer conn.Close()
 
@@ -75,7 +74,7 @@ func TestReadWriteTimeoutDialer(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(d.rdtimeoutd * 10):
+	case <-time.After(rdtimeoutd * 10):
 		t.Fatal("wait timeout")
 	}
 
@@ -100,4 +99,17 @@ func (ts *testBlockingServer) Start(t *testing.T) {
 		defer conn.Close()
 	}
 	<-ts.stop
+}
+
+func TestWithTimeoutsZeroKeepsDial(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	dial := withTimeouts((&net.Dialer{}).DialContext, 0, 0)
+	conn, err := dial(context.Background(), "tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	_, wrapped := conn.(*timeoutConn)
+	require.Falsef(t, wrapped, "dial with zero timeouts returned %T, want an unwrapped connection", conn)
 }
