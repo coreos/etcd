@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	grpcprom "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/soheilhy/cmux"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -829,6 +830,10 @@ func (e *Etcd) grpcGatewayDial(splitHTTP bool) (grpcDial func(ctx context.Contex
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+	opts = append(opts,
+		grpc.WithUnaryInterceptor(grpcprom.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpcprom.StreamClientInterceptor),
+	)
 
 	return func(_ context.Context) (*grpc.ClientConn, error) {
 		conn, err := grpc.NewClient(addr, opts...)
