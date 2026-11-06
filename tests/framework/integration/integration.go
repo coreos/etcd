@@ -16,6 +16,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -522,4 +523,8 @@ func (c integrationClient) MemberList(ctx context.Context, serializable bool) (*
 		return c.Client.MemberList(ctx, clientv3.WithSerializable())
 	}
 	return c.Client.MemberList(ctx)
+}
+
+func (c integrationClient) MakeMirror(ctx context.Context, destEndpoints string, opts config.MakeMirrorOptions) error {
+	return errors.New("errors")
 }

@@ -806,3 +806,48 @@ func (ctl *EtcdctlV3) Watch(ctx context.Context, key string, opts config.WatchOp
 
 	return ch
 }
+
+func (ctl *EtcdctlV3) MakeMirror(ctx context.Context, destEndpoints string, opts config.MakeMirrorOptions) error {
+	args := ctl.cmdArgs()
+	args = append(args, "make-mirror")
+
+	if opts.Prefix != "" {
+		args = append(args, "--prefix", opts.Prefix)
+	}
+	if opts.Rev != 0 {
+		args = append(args, "--rev", fmt.Sprint(opts.Rev))
+	}
+	if opts.NoDestPrefix {
+		args = append(args, "--no-dest-prefix")
+	}
+	if opts.DestPrefix != "" {
+		args = append(args, "--dest-prefix", opts.DestPrefix)
+	}
+	if opts.DestCACert != "" {
+		args = append(args, "--dest-cacert", opts.DestCACert)
+	}
+	if opts.DestCert != "" {
+		args = append(args, "--dest-cert", opts.DestCert)
+	}
+	if opts.DestKey != "" {
+		args = append(args, "--dest-key", opts.DestKey)
+	}
+	if opts.DestInsecureTransport {
+		// Bool flags in cobra must be provided as --flag=false, not as separate args.
+		args = append(args, "--dest-insecure-transport", "--dest-insecure-transport=false")
+	}
+
+	args = append(args, destEndpoints)
+
+	proc, err := SpawnCmd(args, nil)
+	if err != nil {
+		return err
+	}
+
+	defer proc.Stop()
+
+	// Wait until context is cancelled or its timeout is reached so that the make-mirror command can keep running in the background.
+	<-ctx.Done()
+
+	return nil
+}

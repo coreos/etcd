@@ -41,9 +41,18 @@ func (cv ClusterVersion) String() string {
 }
 
 type ClusterContext struct {
-	Version ClusterVersion
-	EnvVars map[string]string
-	UseUnix bool
+	Version  ClusterVersion
+	EnvVars  map[string]string
+	UseUnix  bool
+	BasePort int
+}
+
+func WithClusterOptionBasePort(port int) config.ClusterOption {
+	return func(c *config.ClusterConfig) {
+		ctx := ensureE2EClusterContext(c)
+		ctx.BasePort = port
+		c.ClusterContext = ctx
+	}
 }
 
 func WithHTTP2Debug() config.ClusterOption {

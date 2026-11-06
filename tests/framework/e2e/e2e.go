@@ -66,6 +66,9 @@ func (e e2eRunner) NewCluster(ctx context.Context, tb testing.TB, opts ...config
 		if ctx.UseUnix {
 			e2eConfig.BaseClientScheme = "unix"
 		}
+		if ctx.BasePort != 0 {
+			e2eConfig.BasePort = ctx.BasePort
+		}
 	}
 
 	switch cfg.ClientTLS {

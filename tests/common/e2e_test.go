@@ -127,3 +127,19 @@ func WithUnixClient() config.ClusterOption {
 func WithTCPClient() config.ClusterOption {
 	return e2e.WithTCPClient()
 }
+
+func WithBasePort(port int) config.ClusterOption {
+	return e2e.WithClusterOptionBasePort(port)
+}
+
+func configureMirrorDestTLS(mm *config.MakeMirrorOptions, tls config.TLSConfig) {
+	switch tls {
+	case config.ManualTLS:
+		mm.DestCert = e2e.CertPath
+		mm.DestKey = e2e.PrivateKeyPath
+		mm.DestCACert = e2e.CaPath
+		mm.DestInsecureTransport = false
+	default:
+		mm.DestInsecureTransport = true
+	}
+}

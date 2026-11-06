@@ -67,3 +67,17 @@ func WithUnixClient() config.ClusterOption {
 func WithTCPClient() config.ClusterOption {
 	return integration.WithTCPClient()
 }
+
+func WithBasePort(port int) config.ClusterOption {
+	return func(c *config.ClusterConfig) {}
+}
+
+func ensureIntegrationClusterContext(c *config.ClusterConfig) *integration.ClusterContext {
+	ctx, _ := c.ClusterContext.(*integration.ClusterContext)
+	if ctx == nil {
+		ctx = &integration.ClusterContext{}
+	}
+	return ctx
+}
+
+func configureMirrorDestTLS(mm *config.MakeMirrorOptions, _ config.TLSConfig) {}
