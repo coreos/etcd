@@ -387,6 +387,147 @@ func TestStreamSupportCurrentVersion(t *testing.T) {
 	}
 }
 
+// TestPeerStatusRecoveryOnSteadyStateStreamIO verifies that if peerStatus is
+// deactivated while streaming connections remain established, subsequent
+// steady-state streamWriter flushes (messages and link heartbeats) and unpaused
+// streamReader reads re-activate peerStatus without requiring a reconnect.
+func TestPeerStatusRecoveryOnSteadyStateStreamIO(t *testing.T) {
+	lg := zaptest.NewLogger(t)
+
+	origReadTimeout := ConnReadTimeout
+	ConnReadTimeout = 30 * time.Millisecond
+	defer func() { ConnReadTimeout = origReadTimeout }()
+
+	// Part 1: streamWriter message flush and heartbeat flush re-activate peerStatus.
+	writerStatus := newPeerStatus(lg, types.ID(1), types.ID(2))
+	sw := startStreamWriter(lg, types.ID(1), types.ID(2), writerStatus, &stats.FollowerStats{}, &fakeRaft{})
+
+	wfc := newFakeWriteFlushCloser(nil)
+	sw.attach(&outgoingConn{t: streamTypeMessage, Writer: wfc, Flusher: wfc, Closer: wfc})
+
+	var writec chan<- *raftpb.Message
+	for {
+		var ok bool
+		if writec, ok = sw.writec(); ok {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !writerStatus.isActive() {
+		t.Fatalf("expected writerStatus to be active after attach")
+	}
+
+	// 1a: Deactivate and verify message flush re-activates.
+	writerStatus.deactivate(failureType{source: pipelineMsg, action: "write"}, "simulated transient failure")
+	if writerStatus.isActive() {
+		t.Fatalf("expected writerStatus to be inactive after deactivate")
+	}
+
+	writec <- &raftpb.Message{Type: raftpb.MsgHeartbeat.Enum(), From: new(uint64(1)), To: new(uint64(2))}
+	select {
+	case <-wfc.writec:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for streamWriter write")
+	}
+	for i := 0; i < 100 && !writerStatus.isActive(); i++ {
+		time.Sleep(time.Millisecond)
+	}
+	if !writerStatus.isActive() {
+		t.Fatalf("expected streamWriter message flush to re-activate peerStatus")
+	}
+
+	// 1b: Deactivate and verify linkHeartbeat ticker flush re-activates without any Raft messages.
+	writerStatus.deactivate(failureType{source: pipelineMsg, action: "write"}, "simulated second failure")
+	if writerStatus.isActive() {
+		t.Fatalf("expected writerStatus to be inactive after second deactivate")
+	}
+	for i := 0; i < 200 && !writerStatus.isActive(); i++ {
+		time.Sleep(time.Millisecond)
+	}
+	if !writerStatus.isActive() {
+		t.Fatalf("expected streamWriter link-heartbeat flush to re-activate peerStatus")
+	}
+	sw.stop()
+	ConnReadTimeout = origReadTimeout
+
+	// Part 2: streamReader decodeLoop re-activates peerStatus (only when unpaused).
+	recvc := make(chan *raftpb.Message, streamBufSize)
+	propc := make(chan *raftpb.Message, streamBufSize)
+	h := &fakeStreamHandler{t: streamTypeMessage}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	remoteWriterStatus := newPeerStatus(lg, types.ID(2), types.ID(1))
+	remoteSW := startStreamWriter(lg, types.ID(2), types.ID(1), remoteWriterStatus, &stats.FollowerStats{}, &fakeRaft{})
+	defer remoteSW.stop()
+	h.sw = remoteSW
+
+	readerStatus := newPeerStatus(lg, types.ID(1), types.ID(2))
+	sr := &streamReader{
+		lg:     lg,
+		peerID: types.ID(2),
+		typ:    streamTypeMessage,
+		tr:     &Transport{ID: types.ID(1), ClusterID: types.ID(1), streamRt: &http.Transport{}},
+		picker: mustNewURLPicker(t, []string{srv.URL}),
+		status: readerStatus,
+		recvc:  recvc,
+		propc:  propc,
+		rl:     rate.NewLimiter(rate.Every(100*time.Millisecond), 1),
+	}
+	sr.start()
+	defer sr.stop()
+
+	var remoteWritec chan<- *raftpb.Message
+	for {
+		var ok bool
+		if remoteWritec, ok = remoteSW.writec(); ok {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Wait for streamReader to finish cr.dial() and enter steady-state decodeLoop.
+	remoteWritec <- &raftpb.Message{Type: raftpb.MsgApp.Enum(), From: new(uint64(2)), To: new(uint64(1)), Index: new(uint64(1))}
+	select {
+	case <-recvc:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial streamReader message")
+	}
+	if !readerStatus.isActive() {
+		t.Fatalf("expected readerStatus to be active after initial streamReader decode")
+	}
+
+	// Pause streamReader and deactivate readerStatus: incoming messages while paused must NOT activate.
+	sr.pause()
+	readerStatus.deactivate(failureType{source: pipelineMsg, action: "write"}, "simulated failure while paused")
+	remoteWritec <- &raftpb.Message{Type: raftpb.MsgApp.Enum(), From: new(uint64(2)), To: new(uint64(1)), Index: new(uint64(2))}
+	time.Sleep(20 * time.Millisecond)
+	if readerStatus.isActive() {
+		t.Fatalf("paused streamReader must not re-activate peerStatus")
+	}
+
+	// Resume streamReader: next decoded message (including linkHeartbeatMessage) must re-activate.
+	sr.resume()
+	remoteWritec <- proto.Clone(&linkHeartbeatMessage).(*raftpb.Message)
+	for i := 0; i < 200 && !readerStatus.isActive(); i++ {
+		time.Sleep(time.Millisecond)
+	}
+	if !readerStatus.isActive() {
+		t.Fatalf("expected unpaused streamReader link-heartbeat decode to re-activate peerStatus")
+	}
+
+	// Verify normal Raft message delivery after resume and confirm the paused message (Index=2) was dropped.
+	remoteWritec <- &raftpb.Message{Type: raftpb.MsgApp.Enum(), From: new(uint64(2)), To: new(uint64(1)), Index: new(uint64(3))}
+	select {
+	case got := <-recvc:
+		if got.GetIndex() != 3 {
+			t.Fatalf("recvc message Index = %d, want 3 (paused message Index=2 should have been dropped)", got.GetIndex())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for resumed streamReader message")
+	}
+}
+
 type fakeWriteFlushCloser struct {
 	mu      sync.Mutex
 	err     error

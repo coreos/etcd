@@ -185,6 +185,7 @@ func (cw *streamWriter) run() {
 			unflushed += linkHeartbeatSize
 			if err == nil {
 				flusher.Flush()
+				cw.status.activate()
 				batched = 0
 				sentBytes.WithLabelValues(cw.peerID.String()).Add(float64(unflushed))
 				unflushed = 0
@@ -212,6 +213,7 @@ func (cw *streamWriter) run() {
 
 				if len(msgc) == 0 || batched > streamBufSize/2 {
 					flusher.Flush()
+					cw.status.activate()
 					sentBytes.WithLabelValues(cw.peerID.String()).Add(float64(unflushed))
 					unflushed = 0
 					batched = 0
@@ -514,6 +516,8 @@ func (cr *streamReader) decodeLoop(rc io.ReadCloser, t streamType) error {
 		if paused {
 			continue
 		}
+
+		cr.status.activate()
 
 		if isLinkHeartbeatMessage(m) {
 			// raft is not interested in link layer
