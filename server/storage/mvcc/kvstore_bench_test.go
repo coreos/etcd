@@ -15,6 +15,7 @@
 package mvcc
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -170,4 +171,43 @@ func BenchmarkStoreRestoreRevs10(b *testing.B) {
 
 func BenchmarkStoreRestoreRevs20(b *testing.B) {
 	benchmarkStoreRestore(20, b)
+}
+
+func BenchmarkScheduleCompaction(b *testing.B) {
+	keySpace := 100
+	revsPerKey := 50
+	compactStep := 50
+
+	// prepare data
+	be, _ := betesting.NewDefaultTmpBackend(b)
+	s := NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{
+		// use a small batch limit to simulate compacting large db
+		CompactionBatchLimit:    10,
+		CompactionSleepInterval: defaultCompactionSleepInterval,
+	})
+	defer cleanup(s, be)
+
+	for i := 0; i < keySpace; i++ {
+		key := fmt.Sprintf("%d", i)
+		for j := 0; j < revsPerKey; j++ {
+			tx := s.Write(traceutil.TODO())
+			tx.Put([]byte(key), []byte(key), lease.NoLease)
+			tx.End()
+		}
+	}
+
+	// reset timer
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	// benchmark scheduleCompaction
+	for i := 0; i < b.N; i++ {
+		rev := int64(i*compactStep + 1)
+		if rev > s.currentRev {
+			return
+		}
+		_, err := s.scheduleCompaction(rev, s.compactMainRev)
+		s.compactMainRev = rev
+		require.NoError(b, err)
+	}
 }

@@ -15,10 +15,12 @@
 package mvcc
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 
 	"go.etcd.io/etcd/pkg/v3/traceutil"
@@ -145,5 +147,70 @@ func TestCompactAllAndRestore(t *testing.T) {
 	err = s1.Close()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScheduleCompactionKVHash(t *testing.T) {
+	tests := []struct {
+		compactBatchLimit    int
+		keySpace, revsPerKey int
+		compactRevs          []int64
+		expectHashes         []KeyValueHash
+	}{
+		{10, 100, 3,
+			[]int64{100, 150, 200, 301},
+			[]KeyValueHash{
+				{
+					Hash:            3119039015,
+					CompactRevision: -1,
+					Revision:        100,
+				},
+				{
+					Hash:            2013050715,
+					CompactRevision: 100,
+					Revision:        150,
+				},
+				{
+					Hash:            586270548,
+					CompactRevision: 150,
+					Revision:        200,
+				},
+				{
+					Hash:            3295605432,
+					CompactRevision: 200,
+					Revision:        301,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		// prepare data
+		b, _ := betesting.NewDefaultTmpBackend(t)
+		s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{
+			CompactionBatchLimit:    tt.compactBatchLimit,
+			CompactionSleepInterval: defaultCompactionSleepInterval,
+		})
+		for i := 0; i < tt.keySpace; i++ {
+			key := fmt.Sprintf("%d", i)
+			for j := 0; j < tt.revsPerKey; j++ {
+				tx := s.Write(traceutil.TODO())
+				tx.Put([]byte(key), []byte(key), lease.NoLease)
+				tx.End()
+			}
+		}
+
+		// get hashes from compaction
+		var hashes []KeyValueHash
+		for _, rev := range tt.compactRevs {
+			h, err := s.scheduleCompaction(rev, s.compactMainRev)
+			s.compactMainRev = rev
+			require.NoError(t, err)
+			hashes = append(hashes, h)
+		}
+
+		require.Equal(t, tt.expectHashes, hashes)
+
+		cleanup(s, b)
 	}
 }

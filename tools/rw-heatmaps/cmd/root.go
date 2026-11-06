@@ -67,6 +67,7 @@ func NewRootCommand() *cobra.Command {
 	}
 
 	o.AddFlags(rootCmd.Flags())
+	rootCmd.AddCommand(newCompactionChartCmd())
 	return rootCmd
 }
 
