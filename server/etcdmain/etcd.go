@@ -41,12 +41,32 @@ var (
 )
 
 func startEtcdOrProxyV2(args []string) {
+	err := startEtcdOrProxyV2Error(args)
+	switch {
+	case err == nil:
+		osutil.Exit(exitCodeOK)
+	case errorspkg.Is(err, ErrArgumentError):
+		fmt.Println(err)
+		osutil.Exit(exitCodeBadArgs)
+	case errorspkg.Is(err, ErrGeneralError):
+		fmt.Println(err)
+		osutil.Exit(exitCodeGeneral)
+	default:
+		fmt.Println(err)
+		osutil.Exit(exitCodeGeneral)
+	}
+}
+
+func startEtcdOrProxyV2Error(args []string) error {
 	grpc.EnableTracing = false
 
 	cfg := newConfig()
 	defaultInitialCluster := cfg.ec.InitialCluster
 
-	err := cfg.parse(args[1:])
+	shouldExit, err := cfg.parse(args[1:])
+	if shouldExit {
+		return nil
+	}
 	lg := cfg.ec.GetLogger()
 	// If we failed to parse the whole configuration, print the error using
 	// preferably the resolved logger from the config,
@@ -57,7 +77,7 @@ func startEtcdOrProxyV2(args []string) {
 		lg, zapError = logutil.CreateDefaultZapLogger(zap.InfoLevel)
 		if zapError != nil {
 			fmt.Printf("error creating zap logger %v", zapError)
-			os.Exit(1)
+			return fmt.Errorf("%w: error creating zap logger: %w", ErrGeneralError, zapError)
 		}
 	}
 	lg.Info("Running: ", zap.Strings("args", args))
@@ -66,7 +86,10 @@ func startEtcdOrProxyV2(args []string) {
 		if errorspkg.Is(err, embed.ErrUnsetAdvertiseClientURLsFlag) {
 			lg.Warn("advertise client URLs are not set", zap.Error(err))
 		}
-		os.Exit(1)
+		if errorspkg.Is(err, ErrArgumentError) {
+			return err
+		}
+		return fmt.Errorf("%w: failed to verify flags: %w", ErrArgumentError, err)
 	}
 
 	cfg.ec.SetupGlobalLoggers()
@@ -138,7 +161,7 @@ func startEtcdOrProxyV2(args []string) {
 			)
 			lg.Warn("do not reuse discovery token; generate a new one to bootstrap a cluster")
 
-			os.Exit(1)
+			return fmt.Errorf("%w: discovery failed: %w", ErrGeneralError, err)
 		}
 
 		if strings.Contains(err.Error(), "include") && strings.Contains(err.Error(), "--initial-cluster") {
@@ -152,9 +175,10 @@ func startEtcdOrProxyV2(args []string) {
 			if cfg.ec.InitialCluster == cfg.ec.InitialClusterFromName(cfg.ec.Name) && len(cfg.ec.DiscoveryCfg.Endpoints) == 0 {
 				lg.Warn("V3 discovery settings (i.e., --discovery-token, --discovery-endpoints) are not set")
 			}
-			os.Exit(1)
+			return fmt.Errorf("%w: failed to start: %w", ErrGeneralError, err)
 		}
-		lg.Fatal("discovery failed", zap.Error(err))
+		lg.Error("discovery failed", zap.Error(err))
+		return fmt.Errorf("%w: discovery failed: %w", ErrGeneralError, err)
 	}
 
 	osutil.HandleInterrupts(lg)
@@ -168,12 +192,13 @@ func startEtcdOrProxyV2(args []string) {
 
 	select {
 	case lerr := <-errc:
-		// fatal out on listener errors
-		lg.Fatal("listener failed", zap.Error(lerr))
+		// exit on listener errors
+		lg.Error("listener failed", zap.Error(lerr))
+		return fmt.Errorf("%w: listener failed: %w", ErrGeneralError, lerr)
 	case <-stopped:
 	}
 
-	osutil.Exit(0)
+	return nil
 }
 
 // startEtcd runs StartEtcd in addition to hooks needed for standalone etcd.
