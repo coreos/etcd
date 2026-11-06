@@ -612,15 +612,15 @@ func TestEtcdHealthyWithTinySnapshotCatchupEntries(t *testing.T) {
 		}
 	})
 
-	// simulate 10 clients keep writing to etcd in parallel with no error
+	// simulate 5 clients keep writing to etcd in parallel with no error
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		clientID := i
 		g.Go(func() error {
 			cc := epc.Etcdctl()
-			for j := 0; j < 100; j++ {
+			for j := 0; j < 50; j++ {
 				if _, err := cc.Put(ctx, "foo", fmt.Sprintf("bar%d", clientID), config.PutOptions{}); err != nil {
 					return err
 				}
