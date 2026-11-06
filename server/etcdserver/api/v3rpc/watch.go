@@ -143,8 +143,15 @@ type serverWatchStream struct {
 	watchStream mvcc.WatchStream
 	ctrlStream  chan *pb.WatchResponse
 
-	// mu protects progress, prevKV, fragment
+	// mu protects creating, progress, prevKV, fragment
 	mu sync.RWMutex
+	// creating tracks watch IDs that exist in the mvcc store but whose
+	// created response sendLoop has not processed yet. recvLoop registers an
+	// ID here while it holds mu across watchStream.Watch(), so sendLoop can
+	// tell an event that arrives before the created response from an event of
+	// an already canceled watch: the former has its ID in creating, the
+	// latter in neither creating nor the ids set local to sendLoop.
+	creating map[mvcc.WatchID]struct{}
 	// tracks the watchID that stream might need to send progress to
 	// TODO: combine progress and prevKV into a single struct?
 	progress map[mvcc.WatchID]bool
@@ -178,6 +185,7 @@ func (ws *watchServer) Watch(stream pb.Watch_WatchServer) (err error) {
 		// chan for sending control response like watcher created and canceled.
 		ctrlStream: make(chan *pb.WatchResponse, ctrlStreamBufLen),
 
+		creating: make(map[mvcc.WatchID]struct{}),
 		progress: make(map[mvcc.WatchID]bool),
 		prevKV:   make(map[mvcc.WatchID]bool),
 		fragment: make(map[mvcc.WatchID]bool),
@@ -337,9 +345,17 @@ func (sws *serverWatchStream) recvLoop() error {
 				attribute.Bool("fragment", creq.Fragment),
 			))
 
+			// mu is held across watchStream.Watch() on purpose. The watcher
+			// is live in the mvcc store, and can therefore queue events on the
+			// shared event channel, as soon as Watch() registers it, while its
+			// auto-assigned ID only becomes known once Watch() returns. Holding
+			// the write lock across both keeps that gap invisible to sendLoop,
+			// which needs the read lock to classify an event, so no event can
+			// be classified before its ID is in creating.
+			sws.mu.Lock()
 			id, err := sws.watchStream.Watch(ctx, mvcc.WatchID(creq.WatchId), creq.Key, creq.RangeEnd, creq.StartRevision, filters...)
 			if err == nil {
-				sws.mu.Lock()
+				sws.creating[id] = struct{}{}
 				if creq.ProgressNotify {
 					sws.progress[id] = true
 				}
@@ -349,10 +365,10 @@ func (sws *serverWatchStream) recvLoop() error {
 				if creq.Fragment {
 					sws.fragment[id] = true
 				}
-				sws.mu.Unlock()
 			} else {
 				id = clientv3.InvalidWatchID
 			}
+			sws.mu.Unlock()
 
 			wr := &pb.WatchResponse{
 				Header:   sws.newResponseHeader(sws.watchStream.Rev()),
@@ -469,6 +485,19 @@ func (sws *serverWatchStream) sendLoop() {
 			// if they announce on behalf of multiple watchers
 			if wresp.WatchID != clientv3.InvalidWatchID {
 				if _, okID := ids[wresp.WatchID]; !okID {
+					sws.mu.RLock()
+					_, isCreating := sws.creating[wresp.WatchID]
+					sws.mu.RUnlock()
+					if !isCreating {
+						// The watch is neither active nor awaiting its created
+						// response, so it was canceled and mvcc had queued this
+						// event before the cancel took effect. Buffering it here
+						// would keep it referenced until the whole stream goes
+						// away, and would hand it to a watch that reuses the ID,
+						// so drop it and reconcile its event count instead.
+						mvcc.ReportEventReceived(len(evs))
+						continue
+					}
 					// buffer if id not yet announced
 					wrs := append(pending[wresp.WatchID], wr)
 					pending[wresp.WatchID] = wrs
@@ -533,11 +562,24 @@ func (sws *serverWatchStream) sendLoop() {
 
 			if c.Canceled && wid != clientv3.InvalidWatchID {
 				delete(ids, wid)
+				// pending[wid] is normally empty here, because the created
+				// response of this watch was processed first and flushed it.
+				// Reconcile and release anything left so that no response can
+				// outlive its watch.
+				for _, v := range pending[wid] {
+					mvcc.ReportEventReceived(len(v.Events))
+				}
+				delete(pending, wid)
 				continue
 			}
 			if c.Created {
 				// flush buffered events
 				ids[wid] = struct{}{}
+				// The created response has been sent, so events of this watch
+				// no longer need buffering and recvLoop's registration can go.
+				sws.mu.Lock()
+				delete(sws.creating, wid)
+				sws.mu.Unlock()
 				for _, v := range pending[wid] {
 					mvcc.ReportEventReceived(len(v.Events))
 					if err := sws.gRPCStream.Send(v); err != nil {
