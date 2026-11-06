@@ -140,3 +140,57 @@ func TestDedupe(t *testing.T) {
 		})
 	}
 }
+
+// TestWritebackDedupesExistingBucket checks that writeback does not leak
+// duplicate keys into the read buffer when the bucket is already present
+// there. bucketBuffer.merge only dedupes when the two buffers overlap, so a
+// write buffer holding the same key twice would otherwise survive, and
+// bucketBuffer.Range would return the older of the two values.
+func TestWritebackDedupesExistingBucket(t *testing.T) {
+	tests := []struct {
+		name     string
+		seedKey  string
+		wantVals []string
+	}{
+		{
+			// read buffer max key sorts below the write buffer min key, so
+			// merge takes its no-overlap fast path and skips dedupe.
+			name:     "no overlap between buffers",
+			seedKey:  "aaa",
+			wantVals: []string{"new"},
+		},
+		{
+			name:     "overlapping buffers",
+			seedKey:  "zzzz",
+			wantVals: []string{"new"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const bucketID = BucketID(1)
+
+			seed := newBucketBuffer()
+			seed.add([]byte(tt.seedKey), []byte("seed"))
+			txr := &txReadBuffer{txBuffer: txBuffer{buckets: map[BucketID]*bucketBuffer{bucketID: seed}}}
+
+			wb := newBucketBuffer()
+			wb.add([]byte("zzz"), []byte("old"))
+			wb.add([]byte("zzz"), []byte("new"))
+			txw := &txWriteBuffer{
+				txBuffer:   txBuffer{buckets: map[BucketID]*bucketBuffer{bucketID: wb}},
+				bucket2seq: map[BucketID]bool{bucketID: false},
+			}
+
+			txw.writeback(txr)
+
+			keys, vals := txr.buckets[bucketID].Range([]byte("zzz"), []byte("zzz\x00"), 10)
+			assert.Lenf(t, keys, len(tt.wantVals), "duplicate key survived writeback")
+			var got []string
+			for _, v := range vals {
+				got = append(got, string(v))
+			}
+			assert.Equalf(t, tt.wantVals, got, "writeback must keep the newest value")
+		})
+	}
+}

@@ -104,9 +104,12 @@ func (txw *txWriteBuffer) writeback(txr *txReadBuffer) {
 			txr.buckets[k] = wb
 			continue
 		}
-		if seq, ok := txw.bucket2seq[k]; ok && !seq && wb.used > 1 {
-			// assume no duplicate keys
-			sort.Sort(wb)
+		if seq, ok := txw.bucket2seq[k]; ok && !seq {
+			// The bucket is not written sequentially, so the write buffer may
+			// hold the same key more than once. merge() only dedupes when the
+			// two buffers overlap, so dedupe here as the new-bucket branch
+			// above already does. dedupe sorts as well.
+			wb.dedupe()
 		}
 		rb.merge(wb)
 	}
