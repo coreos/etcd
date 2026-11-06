@@ -39,6 +39,7 @@ var (
 var (
 	watchRev         int64
 	watchPrefix      bool
+	watchFromKey     bool
 	watchInteractive bool
 	watchPrevKey     bool
 	progressNotify   bool
@@ -55,6 +56,7 @@ func NewWatchCommand() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&watchInteractive, "interactive", "i", false, "Interactive mode")
 	cmd.Flags().BoolVar(&watchPrefix, "prefix", false, "Watch on a prefix if prefix is set")
+	cmd.Flags().BoolVar(&watchFromKey, "from-key", false, "Watch keys that are greater than or equal to the given key using byte compare")
 	cmd.Flags().Int64Var(&watchRev, "rev", 0, "Revision to start watching")
 	cmd.Flags().BoolVar(&watchPrevKey, "prev-kv", false, "get the previous key-value pair before the event happens")
 	cmd.Flags().BoolVar(&progressNotify, "progress-notify", false, "get periodic watch progress notification from server")
@@ -149,10 +151,19 @@ func getWatchChan(c *clientv3.Client, args []string) (clientv3.WatchChan, error)
 		if watchPrefix {
 			return nil, fmt.Errorf("`range_end` and `--prefix` are mutually exclusive")
 		}
+		if watchFromKey {
+			return nil, fmt.Errorf("`range_end` and `--from-key` are mutually exclusive")
+		}
 		opts = append(opts, clientv3.WithRange(args[1]))
+	}
+	if watchPrefix && watchFromKey {
+		return nil, fmt.Errorf("`--prefix` and `--from-key` are mutually exclusive")
 	}
 	if watchPrefix {
 		opts = append(opts, clientv3.WithPrefix())
+	}
+	if watchFromKey {
+		opts = append(opts, clientv3.WithFromKey())
 	}
 	if watchPrevKey {
 		opts = append(opts, clientv3.WithPrevKV())
@@ -217,7 +228,7 @@ func parseWatchArgs(osArgs, commandArgs []string, envKey, envRange string, inter
 	if interactive {
 		if watchArgs[0] != "watch" {
 			// "watch" not found
-			watchPrefix, watchRev, watchPrevKey = false, 0, false
+			watchPrefix, watchFromKey, watchRev, watchPrevKey = false, false, 0, false
 			return nil, nil, errBadArgsInteractiveWatch
 		}
 		watchArgs = watchArgs[1:]
@@ -272,20 +283,20 @@ func parseWatchArgs(osArgs, commandArgs []string, envKey, envRange string, inter
 		}
 		if execExist && execIdx == len(watchArgs)-1 {
 			// "watch foo bar --" should error
-			watchPrefix, watchRev, watchPrevKey = false, 0, false
+			watchPrefix, watchFromKey, watchRev, watchPrevKey = false, false, 0, false
 			return nil, nil, errBadArgsNumSeparator
 		}
 
 		flagset := NewWatchCommand().Flags()
 		if perr := flagset.Parse(watchArgs); perr != nil {
-			watchPrefix, watchRev, watchPrevKey = false, 0, false
+			watchPrefix, watchFromKey, watchRev, watchPrevKey = false, false, 0, false
 			return nil, nil, perr
 		}
 		pArgs := flagset.Args()
 
 		// "watch" with no argument should error
 		if !execExist && envKey == "" && len(pArgs) < 1 {
-			watchPrefix, watchRev, watchPrevKey = false, 0, false
+			watchPrefix, watchFromKey, watchRev, watchPrevKey = false, false, 0, false
 			return nil, nil, errBadArgsNum
 		}
 		// check conflicting arguments
@@ -293,7 +304,7 @@ func parseWatchArgs(osArgs, commandArgs []string, envKey, envRange string, inter
 		if !execExist && len(pArgs) > 0 && envKey != "" {
 			// "ETCDCTL_WATCH_KEY=foo watch foo" should error
 			// (watchArgs==["foo"])
-			watchPrefix, watchRev, watchPrevKey = false, 0, false
+			watchPrefix, watchFromKey, watchRev, watchPrevKey = false, false, 0, false
 			return nil, nil, errBadArgsNumConflictEnv
 		}
 	}
@@ -323,6 +334,10 @@ func parseWatchArgs(osArgs, commandArgs []string, envKey, envRange string, inter
 		watchArgs = flagset.Args()
 
 		watchPrefix, err = flagset.GetBool("prefix")
+		if err != nil {
+			return nil, nil, err
+		}
+		watchFromKey, err = flagset.GetBool("from-key")
 		if err != nil {
 			return nil, nil, err
 		}

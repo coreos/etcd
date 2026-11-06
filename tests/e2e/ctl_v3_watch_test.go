@@ -175,6 +175,12 @@ func watchTest(cx ctlCtx) {
 			args:   []string{"--rev", "1", "--prefix"},
 			wkv:    []kvExec{{key: "key1", val: "val1"}, {key: "key2", val: "val2"}, {key: "key3", val: "val3"}},
 		},
+		{ // watch keys from a given key onward (>=), with env
+			puts:   []kv{{"key1", "val1"}, {"key2", "val2"}, {"key3", "val3"}},
+			envKey: "key1",
+			args:   []string{"--rev", "1", "--from-key"},
+			wkv:    []kvExec{{key: "key1", val: "val1"}, {key: "key2", val: "val2"}, {key: "key3", val: "val3"}},
+		},
 		{ // watch 3 keys by range, with env
 			puts:     []kv{{"key1", "val1"}, {"key3", "val3"}, {"key2", "val2"}},
 			envKey:   "key",
