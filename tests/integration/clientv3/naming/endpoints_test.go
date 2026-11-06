@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	etcd "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/naming/endpoints"
@@ -115,6 +117,58 @@ func TestEndpointManagerAtomicity(t *testing.T) {
 	if len(updates) != 2 || (updates[0].Op != endpoints.Delete && updates[1].Op != endpoints.Delete) {
 		t.Fatalf("expected two delete updates, got %+v", updates)
 	}
+}
+
+func TestEndpointManagerDeleteEndpointRejectsRangeOptions(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	c := clus.RandClient()
+	em, err := endpoints.NewManager(c, "foo")
+	require.NoError(t, err)
+	emOther, err := endpoints.NewManager(c, "foo_other")
+	require.NoError(t, err)
+
+	require.NoError(t, em.AddEndpoint(t.Context(), "foo/a", endpoints.Endpoint{Addr: "127.0.0.1:2000"}))
+	require.NoError(t, em.AddEndpoint(t.Context(), "foo/b", endpoints.Endpoint{Addr: "127.0.0.1:2001"}))
+	require.NoError(t, emOther.AddEndpoint(t.Context(), "foo_other/a", endpoints.Endpoint{Addr: "127.0.0.1:2002"}))
+
+	err = em.DeleteEndpoint(t.Context(), "foo/a", etcd.WithFromKey())
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	for _, key := range []string{"foo/a", "foo/b", "foo_other/a"} {
+		resp, err := c.Get(t.Context(), key)
+		require.NoError(t, err)
+		require.Len(t, resp.Kvs, 1, "endpoint %q should remain after rejected range delete", key)
+	}
+}
+
+func TestEndpointManagerUpdateRejectsRangeDeleteAtomically(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	c := clus.RandClient()
+	em, err := endpoints.NewManager(c, "foo")
+	require.NoError(t, err)
+	require.NoError(t, em.AddEndpoint(t.Context(), "foo/existing", endpoints.Endpoint{Addr: "127.0.0.1:2000"}))
+
+	err = em.Update(t.Context(), []*endpoints.UpdateWithOpts{
+		endpoints.NewAddUpdateOpts("foo/new", endpoints.Endpoint{Addr: "127.0.0.1:2001"}),
+		endpoints.NewDeleteUpdateOpts("foo/existing", etcd.WithFromKey()),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	resp, err := c.Get(t.Context(), "foo/existing")
+	require.NoError(t, err)
+	require.Len(t, resp.Kvs, 1, "existing endpoint should remain after rejected update")
+
+	resp, err = c.Get(t.Context(), "foo/new")
+	require.NoError(t, err)
+	require.Empty(t, resp.Kvs, "new endpoint should not be added by rejected update")
 }
 
 func TestEndpointManagerCRUD(t *testing.T) {

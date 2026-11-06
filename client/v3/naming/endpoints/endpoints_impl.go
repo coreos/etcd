@@ -74,7 +74,11 @@ func (m *endpointManager) Update(ctx context.Context, updates []*UpdateWithOpts)
 			}
 			ops = append(ops, clientv3.OpPut(update.Key, string(v), update.Opts...))
 		case Delete:
-			ops = append(ops, clientv3.OpDelete(update.Key, update.Opts...))
+			op := clientv3.OpDelete(update.Key, update.Opts...)
+			if len(op.RangeBytes()) != 0 {
+				return status.Error(codes.InvalidArgument, "endpoints: range options are not supported when deleting an endpoint")
+			}
+			ops = append(ops, op)
 		default:
 			return status.Error(codes.InvalidArgument, "endpoints: bad update op")
 		}
