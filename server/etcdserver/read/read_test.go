@@ -23,8 +23,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 
+	"go.etcd.io/etcd/client/pkg/v3/logutil"
 	"go.etcd.io/etcd/server/v3/etcdserver/errors"
 	"go.etcd.io/raft/v3"
 )
@@ -189,6 +191,77 @@ func TestRequestCurrentIndex_DelayedResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(100), index)
 }
+
+// TestLinearizableReadLoop_BlockedLogSink verifies that a log sink stuck in write(2) does not stall the read loop,
+// which would hang every subsequent linearizable read. See https://github.com/etcd-io/etcd/issues/22214.
+func TestLinearizableReadLoop_BlockedLogSink(t *testing.T) {
+	s, mockRaft := setupTestRequestCurrentIndex(t)
+	sink := &blockingSyncer{writing: make(chan struct{}, 1), unblock: make(chan struct{})}
+	s.logger = zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(logutil.DefaultZapLoggerConfig.EncoderConfig),
+		zapcore.Lock(zapcore.AddSync(sink)),
+		zap.NewAtomicLevelAt(zap.InfoLevel),
+	))
+	s.appliedIndex = 100
+
+	r := NewRead(s, mockRaft)
+	go r.LinearizableReadLoop()
+	t.Cleanup(func() { close(s.stopping) })
+	defer close(sink.unblock)
+
+	// two rounds: the first is slow enough to log and leaves the sink blocked, the second must still complete
+	for i := 0; i < 2; i++ {
+		readDone := make(chan error, 1)
+		go func() {
+			readDone <- r.LinearizableReadNotify(t.Context())
+		}()
+
+		require.Eventuallyf(t, func() bool {
+			return len(mockRaft.getRequests()) == i+1
+		}, time.Second, 10*time.Millisecond, "Expected %d ReadIndex requests", i+1)
+
+		if i == 0 {
+			// push the loop past slowReadLoopThreshold so that it emits a trace
+			time.Sleep(2 * slowReadLoopThreshold)
+		}
+
+		reqIDBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(reqIDBytes, mockRaft.getRequests()[i])
+		mockRaft.readStateC <- raft.ReadState{Index: 100, RequestCtx: reqIDBytes}
+
+		select {
+		case err := <-readDone:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("linearizable read %d hung on a blocked log sink", i)
+		}
+
+		if i == 0 {
+			select {
+			case <-sink.writing:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the read loop trace to reach the log sink")
+			}
+		}
+	}
+}
+
+// blockingSyncer stays inside Write until unblocked, like a write(2) to a saturated disk.
+type blockingSyncer struct {
+	writing chan struct{}
+	unblock chan struct{}
+}
+
+func (b *blockingSyncer) Write(p []byte) (int, error) {
+	select {
+	case b.writing <- struct{}{}:
+	default:
+	}
+	<-b.unblock
+	return len(p), nil
+}
+
+func (b *blockingSyncer) Sync() error { return nil }
 
 func setupTestRequestCurrentIndex(t *testing.T) (*mockServer, *testRaftNode) {
 	s := &mockServer{

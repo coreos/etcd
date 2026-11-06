@@ -33,6 +33,9 @@ var (
 	readIndexRetryTime = 500 * time.Millisecond
 )
 
+// slowReadLoopThreshold is the duration above which a read loop iteration gets its trace logged.
+const slowReadLoopThreshold = 100 * time.Millisecond
+
 func NewRead(server server, raft raftInterface) *Read {
 	return &Read{
 		server:   server,
@@ -94,6 +97,15 @@ func (r *Read) LinearizableReadNotify(ctx context.Context) error {
 }
 
 func (r *Read) LinearizableReadLoop() {
+	// Log traces off this goroutine: a slow or stalled log sink would otherwise park the only servicer of read indexes, hanging every linearizable read on the member.
+	traceC := make(chan *traceutil.Trace, 1)
+	defer close(traceC)
+	go func() {
+		for t := range traceC {
+			t.Log()
+		}
+	}()
+
 	for {
 		leaderChangedNotifier := r.server.LeaderChanged()
 		select {
@@ -106,6 +118,7 @@ func (r *Read) LinearizableReadLoop() {
 
 		// as a single loop is can unlock multiple reads, it is not very useful
 		// to propagate the trace from Txn or Range.
+		start := time.Now()
 		_, trace := traceutil.EnsureTrace(context.Background(), r.server.Logger(), "linearizableReadLoop")
 
 		nextnr := newNotifier()
@@ -141,7 +154,14 @@ func (r *Read) LinearizableReadLoop() {
 		nr.notify(nil)
 		trace.Step("applied index is now lower than readState.Index")
 
-		trace.LogAllStepsIfLong(100 * time.Millisecond)
+		if time.Since(start) > slowReadLoopThreshold {
+			select {
+			case traceC <- trace:
+			default:
+				// the log sink is not keeping up; drop the trace rather than stall the next read
+				droppedReadLoopTraces.Inc()
+			}
+		}
 	}
 }
 

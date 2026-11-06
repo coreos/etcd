@@ -31,9 +31,16 @@ var (
 		Name:      "read_indexes_failed_total",
 		Help:      "The total number of failed read indexes seen.",
 	})
+	droppedReadLoopTraces = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "etcd",
+		Subsystem: "server",
+		Name:      "read_loop_traces_dropped_total",
+		Help:      "The total number of linearizable read loop traces dropped because the log sink could not keep up.",
+	})
 )
 
 func init() {
 	prometheus.MustRegister(slowReadIndex)
 	prometheus.MustRegister(readIndexFailed)
+	prometheus.MustRegister(droppedReadLoopTraces)
 }
