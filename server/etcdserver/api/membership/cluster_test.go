@@ -548,6 +548,45 @@ func TestClusterAddMemberAsLearner(t *testing.T) {
 	})
 }
 
+func TestIsLocalMemberLearner(t *testing.T) {
+	tests := []struct {
+		name      string
+		members   []*Member
+		localID   types.ID
+		isLearner bool
+	}{
+		{
+			name:      "local member is a learner",
+			members:   []*Member{newTestMemberAsLearner(1, nil, "node1", nil)},
+			localID:   1,
+			isLearner: true,
+		},
+		{
+			name:      "local member is a voting member",
+			members:   []*Member{newTestMember(1, nil, "node1", nil)},
+			localID:   1,
+			isLearner: false,
+		},
+		{
+			// The local member can be absent from the members map when it
+			// has been removed concurrently, e.g. an in-flight RPC racing
+			// with the apply of a ConfChangeRemoveNode. It must be reported
+			// as a non-learner without panicking.
+			name:      "local member removed from the cluster",
+			members:   []*Member{newTestMember(2, nil, "node2", nil)},
+			localID:   1,
+			isLearner: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCluster(t, tt.members)
+			c.localID = tt.localID
+			assert.Equal(t, tt.isLearner, c.IsLocalMemberLearner())
+		})
+	}
+}
+
 func TestClusterMembers(t *testing.T) {
 	cls := newTestCluster(t, []*Member{
 		{ID: 1},
