@@ -67,9 +67,7 @@ func (h *kvHasher) WriteKeyValue(k, v []byte) {
 	isTombstone := BytesToBucketKey(k).tombstone
 
 	lower := Revision{Main: h.compactRevision + 1}
-	// skip revisions that are scheduled for deletion
-	// due to compacting; don't skip if there isn't one.
-	if lower.GreaterThan(kr) && len(h.keep) > 0 {
+	if lower.GreaterThan(kr) {
 		if _, ok := h.keep[kr]; !ok {
 			return
 		}

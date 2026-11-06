@@ -132,13 +132,59 @@ func testHashByRev(t *testing.T, s *store, rev int64) KeyValueHash {
 }
 
 // TestCompactionHash tests compaction hash
-// TODO: Change this to fuzz test
 func TestCompactionHash(t *testing.T) {
 	b, _ := betesting.NewDefaultTmpBackend(t)
 	s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, b)
 
 	testutil.TestCompactionHash(t.Context(), t, hashTestCase{s}, s.cfg.CompactionBatchLimit)
+}
+
+func FuzzCompactionHash(f *testing.F) {
+	f.Add([]byte{}, uint8(1))
+	f.Add([]byte{0, 0, 128, 0, 64, 128, 64}, uint8(1))
+	operations := make([]byte, 256)
+	for i := range operations {
+		operations[i] = byte(i % 64)
+	}
+	f.Add(operations, uint8(16))
+	f.Fuzz(func(t *testing.T, operations []byte, batchLimit uint8) {
+		if len(operations) > 4096 {
+			t.Skip()
+		}
+		b, _ := betesting.NewDefaultTmpBackend(t)
+		s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{
+			CompactionBatchLimit: int(batchLimit)%32 + 1,
+		})
+		defer cleanup(s, b)
+
+		tc := hashTestCase{s}
+		ctx := t.Context()
+		lastCompactRev := s.Rev()
+		for i, operation := range operations {
+			key := []byte{operation & 15}
+			if operation&128 != 0 {
+				s.DeleteRange(key, nil)
+			} else {
+				s.Put(key, []byte{operation}, 0)
+			}
+			if operation&64 == 0 && i != len(operations)-1 {
+				continue
+			}
+			if s.Rev() == lastCompactRev {
+				continue
+			}
+			rev := lastCompactRev + 1 + int64(operation)%(s.Rev()-lastCompactRev)
+			before, err := tc.HashByRev(ctx, rev)
+			require.NoError(t, err)
+			require.NoError(t, tc.Compact(ctx, rev))
+			require.NoError(t, tc.Defrag(ctx))
+			after, err := tc.HashByRev(ctx, rev)
+			require.NoError(t, err)
+			require.Equal(t, before, after, "hash changed at revision %d", rev)
+			lastCompactRev = rev
+		}
+	})
 }
 
 type hashTestCase struct {

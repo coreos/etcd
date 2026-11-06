@@ -14,6 +14,7 @@ Previous change logs can be found at [CHANGELOG-3.7](https://github.com/etcd-io/
   - [Cleanup the legacy v2 snapshot source code and cleanup orphaned defragmentation files on bootstrap](https://github.com/etcd-io/etcd/pull/22341)
 - [Add `LeaderId` (`leader_id`) to `ResponseHeader`, including headers for `DefragmentResponse`, `SnapshotResponse`, and `MoveLeaderResponse`](https://github.com/etcd-io/etcd/pull/22327).
 - [Add `NonBlockingDefrag` feature gate to enable non-blocking backend defragmentation](https://github.com/etcd-io/etcd/pull/22425)
+- Fix compaction hash mismatches when no live key revisions remain; add `FuzzCompactionHash` coverage for puts, deletes, compaction, and defragmentation.
 
 ### Package `clientv3`
 
