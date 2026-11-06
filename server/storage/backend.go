@@ -21,6 +21,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/server/v3/config"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
 	"go.etcd.io/etcd/server/v3/features"
@@ -28,6 +29,17 @@ import (
 	"go.etcd.io/etcd/server/v3/storage/schema"
 	"go.etcd.io/raft/v3/raftpb"
 )
+
+// syncSnapDir makes a renamed snapshot database durable. On Linux, syncing the
+// file alone does not necessarily persist its containing directory entry.
+func syncSnapDir(dir string) error {
+	d, err := fileutil.OpenDir(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return fileutil.Fsync(d)
+}
 
 func newBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 	bcfg := backend.DefaultBackendConfig(cfg.Logger)
@@ -67,6 +79,14 @@ func OpenSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot
 	}
 	if err := os.Rename(snapPath, cfg.BackendPath()); err != nil {
 		return nil, fmt.Errorf("failed to rename database snapshot file (%w)", err)
+	}
+	snapDir := cfg.SnapDir()
+	if err := syncSnapDir(snapDir); err != nil {
+		return nil, fmt.Errorf("failed to fsync snap directory (%w)", err)
+	}
+	if cfg.Logger != nil {
+		cfg.Logger.Info("fsynced snap directory after adopting database snapshot",
+			zap.String("path", snapDir))
 	}
 	return OpenBackend(cfg, hooks), nil
 }

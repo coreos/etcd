@@ -63,3 +63,29 @@ func TestSaveDBFromSyncsDirectory(t *testing.T) {
 		})
 	}
 }
+
+func Test_t4_save_db_from_fsyncs_dir_exactly_once(t *testing.T) {
+	dir := t.TempDir()
+	s := New(nil, dir)
+
+	var gotDirs []string
+	s.fsyncDir = func(gotDir string) error {
+		gotDirs = append(gotDirs, gotDir)
+		return nil
+	}
+
+	const content = "snapshot"
+	n, err := s.SaveDBFrom(strings.NewReader(content), 1)
+	if err != nil {
+		t.Fatalf("SaveDBFrom error = %v, want nil", err)
+	}
+	if n != int64(len(content)) {
+		t.Errorf("SaveDBFrom bytes = %d, want %d", n, int64(len(content)))
+	}
+	if len(gotDirs) != 1 {
+		t.Fatalf("fsync calls = %d, want 1", len(gotDirs))
+	}
+	if gotDirs[0] != dir {
+		t.Errorf("fsync directory = %q, want %q", gotDirs[0], dir)
+	}
+}
