@@ -204,20 +204,21 @@ func (s *store) hashByRev(rev int64) (hash KeyValueHash, currentRev int64, err e
 	return hash, currentRev, err
 }
 
-func (s *store) updateCompactRev(rev int64) (<-chan struct{}, int64, error) {
+func (s *store) updateCompactRev(rev int64) (<-chan struct{}, int64, int64, error) {
 	s.revMu.Lock()
+	compactMainRev := s.compactMainRev
+	currentRev := s.currentRev
 	if rev <= s.compactMainRev {
 		ch := make(chan struct{})
 		f := schedule.NewJob("kvstore_updateCompactRev_compactBarrier", func(ctx context.Context) { s.compactBarrier(ctx, ch) })
 		s.fifoSched.Schedule(f)
 		s.revMu.Unlock()
-		return ch, 0, ErrCompacted
+		return ch, compactMainRev, currentRev, ErrCompacted
 	}
 	if rev > s.currentRev {
 		s.revMu.Unlock()
-		return nil, 0, ErrFutureRev
+		return nil, compactMainRev, currentRev, ErrFutureRev
 	}
-	compactMainRev := s.compactMainRev
 	s.compactMainRev = rev
 
 	SetScheduledCompact(s.b.BatchTx(), rev)
@@ -228,7 +229,7 @@ func (s *store) updateCompactRev(rev int64) (<-chan struct{}, int64, error) {
 
 	s.revMu.Unlock()
 
-	return nil, compactMainRev, nil
+	return nil, compactMainRev, currentRev, nil
 }
 
 // checkPrevCompactionCompleted checks whether the previous scheduled compaction is completed.
@@ -271,7 +272,7 @@ func (s *store) compact(trace *traceutil.Trace, rev, prevCompactRev int64, prevC
 
 func (s *store) compactLockfree(rev int64) (<-chan struct{}, error) {
 	prevCompactionCompleted := s.checkPrevCompactionCompleted()
-	ch, prevCompactRev, err := s.updateCompactRev(rev)
+	ch, prevCompactRev, _, err := s.updateCompactRev(rev)
 	if err != nil {
 		return ch, err
 	}
@@ -282,13 +283,16 @@ func (s *store) compactLockfree(rev int64) (<-chan struct{}, error) {
 func (s *store) Compact(trace *traceutil.Trace, rev int64) (<-chan struct{}, error) {
 	s.mu.Lock()
 	prevCompactionCompleted := s.checkPrevCompactionCompleted()
-	ch, prevCompactRev, err := s.updateCompactRev(rev)
+	ch, prevCompactRev, currentRev, err := s.updateCompactRev(rev)
 	trace.Step("check and update compact revision")
+	s.mu.Unlock()
 	if err != nil {
-		s.mu.Unlock()
+		if rev == currentRev {
+			s.lg.Info("compaction is a no-op, latest revision is already compacted", zap.Int64("compact-revision", rev), zap.Int64("previous-compact-revision", prevCompactRev))
+			return ch, nil
+		}
 		return ch, err
 	}
-	s.mu.Unlock()
 
 	return s.compact(trace, rev, prevCompactRev, prevCompactionCompleted), nil
 }

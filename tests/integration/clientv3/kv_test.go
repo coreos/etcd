@@ -327,12 +327,18 @@ func TestKVCompactError(t *testing.T) {
 			t.Fatalf("couldn't put 'foo' (%v)", err)
 		}
 	}
-	_, err := kv.Compact(ctx, 6)
-	if err != nil {
-		t.Fatalf("couldn't compact 6 (%v)", err)
-	}
 
-	_, err = kv.Compact(ctx, 6)
+	resp, err := kv.Get(ctx, "foo")
+	require.NoError(t, err)
+	latestRevision := resp.Header.Revision
+
+	_, err = kv.Compact(ctx, latestRevision)
+	require.NoError(t, err)
+
+	_, err = kv.Compact(ctx, latestRevision)
+	require.NoError(t, err)
+
+	_, err = kv.Compact(ctx, latestRevision-1)
 	if !errors.Is(err, rpctypes.ErrCompacted) {
 		t.Fatalf("expected %v, got %v", rpctypes.ErrCompacted, err)
 	}
