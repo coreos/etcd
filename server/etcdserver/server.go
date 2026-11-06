@@ -1142,6 +1142,10 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, toApply *toApply) {
 	ep.diskSnapshotIndex = ep.appliedi
 	ep.memorySnapshotIndex = ep.appliedi
 	ep.confState = toApply.snapshot.Metadata.ConfState
+	// Proposals are admitted against appliedIndex. Leaving it at the
+	// pre-snapshot value rejects them until a later entry is applied.
+	s.setAppliedIndex(ep.appliedi)
+	s.setTerm(ep.appliedt)
 
 	// As backends and implementations like alarmsStore changed, we need
 	// to re-bootstrap Appliers.

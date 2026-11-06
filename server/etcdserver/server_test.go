@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	errorspkg "errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -862,6 +863,109 @@ func TestConcurrentApplyAndSnapshotV3(t *testing.T) {
 	if outdated != 0 {
 		t.Errorf("outdated=%v, want 0", outdated)
 	}
+}
+
+// TestApplySnapshotUpdatesAppliedIndex ensures that a member which catches up
+// by a leader snapshot reports the snapshot index as applied and accepts
+// proposals, even when no entries follow the snapshot.
+func TestApplySnapshotUpdatesAppliedIndex(t *testing.T) {
+	revertFunc := verify.DisableVerifications()
+	defer revertFunc()
+
+	lg := zaptest.NewLogger(t)
+	n := newNopReadyNode()
+	cl := membership.NewCluster(lg)
+	be, _ := betesting.NewDefaultTmpBackend(t)
+	cl.SetBackend(schema.NewMembershipBackend(lg, be))
+
+	testdir := t.TempDir()
+	require.NoError(t, os.MkdirAll(testdir+"/member/snap", 0o755))
+
+	// The leader snapshot is far ahead of anything the member has applied.
+	snapIndex := 2*maxGapBetweenApplyAndCommitIndex + 1
+	snapshotter := snap.New(lg, testdir)
+	snapBe, _ := betesting.NewDefaultTmpBackend(t)
+	t.Cleanup(func() {
+		betesting.Close(t, snapBe)
+	})
+	snapKV := mvcc.New(lg, snapBe, &lease.FakeLessor{}, mvcc.StoreConfig{})
+	t.Cleanup(func() {
+		require.NoError(t, snapKV.Close())
+	})
+	auth.NewAuthStore(lg, schema.NewAuthBackend(lg, snapBe), nil, 1)
+	snapBe.ForceCommit()
+	pr, pw := io.Pipe()
+	go func() {
+		bs := snapBe.Snapshot()
+		_, err := bs.WriteTo(pw)
+		pw.CloseWithError(errorspkg.Join(err, bs.Close()))
+	}()
+	_, err := snapshotter.SaveDBFrom(pr, uint64(snapIndex))
+	require.NoError(t, err)
+
+	rs := raft.NewMemoryStorage()
+	r := newRaftNode(raftNodeConfig{
+		lg:          lg,
+		isIDRemoved: func(id uint64) bool { return cl.IsIDRemoved(types.ID(id)) },
+		Node:        n,
+		transport:   newNopTransporter(),
+		storage:     mockstorage.NewStorageRecorder(testdir),
+		raftStorage: rs,
+	})
+	ci := cindex.NewConsistentIndex(be)
+	s := &EtcdServer{
+		lgMu: new(sync.RWMutex),
+		lg:   lg,
+		Cfg: config.ServerConfig{
+			Logger:            lg,
+			DataDir:           testdir,
+			MaxRequestBytes:   1024 * 1024,
+			ServerFeatureGate: features.NewDefaultServerFeatureGate("test", lg),
+		},
+		r:                 *r,
+		snapshotter:       snapshotter,
+		cluster:           cl,
+		consistIndex:      ci,
+		beHooks:           serverstorage.NewBackendHooks(lg, ci),
+		firstCommitInTerm: notify.NewNotifier(),
+		lessor:            &lease.FakeLessor{},
+		uberApply:         uberApplierMock{},
+		authStore:         auth.NewAuthStore(lg, schema.NewAuthBackend(lg, be), nil, 1),
+		reqIDGen:          idutil.NewGenerator(0, time.Time{}),
+	}
+	s.kv = mvcc.New(lg, be, &lease.FakeLessor{}, mvcc.StoreConfig{})
+	s.be = be
+
+	s.start()
+	defer s.Stop()
+
+	n.readyc <- raft.Ready{Snapshot: &raftpb.Snapshot{Metadata: &raftpb.SnapshotMetadata{
+		Index:     new(uint64(snapIndex)),
+		Term:      new(uint64(1)),
+		ConfState: &raftpb.ConfState{Voters: []uint64{1}},
+	}}}
+	select {
+	case <-s.ApplyWait(uint64(snapIndex)):
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the snapshot to be applied")
+	}
+
+	assert.Equal(t, uint64(snapIndex), s.AppliedIndex())
+	assert.Equal(t, uint64(1), s.Term())
+
+	// No entries follow the snapshot. The proposal is never applied and times
+	// out, but it must reach raft instead of being rejected as too many requests.
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err = s.Put(ctx, &pb.PutRequest{Key: []byte("foo"), Value: []byte("bar")})
+	require.NotErrorIs(t, err, errors.ErrTooManyRequests)
+	var proposed int
+	for _, a := range n.Action() {
+		if a.Name == "Propose" {
+			proposed++
+		}
+	}
+	assert.Equal(t, 1, proposed)
 }
 
 // TestAddMember tests AddMember can propose and perform node addition.
