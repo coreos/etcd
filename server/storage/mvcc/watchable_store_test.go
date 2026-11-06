@@ -987,3 +987,59 @@ func TestStressWatchCancelClose(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestResyncDelay verifies that the delay syncWatchersLoop feeds to
+// time.Ticker.Reset is always positive. A zero syncDuration is reachable on
+// platforms whose monotonic clock resolution is coarser than a sync pass
+// takes, and Ticker.Reset panics on a non-positive interval.
+func TestResyncDelay(t *testing.T) {
+	tests := []struct {
+		name                 string
+		syncDuration         time.Duration
+		lastUnsyncedWatchers int
+		unsyncedWatchers     int
+		want                 time.Duration
+	}{
+		{
+			name:                 "no progress falls back to resync period",
+			syncDuration:         5 * time.Millisecond,
+			lastUnsyncedWatchers: 3,
+			unsyncedWatchers:     3,
+			want:                 watchResyncPeriod,
+		},
+		{
+			name:                 "all watchers synced falls back to resync period",
+			syncDuration:         5 * time.Millisecond,
+			lastUnsyncedWatchers: 3,
+			unsyncedWatchers:     0,
+			want:                 watchResyncPeriod,
+		},
+		{
+			name:                 "progress with work pending yields time taken",
+			syncDuration:         5 * time.Millisecond,
+			lastUnsyncedWatchers: 3,
+			unsyncedWatchers:     1,
+			want:                 5 * time.Millisecond,
+		},
+		{
+			name:                 "progress with unmeasurable sync duration falls back to resync period",
+			syncDuration:         0,
+			lastUnsyncedWatchers: 3,
+			unsyncedWatchers:     1,
+			want:                 watchResyncPeriod,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resyncDelay(tt.syncDuration, tt.lastUnsyncedWatchers, tt.unsyncedWatchers)
+			require.Equal(t, tt.want, got)
+			require.Positivef(t, got, "delay must be positive, time.Ticker.Reset panics otherwise")
+
+			// Reset really does panic on a non-positive interval, so exercise it.
+			ticker := time.NewTicker(watchResyncPeriod)
+			defer ticker.Stop()
+			require.NotPanics(t, func() { ticker.Reset(got) })
+		})
+	}
+}

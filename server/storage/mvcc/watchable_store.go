@@ -239,12 +239,7 @@ func (s *watchableStore) syncWatchersLoop() {
 		}
 		syncDuration := time.Since(st)
 
-		delayTicker.Reset(watchResyncPeriod)
-		// more work pending?
-		if unsyncedWatchers != 0 && lastUnsyncedWatchers > unsyncedWatchers {
-			// be fair to other store operations by yielding time taken
-			delayTicker.Reset(syncDuration)
-		}
+		delayTicker.Reset(resyncDelay(syncDuration, lastUnsyncedWatchers, unsyncedWatchers))
 
 		select {
 		case <-delayTicker.C:
@@ -252,6 +247,22 @@ func (s *watchableStore) syncWatchersLoop() {
 			return
 		}
 	}
+}
+
+// resyncDelay returns how long syncWatchersLoop waits before calling
+// syncWatchers again. When the last pass made progress but watchers are still
+// unsynced, it yields the time that pass took so that store operations are not
+// starved. Otherwise it falls back to watchResyncPeriod.
+//
+// The returned duration is always positive. time.Ticker.Reset panics on a
+// non-positive interval, and syncDuration can be zero on platforms whose
+// monotonic clock resolution is coarser than a sync pass takes.
+func resyncDelay(syncDuration time.Duration, lastUnsyncedWatchers, unsyncedWatchers int) time.Duration {
+	// more work pending?
+	if unsyncedWatchers != 0 && lastUnsyncedWatchers > unsyncedWatchers && syncDuration > 0 {
+		return syncDuration
+	}
+	return watchResyncPeriod
 }
 
 // syncVictimsLoop tries to write precomputed watcher responses to
