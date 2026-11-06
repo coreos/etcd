@@ -155,3 +155,30 @@ tests:
               description: 'etcd cluster "etcd": database size in use on instance 10.10.10.0 is 30% of the actual allocated disk space, please run defragmentation (e.g. etcdctl defrag) to retrieve the unused fragmented disk space.'
               runbook_url: https://etcd.io/docs/v3.5/op-guide/maintenance/#defragmentation
               summary: etcd database size in use is less than 50% of the actual allocated storage.
+  - interval: 1m
+    input_series:
+      - series: etcd_server_proposals_failed_total{job="etcd",instance="10.10.10.0"}
+        values: 0+60x40
+      - series: etcd_server_proposals_failed_total{job="etcd",instance="10.10.10.1"}
+        values: 0+0x4 10+0x35
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: etcdHighNumberOfFailedProposals
+        exp_alerts:
+          - exp_labels:
+              instance: 10.10.10.0
+              job: etcd
+              severity: warning
+            exp_annotations:
+              description: 'etcd cluster "etcd": 900 proposal failures within the last 15 minutes on etcd instance 10.10.10.0.'
+              summary: etcd cluster has high number of proposal failures.
+      - eval_time: 30m
+        alertname: etcdHighNumberOfFailedProposals
+        exp_alerts:
+          - exp_labels:
+              instance: 10.10.10.0
+              job: etcd
+              severity: warning
+            exp_annotations:
+              description: 'etcd cluster "etcd": 900 proposal failures within the last 15 minutes on etcd instance 10.10.10.0.'
+              summary: etcd cluster has high number of proposal failures.
