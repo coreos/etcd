@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
+	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/pkg/v3/pbutil"
 	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
@@ -133,7 +134,7 @@ func (p *pipeline) handle() {
 // error on any failure.
 func (p *pipeline) post(data []byte) (err error) {
 	u := p.picker.pick()
-	req := createPostRequest(p.tr.Logger, u, RaftPrefix, bytes.NewBuffer(data), "application/protobuf", p.tr.URLs, p.tr.ID, p.tr.ClusterID)
+	req := createPostRequest(p.tr.Logger, u, RaftPrefix, bytes.NewBuffer(data), "application/protobuf", p.tr.URLs, p.tr.ID, p.tr.ClusterID, version.VersionForPeer(p.tr.getPeerVersion(p.peerID)))
 
 	done := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())

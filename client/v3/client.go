@@ -504,7 +504,7 @@ func (c *Client) roundRobinQuorumBackoff(waitBetween time.Duration, jitterFracti
 
 // minSupportedVersion returns the minimum version supported, which is the previous minor release.
 func minSupportedVersion() *semver.Version {
-	ver := semver.MustParse(version.Version)
+	ver, _ := semver.NewVersion(version.Version)
 	// consider only major and minor version
 	ver = semver.New(ver.Major(), ver.Minor(), 0, "", "")
 	for i := range version.AllVersions {

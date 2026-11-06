@@ -148,8 +148,9 @@ func TestPipelinePost(t *testing.T) {
 	if g := req.Header.Get("Content-Type"); g != "application/protobuf" {
 		t.Errorf("content type = %s, want %s", g, "application/protobuf")
 	}
-	if g := req.Header.Get("X-Server-Version"); g != version.Version {
-		t.Errorf("version = %s, want %s", g, version.Version)
+	wantVersion := version.VersionForPeer(tp.getPeerVersion(p.peerID))
+	if g := req.Header.Get("X-Server-Version"); g != wantVersion {
+		t.Errorf("version = %s, want %s", g, wantVersion)
 	}
 	if g := req.Header.Get("X-Min-Cluster-Version"); g != version.MinClusterVersion {
 		t.Errorf("min version = %s, want %s", g, version.MinClusterVersion)

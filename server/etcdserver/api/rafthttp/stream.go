@@ -585,7 +585,7 @@ func (cr *streamReader) dial(t streamType) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("failed to make http request to %v (%w)", u, err)
 	}
 	req.Header.Set("X-Server-From", cr.tr.ID.String())
-	req.Header.Set("X-Server-Version", version.Version)
+	req.Header.Set("X-Server-Version", version.VersionForPeer(cr.tr.getPeerVersion(cr.peerID)))
 	req.Header.Set("X-Min-Cluster-Version", version.MinClusterVersion)
 	req.Header.Set("X-Etcd-Cluster-ID", cr.tr.ClusterID.String())
 	req.Header.Set("X-Raft-To", cr.peerID.String())
@@ -610,6 +610,7 @@ func (cr *streamReader) dial(t streamType) (io.ReadCloser, error) {
 	}
 
 	rv := serverVersion(resp.Header)
+	cr.tr.setPeerVersion(cr.peerID, rv)
 	lv := semver.MustParse(version.Version)
 	if compareMajorMinorVersion(rv, lv) == -1 && !checkStreamSupport(rv, t) {
 		httputil.GracefulClose(resp)

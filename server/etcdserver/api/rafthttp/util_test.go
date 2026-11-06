@@ -109,6 +109,10 @@ func TestServerVersion(t *testing.T) {
 			semver.MustParse("2.1.0"),
 		},
 		{
+			http.Header{"X-Server-Version": []string{"v2.1.0"}},
+			semver.MustParse("v2.1.0"),
+		},
+		{
 			http.Header{"X-Server-Version": []string{"2.1.0-alpha.0+git"}},
 			semver.MustParse("2.1.0-alpha.0+git"),
 		},

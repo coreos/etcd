@@ -209,7 +209,7 @@ func TestServeRaftStreamPrefix(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("#%d: failed to attach outgoingConn", i)
 		}
-		if g := rw.Header().Get("X-Server-Version"); g != version.Version {
+		if g := rw.Header().Get("X-Server-Version"); g != version.VersionForPeer(serverVersion(rw.Header())) {
 			t.Errorf("#%d: X-Server-Version = %s, want %s", i, g, version.Version)
 		}
 		if conn.t != tt.wtype {

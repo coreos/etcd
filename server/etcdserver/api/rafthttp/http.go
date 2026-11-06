@@ -364,7 +364,7 @@ func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("X-Server-Version", version.Version)
+	w.Header().Set("X-Server-Version", version.VersionForPeer(serverVersion(r.Header)))
 	w.Header().Set("X-Etcd-Cluster-ID", h.cid.String())
 
 	if err := checkClusterCompatibilityFromHeader(h.lg, h.tr.ID, r.Header, h.cid); err != nil {

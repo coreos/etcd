@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/xiang90/probing"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -127,8 +128,26 @@ type Transport struct {
 	remotes map[types.ID]*remote // remotes map that helps newly joined member to catch up
 	peers   map[types.ID]Peer    // peers map
 
+	// peerVersions tracks the last known semver of each remote peer, used to
+	// conditionally strip the "v" prefix from X-Server-Version headers for
+	// peers that use github.com/coreos/go-semver (< v3.7) which cannot parse it.
+	peerVersions sync.Map // map[types.ID]*semver.Version
+
 	pipelineProber probing.Prober
 	streamProber   probing.Prober
+}
+
+// getPeerVersion returns the last known version of the given peer, or nil if unknown.
+func (t *Transport) getPeerVersion(id types.ID) *semver.Version {
+	if v, ok := t.peerVersions.Load(id); ok {
+		return v.(*semver.Version)
+	}
+	return nil
+}
+
+// setPeerVersion stores the last known version of the given peer.
+func (t *Transport) setPeerVersion(id types.ID, v *semver.Version) {
+	t.peerVersions.Store(id, v)
 }
 
 func (t *Transport) Start() error {
@@ -340,6 +359,7 @@ func (t *Transport) RemoveAllPeers() {
 
 // the caller of this function must have the peers mutex.
 func (t *Transport) removePeer(id types.ID) {
+	t.peerVersions.Delete(id)
 	// etcd may remove a member again on startup due to WAL files replaying.
 	peer, ok := t.peers[id]
 	if ok {

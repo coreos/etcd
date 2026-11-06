@@ -61,7 +61,7 @@ func newStreamRoundTripper(tlsInfo transport.TLSInfo, dialTimeout time.Duration)
 }
 
 // createPostRequest creates a HTTP POST request that sends raft message.
-func createPostRequest(lg *zap.Logger, u url.URL, path string, body io.Reader, ct string, urls types.URLs, from, cid types.ID) *http.Request {
+func createPostRequest(lg *zap.Logger, u url.URL, path string, body io.Reader, ct string, urls types.URLs, from, cid types.ID, serverVer string) *http.Request {
 	uu := u
 	uu.Path = path
 	req, err := http.NewRequest(http.MethodPost, uu.String(), body)
@@ -72,7 +72,7 @@ func createPostRequest(lg *zap.Logger, u url.URL, path string, body io.Reader, c
 	}
 	req.Header.Set("Content-Type", ct)
 	req.Header.Set("X-Server-From", from.String())
-	req.Header.Set("X-Server-Version", version.Version)
+	req.Header.Set("X-Server-Version", serverVer)
 	req.Header.Set("X-Min-Cluster-Version", version.MinClusterVersion)
 	req.Header.Set("X-Etcd-Cluster-ID", cid.String())
 	setPeerURLsHeader(req, urls)

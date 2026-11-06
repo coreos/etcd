@@ -25,6 +25,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"go.uber.org/zap"
 
+	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/pkg/v3/httputil"
 	pioutil "go.etcd.io/etcd/pkg/v3/ioutil"
@@ -74,7 +75,7 @@ func (s *snapshotSender) send(merged *snap.Message) {
 	defer body.Close()
 
 	u := s.picker.pick()
-	req := createPostRequest(s.tr.Logger, u, RaftSnapshotPrefix, body, "application/octet-stream", s.tr.URLs, s.from, s.cid)
+	req := createPostRequest(s.tr.Logger, u, RaftSnapshotPrefix, body, "application/octet-stream", s.tr.URLs, s.from, s.cid, version.VersionForPeer(s.tr.getPeerVersion(s.to)))
 
 	snapshotSizeVal := uint64(merged.TotalSize)
 	snapshotSize := humanize.Bytes(snapshotSizeVal)

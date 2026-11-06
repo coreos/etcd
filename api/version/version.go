@@ -88,3 +88,14 @@ func LessThan(ver1, ver2 semver.Version) bool {
 func Equal(ver1, ver2 semver.Version) bool {
 	return ver1.Equal(&ver2)
 }
+
+// VersionForPeer returns the version string to use in the X-Server-Version header
+// when communicating with a peer. Peers older than v3.8 use github.com/coreos/go-semver
+// which does not accept a leading "v" prefix and will panic when parsing it.
+// If the peer version is unknown (nil) or less than v3.8, the "v" prefix is stripped.
+func VersionForPeer(peerVer *semver.Version) string {
+	if peerVer == nil || peerVer.LessThan(&V3_8) {
+		return strings.TrimPrefix(Version, "v")
+	}
+	return Version
+}
