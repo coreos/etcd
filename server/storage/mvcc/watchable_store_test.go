@@ -544,6 +544,59 @@ func TestWatchNoEventLossOnCompact(t *testing.T) {
 	}
 }
 
+func TestWatchCompactedWatcherRemovedFromUnsyncedWhenCapped(t *testing.T) {
+	oldMaxWatchersPerSync := maxWatchersPerSync
+	defer func() { maxWatchersPerSync = oldMaxWatchersPerSync }()
+
+	b, _ := betesting.NewDefaultTmpBackend(t)
+	s := newWatchableStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+	defer cleanup(s, b)
+
+	testKey, testValue := []byte("foo"), []byte("bar")
+	maxRev := 10
+	compactRev := int64(5)
+	for i := 0; i < maxRev; i++ {
+		s.Put(testKey, testValue, lease.NoLease)
+	}
+	_, err := s.Compact(traceutil.TODO(), compactRev)
+	require.NoError(t, err)
+
+	w := s.NewWatchStream()
+	defer w.Close()
+
+	// Register more watchers than a single sync round may select, so that
+	// choose() takes its capped branch. All of them start below compactRev.
+	const watcherCount = 2
+	maxWatchersPerSync = watcherCount
+	for id := WatchID(0); id < watcherCount; id++ {
+		_, err = w.Watch(t.Context(), id, testKey, nil, 1)
+		require.NoError(t, err)
+	}
+	require.Equal(t, watcherCount, s.unsynced.size())
+
+	s.syncWatchers()
+
+	compacted := make(map[WatchID]int)
+	for i := 0; i < watcherCount; i++ {
+		resp := <-w.Chan()
+		require.Equal(t, compactRev, resp.CompactRevision)
+		compacted[resp.WatchID]++
+	}
+	require.Lenf(t, compacted, watcherCount, "each watcher should be sent exactly one compaction response")
+
+	// A watcher that was told its start revision is compacted must not be
+	// left behind in the unsynced group.
+	require.Equalf(t, 0, s.unsynced.size(), "compacted watchers should be removed from the unsynced group")
+
+	// And it must not be sent the same compaction response again.
+	s.syncWatchers()
+	select {
+	case resp := <-w.Chan():
+		t.Fatalf("unexpected duplicate response for watcher %d: %+v", resp.WatchID, resp)
+	default:
+	}
+}
+
 func TestWatchFutureRev(t *testing.T) {
 	b, _ := betesting.NewDefaultTmpBackend(t)
 	s := New(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})

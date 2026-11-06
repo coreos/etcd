@@ -228,14 +228,26 @@ func (wg *watcherGroup) choose(maxWatchers int, curRev, compactRev int64) (*watc
 		return wg, wg.chooseAll(curRev, compactRev)
 	}
 	ret := newWatcherGroup()
+	selected := make([]*watcher, 0, maxWatchers)
 	for w := range wg.watchers {
 		if maxWatchers <= 0 {
 			break
 		}
 		maxWatchers--
 		ret.add(w)
+		selected = append(selected, w)
 	}
-	return &ret, ret.chooseAll(curRev, compactRev)
+	minRev := ret.chooseAll(curRev, compactRev)
+	// chooseAll retires watchers whose minimum revision was compacted away,
+	// but here it only sees the temporary group. Retire them from wg as well.
+	// Otherwise they stay in the unsynced group forever and are sent a
+	// duplicate compaction response on every resync.
+	for _, w := range selected {
+		if _, ok := ret.watchers[w]; !ok {
+			wg.delete(w)
+		}
+	}
+	return &ret, minRev
 }
 
 func (wg *watcherGroup) chooseAll(curRev, compactRev int64) int64 {
