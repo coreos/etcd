@@ -168,11 +168,14 @@ func (s *snapshotSender) post(req *http.Request) (err error) {
 		// successfully receives the request body.
 		time.AfterFunc(snapResponseReadTimeout, func() { httputil.GracefulClose(resp) })
 		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		result <- responseAndError{resp, body, err}
 	}()
 
 	select {
 	case <-s.stopc:
+		// Cancel the context to abort any in-flight RoundTrip
+		cancel()
 		return errStopped
 	case r := <-result:
 		if r.err != nil {
