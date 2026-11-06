@@ -182,7 +182,9 @@ type bootstrappedBackend struct {
 }
 
 func (s *bootstrappedBackend) Close() {
-	s.be.Close()
+	if err := s.be.Close(); err != nil {
+		s.beHooks.lg.Warn("failed to close backend", zap.Error(err))
+	}
 }
 
 type bootstrappedCluster struct {
