@@ -909,11 +909,12 @@ type Int64Comparable int64
 
 func (v Int64Comparable) Compare(c Comparable) int {
 	vc := c.(Int64Comparable)
-	cmp := v - vc
-	if cmp < 0 {
+	// Compare directly rather than via subtraction (v - vc), which overflows
+	// int64 when the operands are far enough apart and would return the wrong sign.
+	if v < vc {
 		return -1
 	}
-	if cmp > 0 {
+	if v > vc {
 		return 1
 	}
 	return 0

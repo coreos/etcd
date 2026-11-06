@@ -15,6 +15,7 @@
 package adt
 
 import (
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -532,4 +533,41 @@ func TestIntervalTreeContains(t *testing.T) {
 		v := ivt.Contains(tt.chkIvl)
 		assert.Equalf(t, v, tt.wContains, "#%d: ivt.Contains got %v, expected %v", i, v, tt.wContains)
 	}
+}
+
+// TestInt64ComparableCompare checks that Int64Comparable.Compare returns the
+// correct result even when the operands are far enough apart to overflow int64.
+func TestInt64ComparableCompare(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b int64
+		want int
+	}{
+		{name: "equal", a: 5, b: 5, want: 0},
+		{name: "equal zero", a: 0, b: 0, want: 0},
+		{name: "less", a: 1, b: 2, want: -1},
+		{name: "greater", a: 2, b: 1, want: 1},
+		{name: "max greater than min (overflows)", a: math.MaxInt64, b: math.MinInt64, want: 1},
+		{name: "min less than max (overflows)", a: math.MinInt64, b: math.MaxInt64, want: -1},
+		{name: "max greater than negative one (overflows)", a: math.MaxInt64, b: -1, want: 1},
+		{name: "negative one less than max (overflows)", a: -1, b: math.MaxInt64, want: -1},
+		{name: "min less than positive one (overflows)", a: math.MinInt64, b: 1, want: -1},
+		{name: "positive one greater than min (overflows)", a: 1, b: math.MinInt64, want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Int64Comparable(tt.a).Compare(Int64Comparable(tt.b))
+			require.Equalf(t, tt.want, got, "Int64Comparable(%d).Compare(%d)", tt.a, tt.b)
+		})
+	}
+}
+
+// TestIntervalCompareInt64Overflow checks that Interval.Compare orders two far
+// apart intervals correctly, without being tripped up by int64 overflow.
+func TestIntervalCompareInt64Overflow(t *testing.T) {
+	farLeft := Interval{Int64Comparable(math.MinInt64), Int64Comparable(math.MinInt64 + 1)}
+	farRight := Interval{Int64Comparable(math.MaxInt64 - 1), Int64Comparable(math.MaxInt64)}
+
+	require.Equal(t, -1, farLeft.Compare(&farRight), "far-left interval must be less than far-right interval")
+	require.Equal(t, 1, farRight.Compare(&farLeft), "far-right interval must be greater than far-left interval")
 }
