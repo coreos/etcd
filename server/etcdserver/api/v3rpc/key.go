@@ -248,7 +248,14 @@ func checkIntervals(reqs []*pb.RequestOp) (map[string]struct{}, adt.IntervalTree
 		}
 		var iv adt.Interval
 		if len(dreq.RangeEnd) != 0 {
-			iv = adt.NewStringAffineInterval(string(dreq.Key), string(dreq.RangeEnd))
+			rangeEnd := dreq.RangeEnd
+			if len(rangeEnd) == 1 && rangeEnd[0] == 0 {
+				// support >= key deletes, as watch.go does: the open-ended
+				// range end must become "", the largest StringAffineComparable,
+				// not the literal byte 0.
+				rangeEnd = nil
+			}
+			iv = adt.NewStringAffineInterval(string(dreq.Key), string(rangeEnd))
 		} else {
 			iv = adt.NewStringAffinePoint(string(dreq.Key))
 		}
