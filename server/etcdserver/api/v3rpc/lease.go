@@ -90,22 +90,8 @@ func (ls *LeaseServer) LeaseLeases(ctx context.Context, rr *pb.LeaseLeasesReques
 	return resp, nil
 }
 
-func (ls *LeaseServer) LeaseKeepAlive(stream pb.Lease_LeaseKeepAliveServer) (err error) {
-	errc := make(chan error, 1)
-	go func() {
-		errc <- ls.leaseKeepAlive(stream)
-	}()
-	select {
-	case err = <-errc:
-	case <-stream.Context().Done():
-		// We end up here due to:
-		// 1. Client cancellation
-		// 2. Server cancellation: the client ctx is wrapped with WithRequireLeader,
-		//		monitorLeader() detects no leader and thus cancels this stream with ErrGRPCNoLeader.
-		// 3. Server cancellation: the server is shutting down.
-		err = stream.Context().Err()
-	}
-	return err
+func (ls *LeaseServer) LeaseKeepAlive(stream pb.Lease_LeaseKeepAliveServer) error {
+	return ls.leaseKeepAlive(stream)
 }
 
 func (ls *LeaseServer) leaseKeepAlive(stream pb.Lease_LeaseKeepAliveServer) error {
