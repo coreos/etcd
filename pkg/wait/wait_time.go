@@ -35,7 +35,7 @@ type timeList struct {
 	m                   map[uint64]chan struct{}
 }
 
-func NewTimeList() *timeList {
+func NewTimeList() WaitTime {
 	return &timeList{m: make(map[uint64]chan struct{})}
 }
 

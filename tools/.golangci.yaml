@@ -84,7 +84,6 @@ linters:
         - name: exported
           disabled: true
         - name: unexported-return
-          disabled: true
     staticcheck:
       checks:
         - all
