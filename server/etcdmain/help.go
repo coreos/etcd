@@ -288,6 +288,16 @@ Features:
     Duration of time between two downgrade status checks.
   --snapshot-catchup-entries
     Number of entries for a slow follower to catch up after compacting the raft storage entries.
+  --experimental-health-check-interval '0s'
+    Period of the server-side health self-check loop. 0 means use the package default (500ms). Only honored when the ServerHealthCheck feature gate is enabled.
+  --experimental-health-check-timeout '0s'
+    Per-check wall-clock timeout. 0 means derive it from the request timeout (5s + 2 election timeouts, 7s with the default election timeout), the same budget a linearizable read gets. Only honored when the ServerHealthCheck feature gate is enabled.
+  --experimental-health-check-apply-lag '0'
+    Maximum committed-vs-applied index gap before apply_lag check fails. 0 means use the package default (10000). Values below 10000 make the check report failures while the member can still accept some request classes; apply_lag only flips the etcd.health/apply_lag observation entry and does not drive endpoint eviction. Only honored when the ServerHealthCheck feature gate is enabled.
+  --experimental-health-check-failure-threshold '0'
+    Consecutive failed ticks before the gRPC health state flips to NOT_SERVING. 0 means use the package default (3). Must be strictly greater than the success threshold (asymmetric debounce). Only honored when the ServerHealthCheck feature gate is enabled.
+  --experimental-health-check-success-threshold '0'
+    Consecutive successful ticks before the gRPC health state returns to SERVING. 0 means use the package default (2). Must be strictly less than the failure threshold (asymmetric debounce). Only honored when the ServerHealthCheck feature gate is enabled.
 
 Unsafe feature:
   --force-new-cluster 'false'

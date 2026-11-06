@@ -84,9 +84,32 @@ func Server(s *etcdserver.EtcdServer, tls *tls.Config, interceptor grpc.UnarySer
 	pb.RegisterAuthServer(grpcServer, NewAuthServer(s))
 
 	hsrv := health.NewServer()
-	healthNotifier := newHealthNotifier(hsrv, s)
+	listenerNotifier := newHealthNotifier(hsrv, s)
+	// Wire the v3rpc-side notifier into EtcdServer so the
+	// server-side health.Checker goroutine (registered in
+	// EtcdServer.Start) can find it. embed/serve.go calls
+	// v3rpc.Server once per listener (insecure and secure);
+	// AddHealthNotifier accumulates each one, and the Checker
+	// goroutine fans state transitions out to every listener
+	// via a MultiNotifier. The previous SetHealthNotifier
+	// design silently overwrote the first notifier, leaving
+	// the first listener's *health.Server stuck at its initial
+	// SERVING value in dual-listener deployments.
+	s.AddHealthNotifier(listenerNotifier)
 	healthpb.RegisterHealthServer(grpcServer, hsrv)
-	pb.RegisterMaintenanceServer(grpcServer, NewMaintenanceServer(s, healthNotifier))
+	// The maintenance server takes the server-level fan-out notifier
+	// so a Defragment flips every registered listener's health.v1
+	// state, not only the listener the RPC arrived on. GetHealthNotifier
+	// is fetched here, after the AddHealthNotifier above, so it is
+	// non-nil on every production path; the fallback to the
+	// listener-local notifier keeps GetHealthNotifier's documented
+	// nil contract from turning into a panic under any future wiring
+	// change.
+	serverNotifier := s.GetHealthNotifier()
+	if serverNotifier == nil {
+		serverNotifier = listenerNotifier
+	}
+	pb.RegisterMaintenanceServer(grpcServer, NewMaintenanceServer(s, serverNotifier))
 
 	// set zero values for metrics registered for this grpc server
 	serverMetrics.InitializeMetrics(grpcServer)

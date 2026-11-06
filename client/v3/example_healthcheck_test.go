@@ -1,0 +1,1 @@
+../../tests/integration/clientv3/examples/example_healthcheck_test.go

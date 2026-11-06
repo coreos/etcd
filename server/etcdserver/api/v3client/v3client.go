@@ -39,7 +39,11 @@ func New(s *etcdserver.EtcdServer) *clientv3.Client {
 	wc := adapter.WatchServerToWatchClient(v3rpc.NewWatchServer(s))
 	c.Watcher = &watchWrapper{clientv3.NewWatchFromWatchClient(wc, c)}
 
-	mc := adapter.MaintenanceServerToMaintenanceClient(v3rpc.NewMaintenanceServer(s, nil))
+	// v3client wraps an in-process EtcdServer for tests / proxies
+	// that already own the underlying state, so pass a NopNotifier
+	// rather than nil. A nil notifier would panic on the first
+	// Status() or Defragment() call inside the MaintenanceServer.
+	mc := adapter.MaintenanceServerToMaintenanceClient(v3rpc.NewMaintenanceServer(s, v3rpc.NopNotifier))
 	c.Maintenance = clientv3.NewMaintenanceFromMaintenanceClient(mc, c)
 
 	clc := adapter.ClusterServerToClusterClient(v3rpc.NewClusterServer(s))

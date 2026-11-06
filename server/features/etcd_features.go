@@ -94,6 +94,24 @@ const (
 	// owner: @ahrtr
 	// beta: v3.8
 	NonBlockingDefrag featuregate.Feature = "NonBlockingDefrag"
+	// ServerHealthCheck enables the server-side health self-check loop:
+	// per-check gRPC health.v1 entries under etcd.health/ (linear_read,
+	// serializable_read, apply_lag, apply_stall, no_leader, data_corruption,
+	// learner, defrag) plus the aggregate entry clients select on. The
+	// aggregate flips NOT_SERVING only on member-local evidence (linear_read
+	// failure under a bounded no_leader veto, apply_stall, data_corruption,
+	// learner, defrag); cluster-wide reasons (no_leader, apply_lag) stay on
+	// their own entries.
+	//
+	// Default-off while the chain is under development: enabling is a
+	// conscious act (--feature-gates=ServerHealthCheck=true, e.g. rendered
+	// by an operator for the clusters it manages). Enabling is inert for
+	// clients that have not opted into gRPC client-side health checking:
+	// health.v1 is passive reporting, so the gate cannot reroute traffic
+	// on its own.
+	// owner: @crochee
+	// alpha: v3.8
+	ServerHealthCheck featuregate.Feature = "ServerHealthCheck"
 )
 
 var DefaultEtcdServerFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
@@ -107,6 +125,7 @@ var DefaultEtcdServerFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	FastLeaseKeepAlive:           {Default: true, PreRelease: featuregate.Beta},
 	PriorityRequest:              {Default: false, PreRelease: featuregate.Alpha},
 	NonBlockingDefrag:            {Default: true, PreRelease: featuregate.Beta},
+	ServerHealthCheck:            {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func NewDefaultServerFeatureGate(name string, lg *zap.Logger) featuregate.FeatureGate {

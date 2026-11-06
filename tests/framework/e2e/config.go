@@ -99,6 +99,12 @@ var experimentalFlags = map[string]struct{}{
 	"distributed-tracing-service-name":     {},
 	"distributed-tracing-instance-id":      {},
 	"distributed-tracing-sampling-rate":    {},
+	// server-side health self-check (ServerHealthCheck, v3.7+)
+	"experimental-health-check-interval":          {},
+	"experimental-health-check-timeout":           {},
+	"experimental-health-check-apply-lag":         {},
+	"experimental-health-check-failure-threshold": {},
+	"experimental-health-check-success-threshold": {},
 }
 
 // convertFlag converts between experimental and non-experimental flags.

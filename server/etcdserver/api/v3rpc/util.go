@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"google.golang.org/grpc/codes"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -146,6 +147,11 @@ func isRPCSupportedForLearner(req any) bool {
 		return true
 	case *pb.RangeRequest:
 		return r.Serializable
+	case *healthpb.HealthCheckRequest, *healthpb.HealthListRequest:
+		// Learners must be able to answer health RPCs so they can
+		// honestly report NOT_SERVING instead of failing the RPC
+		// itself (upstream issue #18801).
+		return true
 	default:
 		return false
 	}

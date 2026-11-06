@@ -94,6 +94,14 @@ type maintenanceServer struct {
 	pb.UnsafeMaintenanceServer
 }
 
+// NewMaintenanceServer builds a *maintenanceServer wired to s.
+// healthNotifier must be non-nil and should be the server-level
+// fan-out notifier (EtcdServer.GetHealthNotifier): a Defragment has
+// to flip every registered listener's health.v1 state, not only the
+// listener the RPC arrived on. v3rpc.Server passes exactly that;
+// v3client.New passes v3rpc.NopNotifier because the in-process
+// wrapper owns no listener health state. The field is dereferenced
+// unconditionally in Defragment().
 func NewMaintenanceServer(s *etcdserver.EtcdServer, healthNotifier notifier) pb.MaintenanceServer {
 	srv := &maintenanceServer{
 		lg:             s.Cfg.Logger,
@@ -118,8 +126,8 @@ func NewMaintenanceServer(s *etcdserver.EtcdServer, healthNotifier notifier) pb.
 
 func (ms *maintenanceServer) Defragment(ctx context.Context, sr *pb.DefragmentRequest) (*pb.DefragmentResponse, error) {
 	ms.lg.Info("starting defragment")
-	ms.healthNotifier.defragStarted()
-	defer ms.healthNotifier.defragFinished()
+	ms.healthNotifier.DefragStarted()
+	defer ms.healthNotifier.DefragFinished()
 	err := ms.defrag.Defragment()
 	if err != nil {
 		ms.lg.Warn("failed to defragment", zap.Error(err))

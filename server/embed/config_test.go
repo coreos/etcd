@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -628,6 +629,51 @@ func TestLeaseCheckpointValidate(t *testing.T) {
 			err := cfg.Validate()
 			if (err != nil) != tc.expectError {
 				t.Errorf("config.Validate() = %q, expected error: %v", err, tc.expectError)
+			}
+		})
+	}
+}
+
+func TestServerHealthCheckValidate(t *testing.T) {
+	tests := []struct {
+		name               string
+		serverFeatureGates string
+		failureThreshold   int
+		successThreshold   int
+		expectErr          bool
+		errSubstr          string
+	}{
+		// Both flags unset (0 = "use package default" sentinel) with
+		// the gate on: the effective pair (failure=3, success=2) keeps
+		// the invariant, so validation must pass. Regression test for
+		// the startup failure where the raw 0/0 comparison rejected
+		// an unmodified gate-enabled config.
+		{name: "gate on, defaults 0/0 pass", serverFeatureGates: "ServerHealthCheck=true"},
+		// Mixed sentinels: only one flag set, the other resolves to its
+		// package default. The comparison must happen on the resolved
+		// values, exactly like the EtcdServer wiring does.
+		{name: "gate on, 0/2 pass (default failure)", serverFeatureGates: "ServerHealthCheck=true", successThreshold: 2},
+		{name: "gate on, 2/0 fail (default success resolves to 2)", serverFeatureGates: "ServerHealthCheck=true", failureThreshold: 2, expectErr: true, errSubstr: "asymmetric debounce"},
+		{name: "gate on, 3/2 pass", serverFeatureGates: "ServerHealthCheck=true", failureThreshold: 3, successThreshold: 2},
+		{name: "gate on, 5/2 pass", serverFeatureGates: "ServerHealthCheck=true", failureThreshold: 5, successThreshold: 2},
+		{name: "gate on, 3/3 fail no-asym", serverFeatureGates: "ServerHealthCheck=true", failureThreshold: 3, successThreshold: 3, expectErr: true, errSubstr: "asymmetric debounce"},
+		{name: "gate on, 3/10 fail inverted", serverFeatureGates: "ServerHealthCheck=true", failureThreshold: 3, successThreshold: 10, expectErr: true, errSubstr: "asymmetric debounce"},
+		{name: "gate off (explicit opt-out), 3/10 pass", serverFeatureGates: "ServerHealthCheck=false", failureThreshold: 3, successThreshold: 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewConfig()
+			if tt.serverFeatureGates != "" {
+				cfg.ServerFeatureGate.(featuregate.MutableFeatureGate).Set(tt.serverFeatureGates)
+			}
+			cfg.HealthCheckFailureThreshold = tt.failureThreshold
+			cfg.HealthCheckSuccessThreshold = tt.successThreshold
+			err := cfg.Validate()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("Validate() err=%v, wantErr=%v", err, tt.expectErr)
+			}
+			if tt.errSubstr != "" && err != nil && !strings.Contains(err.Error(), tt.errSubstr) {
+				t.Errorf("Validate() err=%q, want substring %q", err.Error(), tt.errSubstr)
 			}
 		})
 	}

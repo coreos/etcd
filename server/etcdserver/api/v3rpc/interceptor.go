@@ -37,7 +37,18 @@ import (
 const (
 	maxNoLeaderCnt = 3
 	snapshotMethod = "/etcdserverpb.Maintenance/Snapshot"
+	// healthWatchMethod is the grpc.health.v1 Watch stream. It is
+	// allowed on learners so a learner can honestly stream
+	// NOT_SERVING instead of failing the RPC itself (upstream
+	// issue #18801).
+	healthWatchMethod = "/grpc.health.v1.Health/Watch"
 )
+
+// isRPCSupportedForLearnerStream reports whether the stream RPC
+// identified by fullMethod may run on a learner member.
+func isRPCSupportedForLearnerStream(fullMethod string) bool {
+	return fullMethod == snapshotMethod || fullMethod == healthWatchMethod
+}
 
 type streamsMap struct {
 	mu      sync.Mutex
@@ -221,7 +232,7 @@ func newStreamInterceptor(s *etcdserver.EtcdServer) grpc.StreamServerInterceptor
 			return rpctypes.ErrGRPCNotCapable
 		}
 
-		if s.IsMemberExist(s.MemberID()) && s.IsLearner() && info.FullMethod != snapshotMethod { // learner does not support stream RPC except Snapshot
+		if s.IsMemberExist(s.MemberID()) && s.IsLearner() && !isRPCSupportedForLearnerStream(info.FullMethod) { // learner does not support stream RPC except Snapshot and grpc.health.v1 Watch
 			return rpctypes.ErrGRPCNotSupportedForLearner
 		}
 

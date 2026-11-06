@@ -61,6 +61,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/apply"
 	"go.etcd.io/etcd/server/v3/etcdserver/cindex"
 	"go.etcd.io/etcd/server/v3/etcdserver/errors"
+	"go.etcd.io/etcd/server/v3/etcdserver/health"
 	"go.etcd.io/etcd/server/v3/etcdserver/read"
 	serverversion "go.etcd.io/etcd/server/v3/etcdserver/version"
 	"go.etcd.io/etcd/server/v3/features"
@@ -210,7 +211,12 @@ type Server interface {
 
 // EtcdServer is the production implementation of the Server interface
 type EtcdServer struct {
-	// inflightSnapshots holds count the number of snapshots currently inflight.
+	// inflightSnapshots counts snapshots this member has started
+	// sending but not finished; compactRaftLog reads it to hold off
+	// compaction while a send is in flight. It tracks *sends*, not
+	// installs: a member installing a snapshot has its apply loop
+	// blocked while this counter reads 0, so it is not a usable signal
+	// for "temporarily degraded but healthy".
 	inflightSnapshots atomic.Int64
 	appliedIndex      atomic.Uint64
 	committedIndex    atomic.Uint64
@@ -292,6 +298,18 @@ type EtcdServer struct {
 	// TODO: Replace with flush db in v3.7 assuming v3.6 bootstraps from db file.
 	forceDiskSnapshot bool
 	corruptionChecker CorruptionChecker
+
+	// healthNotifiers is the slice of HealthNotifiers registered
+	// by v3rpc.Server after each gRPC health server is
+	// constructed. embed/serve.go calls v3rpc.Server once per
+	// listener (insecure, secure), so a dual-listener deployment
+	// registers two notifiers, each owning its own
+	// *health.Server. The server-side health.Checker goroutine
+	// reads this slice through GetHealthNotifier (which re-reads
+	// it on every state transition) so a single apply_lag /
+	// no_leader / linear_read decision drives every listener's
+	// gRPC health.v1 state, not just the last one to register.
+	healthNotifiers atomic.Pointer[[]HealthNotifier]
 }
 
 // NewServer creates a new EtcdServer from the supplied configuration. The
@@ -542,6 +560,155 @@ func (s *EtcdServer) Start() {
 	s.GoAttach(s.monitorKVHash)
 	s.GoAttach(s.monitorCompactHash)
 	s.GoAttach(s.monitorDowngrade)
+
+	// Server-side health self-check loop. Only active when the
+	// ServerHealthCheck feature gate is enabled. The goroutine
+	// waits for ReadyNotify (so the raft loop, apply loop, and
+	// linear read loop are all up) and then for GetHealthNotifier
+	// to be wired up by v3rpc.Server (which happens shortly after
+	// ReadyNotify fires in embed.serveCtx.serve). A late notifier
+	// is retried forever rather than giving up: see waitForHealthNotifier.
+	if s.FeatureEnabled(features.ServerHealthCheck) {
+		s.GoAttach(func() {
+			select {
+			case <-s.ReadyNotify():
+			case <-s.StoppingNotify():
+				// A server stopped before publishV3 completed must not
+				// block HardStop's wg.Wait forever.
+				return
+			}
+
+			notif := waitForHealthNotifier(
+				s.Logger(), s.GetHealthNotifier, s.StoppingNotify(),
+				5*time.Second, 50*time.Millisecond)
+			if notif == nil {
+				return
+			}
+
+			hcfg := healthCheckConfig(&s.Cfg)
+			// Log the effective health-check config so operators (and
+			// integration tests) can confirm the cluster-level flag
+			// values actually reached the running Checker. The
+			// threshold fields are especially easy to mis-configure:
+			// a zero-valued --experimental-health-check-apply-lag
+			// silently falls back to the package default
+			// (10000), which is the most common cause of
+			// "the threshold I set is being ignored" reports.
+			s.Logger().Info("server health check started",
+				zap.Duration("interval", hcfg.Interval),
+				zap.Duration("check-timeout", hcfg.CheckTimeout),
+				zap.Uint64("apply-lag-threshold", hcfg.ApplyLagThreshold),
+				zap.Int("failure-threshold", hcfg.FailureThreshold),
+				zap.Int("success-threshold", hcfg.SuccessThreshold),
+			)
+			checker := health.NewChecker(s, s.Logger(), hcfg, notif)
+			checker.Run(s.ctx)
+		})
+	}
+}
+
+// healthCheckConfig maps the operator-facing ServerConfig knobs onto a
+// health.Config. Zero-valued fields fall back to the health package
+// defaults, so an operator who sets no flag gets the documented
+// 500ms tick / 3-of-N failure / 2-of-N success / 10000 apply-lag
+// thresholds.
+//
+// CheckTimeout is the one field that does not fall back to its package
+// default (2s): that default is shorter than the budget a real
+// linearizable read gets, so on a slow-but-healthy node the checker
+// would declare linear_read failed while client reads against the same
+// node were still succeeding. ReqTimeout (5s + 2 election timeouts) is
+// exactly that budget (read.requestCurrentIndex waits on it via
+// EtcdServer.RequestTimeout), so deriving from it keeps the checker's
+// verdict and the client's experience in agreement across
+// election-timeout configurations. An explicit
+// --experimental-health-check-timeout still wins.
+//
+// The trade is detection latency. linear_read is attempted only on
+// every other tick, and the single-flight guard skips, rather than
+// fails, the candidates that land while a probe is still in flight.
+// A read that hangs for its whole budget is therefore scored once per
+// CheckTimeout plus up to one Interval of re-arm alignment, and
+// flipping the state takes FailureThreshold of those: ≈22-24s at the
+// defaults (3 * 7s, plus up to 1s per re-arm), where the 2s package
+// default gave ≈6-8s. That is the price of not pulling a node out of
+// rotation that clients can still read from.
+func healthCheckConfig(cfg *config.ServerConfig) health.Config {
+	hcfg := health.DefaultConfig()
+	floor := hcfg.ApplyLagThreshold
+	if cfg.HealthCheckInterval != 0 {
+		hcfg.Interval = cfg.HealthCheckInterval
+	}
+	if cfg.HealthCheckTimeout != 0 {
+		hcfg.CheckTimeout = cfg.HealthCheckTimeout
+	} else {
+		hcfg.CheckTimeout = cfg.ReqTimeout()
+	}
+	if cfg.HealthCheckApplyLagThreshold != 0 {
+		hcfg.ApplyLagThreshold = cfg.HealthCheckApplyLagThreshold
+		if cfg.HealthCheckApplyLagThreshold < floor {
+			// The floor equals maxPriorityGap: below it a member is
+			// still accepting priority requests while the check
+			// reports it failing. apply_lag drives only the
+			// etcd.health/apply_lag observation entry (never the
+			// aggregate), so this cannot evict anyone — but
+			// consumers watching that entry would see failures that
+			// do not match the member's real serving ability.
+			lg := cfg.Logger
+			if lg == nil {
+				lg = zap.NewNop()
+			}
+			lg.Warn("health check apply-lag threshold is below the recommended floor; the etcd.health/apply_lag observation entry will report failures while the member still accepts some request classes",
+				zap.Uint64("actual", cfg.HealthCheckApplyLagThreshold),
+				zap.Uint64("floor", floor),
+			)
+		}
+	}
+	if cfg.HealthCheckFailureThreshold != 0 {
+		hcfg.FailureThreshold = cfg.HealthCheckFailureThreshold
+	}
+	if cfg.HealthCheckSuccessThreshold != 0 {
+		hcfg.SuccessThreshold = cfg.HealthCheckSuccessThreshold
+	}
+	return hcfg
+}
+
+// waitForHealthNotifier polls get until it returns a non-nil notifier,
+// or until stop fires (returns nil). If the notifier is still absent
+// after timeout, it logs one Error and bumps
+// healthcheck_exited_total{reason="notifier_unwired"} once — the
+// anomaly operators alert on — and keeps retrying. Giving up instead
+// would leave the gRPC health.v1 server stuck at its construction-time
+// SERVING state (v3rpc/health.go), reporting healthy on a server whose
+// checks never ran; the checker tolerates a late notifier the same way
+// it tolerates a recovered checkFunc panic (ExitPanic).
+func waitForHealthNotifier(
+	lg *zap.Logger,
+	get func() HealthNotifier,
+	stop <-chan struct{},
+	timeout time.Duration,
+	poll time.Duration,
+) HealthNotifier {
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		if notif := get(); notif != nil {
+			return notif
+		}
+		select {
+		case <-stop:
+			return nil
+		case <-timeoutTimer.C:
+			// The timer fires once, so this is a one-time alert,
+			// never a log flood, no matter how long the retry lasts.
+			lg.Error("health check: notifier not injected, retrying",
+				zap.Duration("timeout", timeout))
+			health.RecordCheckerExit(health.ExitNotifierUnwired)
+		case <-ticker.C:
+		}
+	}
 }
 
 // start prepares and starts server in a new goroutine. It is no longer safe to
@@ -2429,6 +2596,61 @@ func (s *EtcdServer) Alarms() []*pb.AlarmMember {
 // IsLearner returns if the local member is raft learner
 func (s *EtcdServer) IsLearner() bool {
 	return s.cluster.IsLocalMemberLearner()
+}
+
+// AddHealthNotifier is called by v3rpc.Server once the gRPC health
+// server for a listener has been constructed. embed/serve.go calls
+// v3rpc.Server once per listener (insecure, secure), so this
+// method must accumulate notifiers rather than overwrite them;
+// the previous SetHealthNotifier design silently dropped every
+// notifier except the last, leaving the first listener's
+// *health.Server permanently stuck at its initial SERVING value
+// in dual-listener deployments.
+//
+// The slice is updated via a CAS loop because v3rpc.Server may
+// be called concurrently in future embed refactors; today the
+// calls are sequential but a CAS loop is no more expensive and
+// keeps the contract honest.
+func (s *EtcdServer) AddHealthNotifier(n HealthNotifier) {
+	if n == nil {
+		return
+	}
+	for {
+		old := s.healthNotifiers.Load()
+		var next []HealthNotifier
+		if old != nil {
+			next = append(next, (*old)...)
+		}
+		next = append(next, n)
+		if s.healthNotifiers.CompareAndSwap(old, &next) {
+			return
+		}
+	}
+}
+
+// GetHealthNotifier returns a HealthNotifier that fans out to
+// every notifier added via AddHealthNotifier, or nil if none
+// have been registered yet. The returned notifier re-reads the
+// registered set on every call rather than holding a snapshot, so a
+// listener that registers after the checker started still receives
+// every subsequent call: in a dual-listener deployment the two
+// v3rpc.Server constructions race the checker's first poll. Because
+// the aggregator repeats the current state on every tick while a
+// condition persists, such a late listener converges on the true
+// state within one tick instead of waiting for the next edge. The
+// Checker goroutine uses the nil return as "not ready yet, keep
+// polling".
+func (s *EtcdServer) GetHealthNotifier() HealthNotifier {
+	p := s.healthNotifiers.Load()
+	if p == nil {
+		return nil
+	}
+	return &reloadingNotifier{get: func() HealthNotifier {
+		if p := s.healthNotifiers.Load(); p != nil {
+			return NewMultiNotifier(*p)
+		}
+		return nil
+	}}
 }
 
 // IsMemberExist returns if the member with the given id exists in cluster.

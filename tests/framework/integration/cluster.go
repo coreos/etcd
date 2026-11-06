@@ -174,6 +174,20 @@ type ClusterConfig struct {
 	DisableStrictReconfigCheck  bool
 	CorruptCheckTime            time.Duration
 	Metrics                     string
+
+	// ServerFeatureGates enables additional feature gates on every
+	// member. nil or empty map leaves the default gate set intact.
+	// Keys are feature names; values are the desired boolean state.
+	ServerFeatureGates map[string]bool
+
+	// HealthCheckApplyLagThreshold, when non-zero, overrides the
+	// default --experimental-health-check-apply-lag threshold for
+	// every member. The ServerHealthCheck feature gate must be
+	// enabled via ServerFeatureGates for the value to take
+	// effect. Integration tests set this to a small value (e.g.
+	// 1) so the apply_lag check can be triggered end-to-end
+	// without first saturating the cluster with writes.
+	HealthCheckApplyLagThreshold uint64
 }
 
 type Cluster struct {
@@ -259,34 +273,36 @@ func (c *Cluster) MustNewMember(t testutil.TB) *Member {
 
 	m := MustNewMember(t,
 		MemberConfig{
-			Name:                        fmt.Sprintf("m%v", memberNumber),
-			MemberNumber:                memberNumber,
-			AuthToken:                   c.Cfg.AuthToken,
-			PeerTLS:                     c.Cfg.PeerTLS,
-			ClientTLS:                   c.Cfg.ClientTLS,
-			QuotaBackendBytes:           c.Cfg.QuotaBackendBytes,
-			BackendBatchInterval:        c.Cfg.BackendBatchInterval,
-			MaxTxnOps:                   c.Cfg.MaxTxnOps,
-			MaxRequestBytes:             c.Cfg.MaxRequestBytes,
-			SnapshotCount:               c.Cfg.SnapshotCount,
-			SnapshotCatchUpEntries:      c.Cfg.SnapshotCatchUpEntries,
-			GRPCKeepAliveMinTime:        c.Cfg.GRPCKeepAliveMinTime,
-			GRPCKeepAliveInterval:       c.Cfg.GRPCKeepAliveInterval,
-			GRPCKeepAliveTimeout:        c.Cfg.GRPCKeepAliveTimeout,
-			GRPCAdditionalServerOptions: c.Cfg.GRPCAdditionalServerOptions,
-			ClientMaxCallSendMsgSize:    c.Cfg.ClientMaxCallSendMsgSize,
-			ClientMaxCallRecvMsgSize:    c.Cfg.ClientMaxCallRecvMsgSize,
-			UseIP:                       c.Cfg.UseIP,
-			UseBridge:                   c.Cfg.UseBridge,
-			UseTCP:                      c.Cfg.UseTCP,
-			EnableLeaseCheckpoint:       c.Cfg.EnableLeaseCheckpoint,
-			LeaseCheckpointInterval:     c.Cfg.LeaseCheckpointInterval,
-			LeaseCheckpointPersist:      c.Cfg.LeaseCheckpointPersist,
-			WatchProgressNotifyInterval: c.Cfg.WatchProgressNotifyInterval,
-			MaxLearners:                 c.Cfg.MaxLearners,
-			DisableStrictReconfigCheck:  c.Cfg.DisableStrictReconfigCheck,
-			CorruptCheckTime:            c.Cfg.CorruptCheckTime,
-			Metrics:                     c.Cfg.Metrics,
+			Name:                         fmt.Sprintf("m%v", memberNumber),
+			MemberNumber:                 memberNumber,
+			AuthToken:                    c.Cfg.AuthToken,
+			PeerTLS:                      c.Cfg.PeerTLS,
+			ClientTLS:                    c.Cfg.ClientTLS,
+			QuotaBackendBytes:            c.Cfg.QuotaBackendBytes,
+			BackendBatchInterval:         c.Cfg.BackendBatchInterval,
+			MaxTxnOps:                    c.Cfg.MaxTxnOps,
+			MaxRequestBytes:              c.Cfg.MaxRequestBytes,
+			SnapshotCount:                c.Cfg.SnapshotCount,
+			SnapshotCatchUpEntries:       c.Cfg.SnapshotCatchUpEntries,
+			GRPCKeepAliveMinTime:         c.Cfg.GRPCKeepAliveMinTime,
+			GRPCKeepAliveInterval:        c.Cfg.GRPCKeepAliveInterval,
+			GRPCKeepAliveTimeout:         c.Cfg.GRPCKeepAliveTimeout,
+			GRPCAdditionalServerOptions:  c.Cfg.GRPCAdditionalServerOptions,
+			ClientMaxCallSendMsgSize:     c.Cfg.ClientMaxCallSendMsgSize,
+			ClientMaxCallRecvMsgSize:     c.Cfg.ClientMaxCallRecvMsgSize,
+			UseIP:                        c.Cfg.UseIP,
+			UseBridge:                    c.Cfg.UseBridge,
+			UseTCP:                       c.Cfg.UseTCP,
+			EnableLeaseCheckpoint:        c.Cfg.EnableLeaseCheckpoint,
+			LeaseCheckpointInterval:      c.Cfg.LeaseCheckpointInterval,
+			LeaseCheckpointPersist:       c.Cfg.LeaseCheckpointPersist,
+			WatchProgressNotifyInterval:  c.Cfg.WatchProgressNotifyInterval,
+			MaxLearners:                  c.Cfg.MaxLearners,
+			DisableStrictReconfigCheck:   c.Cfg.DisableStrictReconfigCheck,
+			CorruptCheckTime:             c.Cfg.CorruptCheckTime,
+			Metrics:                      c.Cfg.Metrics,
+			ServerFeatureGates:           c.Cfg.ServerFeatureGates,
+			HealthCheckApplyLagThreshold: c.Cfg.HealthCheckApplyLagThreshold,
 		})
 	return m
 }
@@ -617,6 +633,16 @@ type MemberConfig struct {
 	DisableStrictReconfigCheck  bool
 	CorruptCheckTime            time.Duration
 	Metrics                     string
+
+	// ServerFeatureGates, when non-empty, is applied on top of the
+	// default gate set. Keys are feature names; values are the
+	// desired boolean state.
+	ServerFeatureGates map[string]bool
+
+	// HealthCheckApplyLagThreshold, when non-zero, overrides the
+	// default --experimental-health-check-apply-lag threshold on
+	// the member.
+	HealthCheckApplyLagThreshold uint64
 }
 
 // MustNewMember return an inited member with the given name. If peerTLS is
@@ -730,6 +756,7 @@ func MustNewMember(t testutil.TB, mcfg MemberConfig) *Member {
 		m.MaxLearners = mcfg.MaxLearners
 	}
 	m.Metrics = mcfg.Metrics
+	m.HealthCheckApplyLagThreshold = mcfg.HealthCheckApplyLagThreshold
 	m.GRPCServerRecorder = &grpctesting.GRPCRecorder{}
 
 	m.Logger, m.LogObserver = memberLogger(t, mcfg.Name)
@@ -737,6 +764,20 @@ func MustNewMember(t testutil.TB, mcfg MemberConfig) *Member {
 	featureGates := fmt.Sprintf("LeaseCheckpoint=%v,LeaseCheckpointPersist=%v", mcfg.EnableLeaseCheckpoint, mcfg.LeaseCheckpointPersist)
 	if err := m.ServerFeatureGate.(featuregate.MutableFeatureGate).Set(featureGates); err != nil {
 		t.Fatalf("Set FeatureGate FAILED: %v", err)
+	}
+	if len(mcfg.ServerFeatureGates) > 0 {
+		keys := make([]string, 0, len(mcfg.ServerFeatureGates))
+		for k := range mcfg.ServerFeatureGates {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%v", k, mcfg.ServerFeatureGates[k]))
+		}
+		if err := m.ServerFeatureGate.(featuregate.MutableFeatureGate).Set(strings.Join(parts, ",")); err != nil {
+			t.Fatalf("Set ServerFeatureGates FAILED: %v", err)
+		}
 	}
 
 	m.StrictReconfigCheck = !mcfg.DisableStrictReconfigCheck

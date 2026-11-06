@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	_ "google.golang.org/grpc/health"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/healthcheck"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
 )
@@ -63,10 +63,7 @@ func TestFailoverOnDefrag(t *testing.T) {
 				e2e.WithServerFeatureGate("NonBlockingDefrag", false),
 				e2e.WithGoFailEnabled(true),
 			},
-			gRPCDialOptions: []grpc.DialOption{
-				grpc.WithDisableServiceConfig(),
-				grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy": "round_robin", "healthCheckConfig": {"serviceName": ""}}`),
-			},
+			gRPCDialOptions:        healthcheck.GRPCClientHealthCheckOptions(),
 			expectedMinQPS:         20,
 			expectedMaxFailureRate: 0.01,
 		},
@@ -78,10 +75,7 @@ func TestFailoverOnDefrag(t *testing.T) {
 				e2e.WithServerFeatureGate("NonBlockingDefrag", false),
 				e2e.WithGoFailEnabled(true),
 			},
-			gRPCDialOptions: []grpc.DialOption{
-				grpc.WithDisableServiceConfig(),
-				grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy": "round_robin", "healthCheckConfig": {"serviceName": ""}}`),
-			},
+			gRPCDialOptions:        healthcheck.GRPCClientHealthCheckOptions(),
 			expectedMinQPS:         20,
 			expectedMinFailureRate: 0.25,
 		},
@@ -104,10 +98,7 @@ func TestFailoverOnDefrag(t *testing.T) {
 				e2e.WithServerFeatureGate("NonBlockingDefrag", false),
 				e2e.WithGoFailEnabled(true),
 			},
-			gRPCDialOptions: []grpc.DialOption{
-				grpc.WithDisableServiceConfig(),
-				grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy": "round_robin", "healthCheckConfig": {"serviceName": ""}}`),
-			},
+			gRPCDialOptions:        healthcheck.GRPCClientHealthCheckOptions(),
 			expectedMinQPS:         20,
 			expectedMaxFailureRate: 0.01,
 		},
@@ -119,10 +110,7 @@ func TestFailoverOnDefrag(t *testing.T) {
 				e2e.WithServerFeatureGate("NonBlockingDefrag", false),
 				e2e.WithGoFailEnabled(true),
 			},
-			gRPCDialOptions: []grpc.DialOption{
-				grpc.WithDisableServiceConfig(),
-				grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy": "round_robin", "healthCheckConfig": {"serviceName": ""}}`),
-			},
+			gRPCDialOptions:        healthcheck.GRPCClientHealthCheckOptions(),
 			expectedMinQPS:         20,
 			expectedMinFailureRate: 0.25,
 		},

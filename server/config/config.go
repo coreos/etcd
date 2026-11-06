@@ -200,6 +200,38 @@ type ServerConfig struct {
 
 	// Metrics types of metrics - should be either 'basic' or 'extensive'
 	Metrics string
+
+	// HealthCheckInterval is the period of the server-side health self-check
+	// loop. When the ServerHealthCheck feature gate is enabled, the loop
+	// fires every HealthCheckInterval and runs linear_read, apply_lag and
+	// no_leader checks against the local server. Setting it to 0 falls back
+	// to the package default (500ms).
+	HealthCheckInterval time.Duration `json:"experimental-health-check-interval"`
+
+	// HealthCheckTimeout is the per-check wall-clock budget. A single check
+	// that exceeds this duration is considered failed. Setting it to 0 makes
+	// the server use ReqTimeout() (5s + 2 election timeouts), matching the
+	// budget a real linearizable read gets, so the checker does not report
+	// linear_read failed on a node that clients can still read from.
+	HealthCheckTimeout time.Duration `json:"experimental-health-check-timeout"`
+
+	// HealthCheckApplyLagThreshold is the maximum allowed gap between the
+	// committed and applied index before the apply_lag check reports
+	// failure. Setting it to 0 falls back to the package default (10000,
+	// matching maxPriorityGap in v3_server.go).
+	HealthCheckApplyLagThreshold uint64 `json:"experimental-health-check-apply-lag"`
+
+	// HealthCheckFailureThreshold is the number of consecutive failed
+	// ticks before the gRPC health state transitions to NOT_SERVING.
+	// Setting it to 0 falls back to the package default (3).
+	HealthCheckFailureThreshold int `json:"experimental-health-check-failure-threshold"`
+
+	// HealthCheckSuccessThreshold is the number of consecutive successful
+	// ticks before the gRPC health state transitions back to SERVING.
+	// It is intentionally lower than HealthCheckFailureThreshold (asymmetric
+	// debounce) to favor fast recovery. Setting it to 0 falls back to the
+	// package default (2).
+	HealthCheckSuccessThreshold int `json:"experimental-health-check-success-threshold"`
 }
 
 // VerifyBootstrap sanity-checks the initial config for bootstrap case

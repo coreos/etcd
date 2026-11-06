@@ -237,6 +237,11 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		LocalAddress:                      cfg.InferLocalAddr(),
 		ServerFeatureGate:                 cfg.ServerFeatureGate,
 		Metrics:                           cfg.Metrics,
+		HealthCheckInterval:               cfg.HealthCheckInterval,
+		HealthCheckTimeout:                cfg.HealthCheckTimeout,
+		HealthCheckApplyLagThreshold:      cfg.HealthCheckApplyLagThreshold,
+		HealthCheckFailureThreshold:       cfg.HealthCheckFailureThreshold,
+		HealthCheckSuccessThreshold:       cfg.HealthCheckSuccessThreshold,
 	}
 
 	if srvcfg.EnableDistributedTracing {

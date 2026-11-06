@@ -2,6 +2,7 @@
 # Format: PackageName.Symbol
 # Remove items from this list as they are migrated or stabilized.
 
+grpc.Connect
 grpc.NewContextWithServerTransportStream
 grpc.ServeHTTP
 grpc.WithResolvers

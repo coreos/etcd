@@ -50,6 +50,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3compactor"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3discovery"
+	"go.etcd.io/etcd/server/v3/etcdserver/health"
 	"go.etcd.io/etcd/server/v3/features"
 )
 
@@ -450,6 +451,29 @@ type Config struct {
 	ServerFeatureGate featuregate.FeatureGate
 	// FlagsExplicitlySet stores if a flag is explicitly set from the cmd line or config file.
 	FlagsExplicitlySet map[string]bool
+
+	// HealthCheckInterval is the period of the server-side health
+	// self-check loop. Only active when the ServerHealthCheck feature
+	// gate is enabled.
+	HealthCheckInterval time.Duration `json:"experimental-health-check-interval"`
+
+	// HealthCheckTimeout is the per-check wall-clock budget. A check
+	// that exceeds this duration is considered failed. When unset the
+	// server derives it from the linearizable-read request timeout so
+	// the checker judges reads by the same deadline clients get.
+	HealthCheckTimeout time.Duration `json:"experimental-health-check-timeout"`
+
+	// HealthCheckApplyLagThreshold is the maximum allowed gap between
+	// the committed and applied index before the apply_lag check fails.
+	HealthCheckApplyLagThreshold uint64 `json:"experimental-health-check-apply-lag"`
+
+	// HealthCheckFailureThreshold is the number of consecutive failed
+	// ticks before the gRPC health state transitions to NOT_SERVING.
+	HealthCheckFailureThreshold int `json:"experimental-health-check-failure-threshold"`
+
+	// HealthCheckSuccessThreshold is the number of consecutive
+	// successful ticks before the gRPC health state returns to SERVING.
+	HealthCheckSuccessThreshold int `json:"experimental-health-check-success-threshold"`
 }
 
 // configYAML holds the config suitable for yaml parsing
@@ -626,6 +650,16 @@ func (cfg *Config) AddFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&cfg.SocketOpts.ReuseAddress, "socket-reuse-address", cfg.SocketOpts.ReuseAddress, "Enable to set socket option SO_REUSEADDR on listeners allowing binding to an address in `TIME_WAIT` state.")
 
 	fs.Var(flags.NewUint32Value(cfg.MaxConcurrentStreams), "max-concurrent-streams", "Maximum concurrent streams that each client can open at a time.")
+
+	// experimental server-side health self-check. These flags are
+	// only honored when the ServerHealthCheck feature gate is
+	// enabled; setting a non-zero value does not activate the loop
+	// on its own.
+	fs.DurationVar(&cfg.HealthCheckInterval, "experimental-health-check-interval", cfg.HealthCheckInterval, "Period of the server-side health self-check loop. 0 means use the package default (500ms).")
+	fs.DurationVar(&cfg.HealthCheckTimeout, "experimental-health-check-timeout", cfg.HealthCheckTimeout, "Per-check wall-clock timeout. 0 means derive it from the request timeout (5s + 2 election timeouts), the same budget a linearizable read gets.")
+	fs.Uint64Var(&cfg.HealthCheckApplyLagThreshold, "experimental-health-check-apply-lag", cfg.HealthCheckApplyLagThreshold, "Maximum committed-vs-applied index gap before apply_lag check fails. 0 means use the package default (10000).")
+	fs.IntVar(&cfg.HealthCheckFailureThreshold, "experimental-health-check-failure-threshold", cfg.HealthCheckFailureThreshold, "Consecutive failed ticks before the gRPC health state flips to NOT_SERVING. 0 means use the package default (3).")
+	fs.IntVar(&cfg.HealthCheckSuccessThreshold, "experimental-health-check-success-threshold", cfg.HealthCheckSuccessThreshold, "Consecutive successful ticks before the gRPC health state returns to SERVING. 0 means use the package default (2).")
 
 	// raft connection timeouts
 	fs.DurationVar(&rafthttp.ConnReadTimeout, "raft-read-timeout", rafthttp.DefaultConnReadTimeout, "Read timeout set on each rafthttp connection")
@@ -1021,6 +1055,68 @@ func (cfg *Config) Validate() error {
 
 	if cfg.CompactHashCheckTime <= 0 {
 		return fmt.Errorf("--compact-hash-check-time must be >0 (set to %v)", cfg.CompactHashCheckTime)
+	}
+
+	// server-side health self-check (ServerHealthCheck gate). The
+	// flags default to 0 (sentinel for "use the package default")
+	// but a misconfigured non-zero value must not crash the loop
+	// or pin the gRPC state forever. We validate here so a
+	// config-file typo surfaces at startup, not deep inside the
+	// 500ms tick. The validation is only enforced when the gate
+	// is enabled, so the legacy default (all flags at 0) is
+	// unaffected.
+	//
+	// Sub-millisecond explicit values are rejected because
+	// time.NewTicker panics on d <= 0 and any non-zero value
+	// below 1ms would burn CPU without giving the per-check work
+	// a chance to complete (time.NewTicker / context.WithTimeout
+	// both treat 0 as "fire / time out immediately"). 0 itself is
+	// kept as the package-default sentinel and translated by the
+	// EtcdServer wiring (server/etcdserver/server.go) before the
+	// health.Config is built, so 0 never reaches the loop.
+	if cfg.ServerFeatureGate.Enabled(features.ServerHealthCheck) {
+		if cfg.HealthCheckInterval != 0 && cfg.HealthCheckInterval < time.Millisecond {
+			return fmt.Errorf("--experimental-health-check-interval must be >=1ms when set (set to %v)", cfg.HealthCheckInterval)
+		}
+		if cfg.HealthCheckTimeout != 0 && cfg.HealthCheckTimeout < time.Millisecond {
+			return fmt.Errorf("--experimental-health-check-timeout must be >=1ms when set (set to %v)", cfg.HealthCheckTimeout)
+		}
+		if cfg.HealthCheckFailureThreshold < 0 {
+			return fmt.Errorf("--experimental-health-check-failure-threshold must be >=0 (set to %d)", cfg.HealthCheckFailureThreshold)
+		}
+		if cfg.HealthCheckSuccessThreshold < 0 {
+			return fmt.Errorf("--experimental-health-check-success-threshold must be >=0 (set to %d)", cfg.HealthCheckSuccessThreshold)
+		}
+		// Enforce the asymmetric-debounce invariant: success must
+		// trip before failure so the gRPC health state returns to
+		// SERVING faster than it leaves it. Inverting the pair
+		// (e.g. success=10, failure=3) silently flips the design
+		// intent and the operator-visible behavior diverges from
+		// the documented "slow to fail, fast to recover" semantic.
+		// Mirrors the cross-field validation for --election-timeout
+		// vs --heartbeat-interval above.
+		//
+		// Both flags use 0 as the "package default" sentinel, so
+		// resolve them the same way the EtcdServer wiring does
+		// (server/etcdserver/server.go) and compare the effective
+		// values. Comparing raw flags instead would reject a
+		// gate-enabled server that leaves both unset (0/0) even
+		// though the effective pair (3/2) keeps the invariant.
+		thresholds := health.DefaultConfig()
+		failureThreshold := thresholds.FailureThreshold
+		if cfg.HealthCheckFailureThreshold != 0 {
+			failureThreshold = cfg.HealthCheckFailureThreshold
+		}
+		successThreshold := thresholds.SuccessThreshold
+		if cfg.HealthCheckSuccessThreshold != 0 {
+			successThreshold = cfg.HealthCheckSuccessThreshold
+		}
+		if successThreshold >= failureThreshold {
+			return fmt.Errorf(
+				"--experimental-health-check-success-threshold (%d) must be < --experimental-health-check-failure-threshold (%d) for asymmetric debounce",
+				successThreshold, failureThreshold,
+			)
+		}
 	}
 
 	// If `--name` isn't configured, then multiple members may have the same "default" name.

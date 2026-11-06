@@ -327,6 +327,16 @@ func WithCompactHashCheckTime(time time.Duration) EPClusterOption {
 	return func(c *EtcdProcessClusterConfig) { c.ServerConfig.CompactHashCheckTime = time }
 }
 
+// WithHealthCheckApplyLagThreshold sets the server-side health
+// self-check apply-lag threshold. Lower values make the checker
+// more sensitive to a brief committed/applied gap. Combined with
+// the beforeApplyOneEntryNormal failpoint, this lets a test
+// deterministically force a NOT_SERVING transition. Only effective
+// when the ServerHealthCheck feature gate is enabled.
+func WithHealthCheckApplyLagThreshold(threshold uint64) EPClusterOption {
+	return func(c *EtcdProcessClusterConfig) { c.ServerConfig.HealthCheckApplyLagThreshold = threshold }
+}
+
 func WithGoFailEnabled(enabled bool) EPClusterOption {
 	return func(c *EtcdProcessClusterConfig) { c.GoFailEnabled = enabled }
 }
