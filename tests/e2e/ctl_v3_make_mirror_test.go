@@ -28,7 +28,27 @@ import (
 func TestCtlV3MakeMirror(t *testing.T)                 { testCtl(t, makeMirrorTest) }
 func TestCtlV3MakeMirrorModifyDestPrefix(t *testing.T) { testCtl(t, makeMirrorModifyDestPrefixTest) }
 func TestCtlV3MakeMirrorNoDestPrefix(t *testing.T)     { testCtl(t, makeMirrorNoDestPrefixTest) }
-func TestCtlV3MakeMirrorWithWatchRev(t *testing.T)     { testCtl(t, makeMirrorWithWatchRev) }
+
+func TestCtlV3MakeMirrorWithWatchRev(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		flags      []string
+		destprefix string
+	}{
+		{name: "preserve-prefix", destprefix: "o_"},
+		{name: "replace-prefix", flags: []string{"--dest-prefix", "d_"}, destprefix: "d_"},
+		{name: "remove-prefix", flags: []string{"--no-dest-prefix"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testCtl(t, func(cx ctlCtx) {
+				flags := append([]string{"--prefix", "o_", "--rev", "4"}, tc.flags...)
+				kvs := []kv{{"o_key1", "val1"}, {"o_key2", "val2"}, {"o_key3", "val3"}, {"o_key4", "val4"}}
+				kvs2 := []kvExec{{key: tc.destprefix + "key3", val: "val3"}, {key: tc.destprefix + "key4", val: "val4"}}
+				testMirrorCommand(cx, flags, kvs, kvs2, "o_", tc.destprefix+"key")
+			})
+		})
+	}
+}
 
 func makeMirrorTest(cx ctlCtx) {
 	var (
@@ -56,18 +76,6 @@ func makeMirrorNoDestPrefixTest(cx ctlCtx) {
 		flags      = []string{"--prefix", "o_", "--no-dest-prefix"}
 		kvs        = []kv{{"o_key1", "val1"}, {"o_key2", "val2"}, {"o_key3", "val3"}}
 		kvs2       = []kvExec{{key: "key1", val: "val1"}, {key: "key2", val: "val2"}, {key: "key3", val: "val3"}}
-		srcprefix  = "o_"
-		destprefix = "key"
-	)
-
-	testMirrorCommand(cx, flags, kvs, kvs2, srcprefix, destprefix)
-}
-
-func makeMirrorWithWatchRev(cx ctlCtx) {
-	var (
-		flags      = []string{"--prefix", "o_", "--no-dest-prefix", "--rev", "4"}
-		kvs        = []kv{{"o_key1", "val1"}, {"o_key2", "val2"}, {"o_key3", "val3"}, {"o_key4", "val4"}}
-		kvs2       = []kvExec{{key: "key3", val: "val3"}, {key: "key4", val: "val4"}}
 		srcprefix  = "o_"
 		destprefix = "key"
 	)

@@ -147,6 +147,11 @@ func makeMirror(ctx context.Context, c *clientv3.Client, dc *clientv3.Client) er
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, errors.New("`--dest-prefix` and `--no-dest-prefix` cannot be set at the same time, choose one"))
 	}
 
+	// Default to the source prefix for both base and incremental syncs.
+	if !mmnodestprefix && len(mmdestprefix) == 0 {
+		mmdestprefix = mmprefix
+	}
+
 	go func() {
 		for {
 			time.Sleep(30 * time.Second)
@@ -165,11 +170,6 @@ func makeMirror(ctx context.Context, c *clientv3.Client, dc *clientv3.Client) er
 	// Instead, just start watching the key space starting from the rev
 	if startRev == 0 {
 		rc, errc := s.SyncBase(ctx)
-
-		// if remove destination prefix is false and destination prefix is empty set the value of destination prefix same as prefix
-		if !mmnodestprefix && len(mmdestprefix) == 0 {
-			mmdestprefix = mmprefix
-		}
 
 		for r := range rc {
 			for _, kv := range r.Kvs {
