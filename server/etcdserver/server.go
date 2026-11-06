@@ -982,6 +982,7 @@ func (s *EtcdServer) applyAll(ep *etcdProgress, apply *toApply) {
 
 	proposalsApplied.Set(float64(ep.appliedi))
 	s.applyWait.Trigger(ep.appliedi)
+	applyWaitPending.Set(float64(s.applyWait.Pending()))
 
 	// wait for the raft routine to finish the disk writes before triggering a
 	// snapshot. or applied index might be greater than the last index in raft

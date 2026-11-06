@@ -150,6 +150,12 @@ var (
 		},
 		[]string{"name", "stage"},
 	)
+	applyWaitPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "etcd_debugging",
+		Subsystem: "server",
+		Name:      "apply_wait_pending",
+		Help:      "The number of outstanding waiters in applyWait for each apply batch.",
+	})
 	fdUsed = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "os",
 		Subsystem: "fd",
@@ -184,6 +190,7 @@ func init() {
 	prometheus.MustRegister(learnerPromoteFailed)
 	prometheus.MustRegister(fdUsed)
 	prometheus.MustRegister(fdLimit)
+	prometheus.MustRegister(applyWaitPending)
 
 	currentVersion.With(prometheus.Labels{
 		"server_version": version.Version,

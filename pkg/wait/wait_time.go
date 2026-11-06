@@ -23,6 +23,8 @@ type WaitTime interface {
 	Wait(deadline uint64) <-chan struct{}
 	// Trigger triggers all the waiting chans with an equal or earlier logical deadline.
 	Trigger(deadline uint64)
+	// Pending returns the number of outstanding deadlines that have not been triggered yet.
+	Pending() int
 }
 
 var closec chan struct{}
@@ -33,6 +35,7 @@ type timeList struct {
 	l                   sync.Mutex
 	lastTriggerDeadline uint64
 	m                   map[uint64]chan struct{}
+	h                   deadlineHeap
 }
 
 func NewTimeList() *timeList {
@@ -49,6 +52,7 @@ func (tl *timeList) Wait(deadline uint64) <-chan struct{} {
 	if ch == nil {
 		ch = make(chan struct{})
 		tl.m[deadline] = ch
+		tl.h.push(deadline)
 	}
 	return ch
 }
@@ -57,10 +61,62 @@ func (tl *timeList) Trigger(deadline uint64) {
 	tl.l.Lock()
 	defer tl.l.Unlock()
 	tl.lastTriggerDeadline = deadline
-	for t, ch := range tl.m {
-		if t <= deadline {
-			delete(tl.m, t)
-			close(ch)
-		}
+	for len(tl.h) > 0 && tl.h[0] <= deadline {
+		t := tl.h.pop()
+		close(tl.m[t])
+		delete(tl.m, t)
 	}
+}
+
+func (tl *timeList) Pending() int {
+	tl.l.Lock()
+	defer tl.l.Unlock()
+	return len(tl.m)
+}
+
+// deadlineHeap is a min-heap of uint64 deadlines, hand-rolled to avoid container/heap's boxing allocation.
+type deadlineHeap []uint64
+
+func (h *deadlineHeap) push(d uint64) {
+	s := append(*h, d)
+	i := len(s) - 1
+
+	for i > 0 {
+		p := (i - 1) / 2
+		if s[p] <= s[i] {
+			break
+		}
+		s[p], s[i] = s[i], s[p]
+		i = p
+	}
+	*h = s
+}
+
+func (h *deadlineHeap) pop() uint64 {
+	s := *h
+	top := s[0]
+	n := len(s) - 1
+	s[0] = s[n]
+	s = s[:n]
+	i := 0
+
+	for {
+		l := 2*i + 1
+		if l >= n {
+			break
+		}
+		c := l
+		if r := l + 1; r < n && s[r] < s[l] {
+			c = r
+		}
+		if s[i] <= s[c] {
+			break
+		}
+		s[i], s[c] = s[c], s[i]
+		i = c
+	}
+
+	*h = s
+
+	return top
 }
