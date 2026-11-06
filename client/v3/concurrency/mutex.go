@@ -141,7 +141,7 @@ func (m *Mutex) Unlock(ctx context.Context) error {
 	}
 
 	client := m.s.Client()
-	if _, err := client.Delete(ctx, m.myKey); err != nil {
+	if _, err := client.Txn(ctx).If(m.IsOwner()).Then(v3.OpDelete(m.myKey)).Commit(); err != nil {
 		return err
 	}
 	m.myKey = "\x00"
