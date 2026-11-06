@@ -24,6 +24,10 @@ import (
 )
 
 func TestRangeSecObserve(t *testing.T) {
+	// Enforce state isolation by wiping the global metric vector after execution.
+	// This prevents data leakage across iterations when running with -count > 1.
+	defer rangeSec.Reset()
+
 	// Simulate a range operation taking 500 milliseconds.
 	latency := 500 * time.Millisecond
 	RangeSecObserve(true, latency)
