@@ -84,10 +84,6 @@ function run_for_module {
   )
 }
 
-function module_dirs() {
-  echo "api pkg client/pkg client/v3 server etcdutl etcdctl tests tools/mod tools/rw-heatmaps tools/testgrid-analysis cache ."
-}
-
 # maybe_run [cmd...] runs given command depending on the DRY_RUN flag.
 function maybe_run() {
   if ${DRY_RUN}; then
@@ -95,23 +91,6 @@ function maybe_run() {
   else
     run "${@}"
   fi
-}
-
-# modules
-# returns the list of all modules in the project, not including the tools,
-# as they are not considered to be added to the bill for materials.
-function modules() {
-  modules=(
-    "${ROOT_MODULE}/api/v3"
-    "${ROOT_MODULE}/pkg/v3"
-    "${ROOT_MODULE}/client/pkg/v3"
-    "${ROOT_MODULE}/client/v3"
-    "${ROOT_MODULE}/server/v3"
-    "${ROOT_MODULE}/etcdutl/v3"
-    "${ROOT_MODULE}/etcdctl/v3"
-    "${ROOT_MODULE}/tests/v3"
-    "${ROOT_MODULE}/v3")
-  echo "${modules[@]}"
 }
 
 # Receives a reference to an array variable, and returns the workspace relative modules.
@@ -167,34 +146,6 @@ function run_for_workspace_modules {
           return 1
         fi
         log_error "There was a Failure in module ${module}, keep going..."
-        fail_mod=true
-      fi
-    done
-    if [ "$fail_mod" = true ]; then
-      return 1
-    fi
-  else
-    run_for_module "${USERMOD}" "$@" "${pkg}" || return "$?"
-  fi
-}
-
-#  run_for_modules [cmd]
-#  run given command across all modules and packages
-#  (unless the set is limited using ${PKG} or / ${USERMOD})
-function run_for_modules {
-  KEEP_GOING_MODULE=${KEEP_GOING_MODULE:-false}
-  local pkg="${PKG:-./...}"
-  local fail_mod=false
-  if [ -z "${USERMOD:-}" ]; then
-    for m in $(module_dirs); do
-      if run_for_module "${m}" "$@" "${pkg}"; then
-        continue
-      else
-        if [ "$KEEP_GOING_MODULE" = false ]; then
-          log_error "There was a Failure in module ${m}, aborting..."
-          return 1
-        fi
-        log_error "There was a Failure in module ${m}, keep going..."
         fail_mod=true
       fi
     done
