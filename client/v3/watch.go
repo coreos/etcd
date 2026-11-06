@@ -398,13 +398,10 @@ func (w *watcher) Close() (err error) {
 	w.streams = nil
 	w.mu.Unlock()
 	for _, wgs := range streams {
-		if werr := wgs.close(); werr != nil {
-			err = werr
+		// Consider context.Canceled as a successful close
+		if werr := wgs.close(); werr != nil && !errors.Is(err, context.Canceled) {
+			err = errors.Join(err, werr)
 		}
-	}
-	// Consider context.Canceled as a successful close
-	if errors.Is(err, context.Canceled) {
-		err = nil
 	}
 	return err
 }
