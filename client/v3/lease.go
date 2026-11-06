@@ -410,7 +410,7 @@ func (l *lessor) closeRequireLeader() {
 			if ka.chs[i] == nil {
 				continue
 			}
-			newChs[newIdx], newCtxs[newIdx] = ka.chs[i], ka.ctxs[newIdx]
+			newChs[newIdx], newCtxs[newIdx] = ka.chs[i], ka.ctxs[i]
 			newIdx++
 		}
 		ka.chs, ka.ctxs = newChs, newCtxs
