@@ -24,6 +24,13 @@ import (
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
 )
 
+var commonAllowedErrors = map[string]bool{
+	"setting up serving from embedded etcd failed.": true,
+	// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
+	// TODO: Remove with etcd 3.7
+	"cannot detect storage schema version: missing term information": true,
+}
+
 func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -36,12 +43,7 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 				e2e.WithClusterSize(1),
 				e2e.WithLogLevel("debug"),
 			},
-			allowedErrors: map[string]bool{
-				"setting up serving from embedded etcd failed.": true,
-				// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
-				// TODO: Remove with etcd 3.7
-				"cannot detect storage schema version: missing term information": true,
-			},
+			allowedErrors: commonAllowedErrors,
 		},
 		{
 			name: "three node cluster",
@@ -49,12 +51,7 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 				e2e.WithClusterSize(3),
 				e2e.WithLogLevel("debug"),
 			},
-			allowedErrors: map[string]bool{
-				"setting up serving from embedded etcd failed.": true,
-				// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
-				// TODO: Remove with etcd 3.7
-				"cannot detect storage schema version: missing term information": true,
-			},
+			allowedErrors: commonAllowedErrors,
 		},
 		{
 			name: "three node cluster with auto tls (all)",
@@ -66,12 +63,7 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 				e2e.WithClientAutoTLS(true),
 				e2e.WithClientConnType(e2e.ClientTLS),
 			},
-			allowedErrors: map[string]bool{
-				"setting up serving from embedded etcd failed.": true,
-				// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
-				// TODO: Remove with etcd 3.7
-				"cannot detect storage schema version: missing term information": true,
-			},
+			allowedErrors: commonAllowedErrors,
 		},
 		{
 			name: "three node cluster with auto tls (peers)",
@@ -81,12 +73,7 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 				e2e.WithIsPeerTLS(true),
 				e2e.WithIsPeerAutoTLS(true),
 			},
-			allowedErrors: map[string]bool{
-				"setting up serving from embedded etcd failed.": true,
-				// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
-				// TODO: Remove with etcd 3.7
-				"cannot detect storage schema version: missing term information": true,
-			},
+			allowedErrors: commonAllowedErrors,
 		},
 		{
 			name: "three node cluster with auto tls (client)",
@@ -96,12 +83,7 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 				e2e.WithClientAutoTLS(true),
 				e2e.WithClientConnType(e2e.ClientTLS),
 			},
-			allowedErrors: map[string]bool{
-				"setting up serving from embedded etcd failed.": true,
-				// See https://github.com/etcd-io/etcd/pull/19040#issuecomment-2539173800
-				// TODO: Remove with etcd 3.7
-				"cannot detect storage schema version: missing term information": true,
-			},
+			allowedErrors: commonAllowedErrors,
 		},
 	}
 
@@ -114,7 +96,12 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 			require.NoError(t, err)
 			defer epc.Close()
 
-			require.Lenf(t, epc.Procs, epc.Cfg.ClusterSize, "embedded etcd cluster process count is not as expected")
+			require.Lenf(
+				t,
+				epc.Procs,
+				epc.Cfg.ClusterSize,
+				"embedded etcd cluster process count is not as expected",
+			)
 
 			// Collect the handle of logs before closing the processes.
 			var logHandles []e2e.LogsExpect
@@ -142,7 +129,13 @@ func TestNoErrorLogsDuringNormalOperations(t *testing.T) {
 					continue
 				}
 
-				require.NotEqualf(t, "error", entry.Level, "error level log message found: %s", line)
+				require.NotEqualf(
+					t,
+					"error",
+					entry.Level,
+					"error level log message found: %s",
+					line,
+				)
 			}
 		})
 	}
