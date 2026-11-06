@@ -150,6 +150,46 @@ func TestBackoffJitterFraction(t *testing.T) {
 	require.InDelta(t, backoffJitterFraction, c.cfg.BackoffJitterFraction, 0.01)
 }
 
+func TestBackoffExponent(t *testing.T) {
+	backoffExponent := float64(2.0)
+	cfg := Config{
+		Endpoints:       []string{"127.0.0.1:12345"},
+		BackoffExponent: backoffExponent,
+	}
+	c, err := NewClient(t, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	defer c.Close()
+
+	require.InDelta(t, backoffExponent, c.cfg.BackoffExponent, 0.01)
+
+	backoffExponent = float64(1.0)
+	cfg = Config{
+		Endpoints:       []string{"127.0.0.1:12345"},
+		BackoffExponent: backoffExponent,
+	}
+	c, err = NewClient(t, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	defer c.Close()
+
+	require.InDelta(t, backoffExponent, c.cfg.BackoffExponent, 0.01)
+}
+
+func TestMaxBackoff(t *testing.T) {
+	backoffMaxWaitBetween := 100 * time.Millisecond
+	cfg := Config{
+		Endpoints:             []string{"127.0.0.1:12345"},
+		BackoffMaxWaitBetween: backoffMaxWaitBetween,
+	}
+	c, err := NewClient(t, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	defer c.Close()
+
+	require.Equal(t, backoffMaxWaitBetween, c.cfg.BackoffMaxWaitBetween)
+}
+
 func TestIsHaltErr(t *testing.T) {
 	assert.Truef(t,
 		isHaltErr(t.Context(), errors.New("etcdserver: some etcdserver error")),

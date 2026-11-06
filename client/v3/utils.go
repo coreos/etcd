@@ -15,6 +15,7 @@
 package clientv3
 
 import (
+	"math"
 	"math/rand"
 	"time"
 )
@@ -28,4 +29,14 @@ import (
 func jitterUp(duration time.Duration, jitter float64) time.Duration {
 	multiplier := jitter * (rand.Float64()*2 - 1)
 	return time.Duration(float64(duration) * (1 + multiplier))
+}
+
+// expBackoff returns an exponential backoff duration.
+//
+// This will calculate exponential backoff based upon generation and exponent. The backoff is within [minDelay, maxDelay].
+// For example, an exponent of 2.0 will double the backoff duration every subsequent generation. A generation of 0 will
+// return minDelay.
+func expBackoff(generation uint, exponent float64, minDelay, maxDelay time.Duration) time.Duration {
+	delay := math.Min(math.Pow(exponent, float64(generation))*float64(minDelay), float64(maxDelay))
+	return time.Duration(delay)
 }

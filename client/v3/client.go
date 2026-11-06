@@ -259,10 +259,20 @@ func (c *Client) dialSetupOpts(creds grpccredentials.TransportCredentials, dopts
 		backoffJitterFraction = c.cfg.BackoffJitterFraction
 	}
 
+	backoffExponent := defaultBackoffExponent
+	if c.cfg.BackoffExponent > 0 {
+		backoffExponent = c.cfg.BackoffExponent
+	}
+
+	backoffMaxWaitBetween := defaultBackoffMaxWaitBetween
+	if c.cfg.BackoffMaxWaitBetween > 0 {
+		backoffMaxWaitBetween = c.cfg.BackoffMaxWaitBetween
+	}
+
 	// Interceptor retry and backoff.
 	// TODO: Replace all of clientv3/retry.go with RetryPolicy:
 	// https://github.com/grpc/grpc-proto/blob/cdd9ed5c3d3f87aef62f373b93361cf7bddc620d/grpc/service_config/service_config.proto#L130
-	rrBackoff := withBackoff(c.roundRobinQuorumBackoff(backoffWaitBetween, backoffJitterFraction))
+	rrBackoff := withBackoff(c.roundRobinQuorumBackoff(backoffWaitBetween, backoffJitterFraction, backoffExponent, backoffMaxWaitBetween))
 	opts = append(opts,
 		// Disable stream retry by default since go-grpc-middleware/retry does not support client streams.
 		// Streams that are safe to retry are enabled individually.
@@ -488,14 +498,24 @@ func newClient(cfg *Config) (*Client, error) {
 
 // roundRobinQuorumBackoff retries against quorum between each backoff.
 // This is intended for use with a round robin load balancer.
-func (c *Client) roundRobinQuorumBackoff(waitBetween time.Duration, jitterFraction float64) backoffFunc {
+func (c *Client) roundRobinQuorumBackoff(waitBetween time.Duration, jitterFraction float64, backoffExponent float64, maxWaitBetween time.Duration) backoffFunc {
 	return func(attempt uint) time.Duration {
 		// after each round robin across quorum, backoff for our wait between duration
 		n := uint(len(c.Endpoints()))
 		quorum := (n/2 + 1)
 		if attempt%quorum == 0 {
-			c.GetLogger().Debug("backoff", zap.Uint("attempt", attempt), zap.Uint("quorum", quorum), zap.Duration("waitBetween", waitBetween), zap.Float64("jitterFraction", jitterFraction))
-			return jitterUp(waitBetween, jitterFraction)
+			generation := attempt / quorum
+			c.GetLogger().Debug(
+				"backoff",
+				zap.Uint("attempt", attempt),
+				zap.Uint("quorum", quorum),
+				zap.Uint("generation", generation),
+				zap.Duration("waitBetween", waitBetween),
+				zap.Float64("jitterFraction", jitterFraction),
+				zap.Float64("backoffExponent", backoffExponent),
+				zap.Duration("maxWaitBetween", maxWaitBetween),
+			)
+			return jitterUp(expBackoff(generation, backoffExponent, waitBetween, maxWaitBetween), jitterFraction)
 		}
 		c.GetLogger().Debug("backoff skipped", zap.Uint("attempt", attempt), zap.Uint("quorum", quorum))
 		return 0

@@ -109,6 +109,12 @@ type Config struct {
 	// BackoffJitterFraction is the jitter fraction to randomize backoff wait time.
 	BackoffJitterFraction float64 `json:"backoff-jitter-fraction"`
 
+	// BackoffExponent is the exponential backoff factor for retries.
+	BackoffExponent float64 `json:"backoff-exponent"`
+
+	// BackoffMaxWaitBetween is the max wait time before retrying an RPC after exponential backoff.
+	BackoffMaxWaitBetween time.Duration `json:"backoff-max-wait-between"`
+
 	// TODO: support custom balancer picker
 }
 

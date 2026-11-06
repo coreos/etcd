@@ -54,6 +54,12 @@ var (
 
 	// client-side retry backoff default jitter fraction.
 	defaultBackoffJitterFraction = 0.10
+
+	// client-side retry backoff exponential factor. Default of 1.0 which is no exponential backoff.
+	defaultBackoffExponent = 1.0
+
+	// client-side retry backoff exponential max wait between requests.
+	defaultBackoffMaxWaitBetween = 5 * time.Second
 )
 
 // defaultCallOpts defines a list of default "gRPC.CallOption".
