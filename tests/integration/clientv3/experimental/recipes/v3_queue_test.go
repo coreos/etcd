@@ -229,3 +229,68 @@ func (q *flatPriorityQueue) Enqueue(val string) error {
 func (q *flatPriorityQueue) Dequeue() (string, error) {
 	return q.PriorityQueue.Dequeue()
 }
+
+type flatUint64PriorityQueue struct{ *recipe.PriorityQueue }
+
+func (q *flatUint64PriorityQueue) Enqueue(val string) error {
+	// randomized to stress dequeuing logic; order isn't important
+	return q.PriorityQueue.EnqueueUint64(val, uint64(rand.Intn(2)))
+}
+
+func (q *flatUint64PriorityQueue) Dequeue() (string, error) {
+	return q.PriorityQueue.Dequeue()
+}
+
+func newUint64PriorityQueues(clus *integration2.Cluster, n int) (qs []testQueue) {
+	for i := 0; i < n; i++ {
+		etcdc := clus.RandClient()
+		q := &flatUint64PriorityQueue{recipe.NewPriorityQueue(etcdc, "prq")}
+		qs = append(qs, q)
+	}
+	return qs
+}
+
+// TestUint64PrQueueOneReaderOneWriter tests whether uint64 priority queues respect priorities.
+func TestUint64PrQueueOneReaderOneWriter(t *testing.T) {
+	integration2.BeforeTest(t)
+
+	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	// write out five items with random priority
+	etcdc := clus.RandClient()
+	q := recipe.NewPriorityQueue(etcdc, "testprq")
+	for i := 0; i < 5; i++ {
+		// [0, 2] priority for priority collision to test seq keys
+		pr := uint64(rand.Intn(3))
+		if err := q.EnqueueUint64(fmt.Sprintf("%d", pr), pr); err != nil {
+			t.Fatalf("error enqueuing (%v)", err)
+		}
+	}
+
+	// read back items; confirm priority order is respected
+	lastPr := -1
+	for i := 0; i < 5; i++ {
+		s, err := q.Dequeue()
+		if err != nil {
+			t.Fatalf("error dequeueing (%v)", err)
+		}
+		curPr := 0
+		if _, err := fmt.Sscanf(s, "%d", &curPr); err != nil {
+			t.Fatalf(`error parsing item "%s" (%v)`, s, err)
+		}
+		if lastPr > curPr {
+			t.Fatalf("expected priority %v > %v", curPr, lastPr)
+		}
+	}
+}
+
+func TestUint64PrQueueManyReaderManyWriter(t *testing.T) {
+	integration2.BeforeTest(t)
+
+	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 3})
+	defer clus.Terminate(t)
+	rqs := newUint64PriorityQueues(clus, manyQueueClients)
+	wqs := newUint64PriorityQueues(clus, manyQueueClients)
+	testReadersWriters(t, rqs, wqs)
+}

@@ -41,6 +41,13 @@ func (q *PriorityQueue) Enqueue(val string, pr uint16) error {
 	return err
 }
 
+// EnqueueUint64 puts a value into a queue with a given uint64 priority.
+func (q *PriorityQueue) EnqueueUint64(val string, pr uint64) error {
+	prefix := fmt.Sprintf("%s%05d", q.key, pr)
+	_, err := newSequentialKV(q.client, prefix, val)
+	return err
+}
+
 // Dequeue returns Enqueue()'d items in FIFO order. If the
 // queue is empty, Dequeue blocks until items are available.
 func (q *PriorityQueue) Dequeue() (string, error) {
