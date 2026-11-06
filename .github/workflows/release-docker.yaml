@@ -1,0 +1,99 @@
+---
+name: Build and push release Docker images
+
+on:
+  release:
+    types: [published]
+
+permissions: read-all
+
+env:
+  PLATFORMS: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
+
+jobs:
+  build-and-push:
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: .go-version
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver-opts: image=moby/buildkit:v0.31.2
+
+      - name: Login to GCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCR_SERVICE_ACCOUNT_KEY }}
+
+      - name: Login to Quay
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p release
+          for platform in $(echo "${PLATFORMS}" | tr ',' ' '); do
+            arch="${platform#linux/}"
+            tarball="etcd-${RELEASE}-linux-${arch}.tar.gz"
+            echo "Downloading ${tarball}..."
+            gh release download "${RELEASE}" --pattern "${tarball}" --dir release
+            tar -C release -zxf "release/${tarball}"
+          done
+
+      - name: Build and push Docker images
+        run: |
+          docker buildx build \
+            --build-arg="VERSION=${{ github.event.release.tag_name }}" \
+            --build-arg="BUILDDIR=release" \
+            --platform="${PLATFORMS}" \
+            --sbom=false --provenance=false \
+            --push \
+            -t "gcr.io/etcd-development/etcd:${{ github.event.release.tag_name }}" \
+            -t "quay.io/coreos/etcd:${{ github.event.release.tag_name }}" \
+            .
+
+      - name: Verify manifest type
+        run: |
+          IMAGE="gcr.io/etcd-development/etcd:${{ github.event.release.tag_name }}"
+          MEDIA_TYPE=$(docker manifest inspect "${IMAGE}" | grep -o '"mediaType"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"mediaType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          echo "Manifest type: ${MEDIA_TYPE}"
+          case "${MEDIA_TYPE}" in
+            application/vnd.docker.distribution.manifest.list.v2+json|application/vnd.oci.image.index.v1+json)
+              echo "OK: valid multi-platform manifest"
+              ;;
+            *)
+              echo "::error::Invalid manifest type: ${MEDIA_TYPE}"
+              exit 1
+              ;;
+          esac
+
+      - name: Test Docker images
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          for registry in "gcr.io/etcd-development/etcd" "quay.io/coreos/etcd"; do
+            IMAGE="${registry}:${VERSION}"
+            echo "Testing ${IMAGE}..."
+            docker run --rm "${IMAGE}" etcd --version | grep -q "etcd Version: ${VERSION#v}"
+            docker run --rm "${IMAGE}" etcdctl version | grep -q "etcdctl version: ${VERSION#v}"
+            docker run --rm "${IMAGE}" etcdutl version | grep -q "etcdutl version: ${VERSION#v}"
+            echo "OK: ${IMAGE}"
+          done

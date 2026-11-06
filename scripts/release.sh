@@ -48,11 +48,14 @@ help() {
   echo ""
   echo "WARNING: This script does not send announcement emails. This step must be performed manually AFTER running this tool."
   echo ""
+  echo "NOTE: Docker images are built by GitHub Actions (release-docker.yaml) after the release"
+  echo "      is published. Use --local-docker to build Docker images locally instead."
+  echo ""
   echo "  args:"
   echo "    version: version of etcd to release, e.g. 'v3.2.18'"
   echo "  flags:"
   echo "    --in-place: build binaries using current branch."
-  echo "    --no-docker-push: skip docker image pushes."
+  echo "    --local-docker: build and push Docker images locally (not recommended)."
   echo "    --no-gh-release: skip creating the GitHub release using gh."
   echo "    --no-upload: skip gs://etcd binary artifact uploads."
   echo ""
@@ -246,7 +249,7 @@ main() {
     log_callout "Building release..."
 
     if [ "${DRY_RUN}" == "true" ] || [ "${NO_DOCKER_PUSH}" == 1 ]; then
-      log_callout "Skipping docker push. --no-docker-push flag is set."
+      log_callout "Skipping docker build. Docker images will be built by GitHub Actions after release."
       # Explicitly set NO_DOCKER_PUSH to 1, if DRY_RUN is true.
       NO_DOCKER_PUSH=1
     else
@@ -309,20 +312,24 @@ main() {
   ### Release validation
   mkdir -p downloads
 
-  # Check image versions
-  local images=("quay.io/coreos/etcd:${RELEASE_VERSION}" "gcr.io/etcd-development/etcd:${RELEASE_VERSION}")
-  if [ -n "${OCI_REGISTRY:-}" ]; then
-    images=("${OCI_REGISTRY}/${OCI_PATH:-etcd}:${RELEASE_VERSION}")
-  fi
-
-  for IMAGE in "${images[@]}"; do
-    # shellcheck disable=SC2155
-    local image_version=$(docker run --rm "${IMAGE}" etcd --version | grep "etcd Version" | awk -F: '{print $2}' | tr -d '[:space:]')
-    if [ "${image_version}" != "${VERSION}" ]; then
-      log_error "Check failed: etcd --version output for ${IMAGE} is incorrect: ${image_version}"
-      exit 1
+  # Check image versions (skip if Docker images are built by CI)
+  if [ "${NO_DOCKER_PUSH}" == 0 ]; then
+    local images=("quay.io/coreos/etcd:${RELEASE_VERSION}" "gcr.io/etcd-development/etcd:${RELEASE_VERSION}")
+    if [ -n "${OCI_REGISTRY:-}" ]; then
+      images=("${OCI_REGISTRY}/${OCI_PATH:-etcd}:${RELEASE_VERSION}")
     fi
-  done
+
+    for IMAGE in "${images[@]}"; do
+      # shellcheck disable=SC2155
+      local image_version=$(docker run --rm "${IMAGE}" etcd --version | grep "etcd Version" | awk -F: '{print $2}' | tr -d '[:space:]')
+      if [ "${image_version}" != "${VERSION}" ]; then
+        log_error "Check failed: etcd --version output for ${IMAGE} is incorrect: ${image_version}"
+        exit 1
+      fi
+    done
+  else
+    log_callout "Skipping Docker image validation. Images will be validated by GitHub Actions."
+  fi
 
   # Check gsutil binary versions
   # shellcheck disable=SC2155
@@ -411,7 +418,7 @@ main() {
 
 POSITIONAL=()
 NO_UPLOAD=0
-NO_DOCKER_PUSH=0
+NO_DOCKER_PUSH=1
 IN_PLACE=0
 NO_GH_RELEASE=0
 
@@ -428,6 +435,10 @@ while test $# -gt 0; do
             ;;
           --no-upload)
             NO_UPLOAD=1
+            shift
+            ;;
+          --local-docker)
+            NO_DOCKER_PUSH=0
             shift
             ;;
           --no-docker-push)

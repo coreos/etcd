@@ -92,6 +92,25 @@ function put_get_check {
   fi
 }
 
+# Verify that the image has a consistent manifest type (multi-platform list/index).
+function verify_manifest_type {
+  local image=$1
+  local media_type
+
+  media_type=$(docker manifest inspect "${image}" 2>/dev/null | grep -o '"mediaType"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"mediaType"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  case "${media_type}" in
+    application/vnd.docker.distribution.manifest.list.v2+json|application/vnd.oci.image.index.v1+json)
+      log_success "Manifest type for ${image}: ${media_type}"
+      ;;
+    *)
+      log_error "Error: Invalid manifest type for ${image}: ${media_type}"
+      log_error "Expected application/vnd.docker.distribution.manifest.list.v2+json or application/vnd.oci.image.index.v1+json"
+      exit 1
+      ;;
+  esac
+}
+
 function main {
   local version="$1"
   local repository=${REPOSITORY:-"gcr.io/etcd-development/etcd"}
@@ -103,6 +122,9 @@ function main {
     log_error "Error: ${image} not present locally."
     exit 1
   fi
+
+  log_callout "Verifying manifest type."
+  verify_manifest_type "${image}"
 
   log_callout "Running version check."
   run_version_check "${image}" "${version}" "/usr/local/bin/etcd" "--version"

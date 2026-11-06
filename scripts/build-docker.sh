@@ -70,6 +70,7 @@ else
   docker buildx build --build-arg="VERSION=${VERSION}" \
     --build-arg="BUILDDIR=${BUILDDIR}" \
     --platform="${PLATFORMS}" \
+    --sbom=false --provenance=false \
     --push \
     "${tag_args[@]}" \
     .
