@@ -346,6 +346,9 @@ func (c *Cache) get(ctx context.Context) (*clientv3.GetResponse, error) {
 }
 
 func (c *Cache) watch(rev int64) error {
+	// Init may purge the demux, which stops every registered watcher, so it
+	// must run before storeW is registered.
+	c.demux.Init(rev)
 	readyOnce := sync.Once{}
 	for {
 		storeW := newWatcher(c.cfg.PerWatcherBufferSize, nil)
@@ -402,10 +405,7 @@ func (c *Cache) watchEvents(rev int64, applyErr <-chan error, readyOnce *sync.On
 			if !ok {
 				return nil
 			}
-			readyOnce.Do(func() {
-				c.demux.Init(rev)
-				c.ready.Set()
-			})
+			readyOnce.Do(c.ready.Set)
 			if err := resp.Err(); err != nil {
 				c.ready.Reset()
 				return err
