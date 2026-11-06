@@ -1143,6 +1143,15 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, toApply *toApply) {
 	ep.memorySnapshotIndex = ep.appliedi
 	ep.confState = toApply.snapshot.Metadata.ConfState
 
+	// A snapshot advances apply progress without applying any raft
+	// entries, so appliedIndex and term must advance here too. Currently,
+	// only apply() maintains appliedIndex/term per raft entry. If we do
+	// not additionally set apply progress here, the committedIndex can
+	// stay ahead of appliedIndex and exceedsRequestLimit() may reject
+	// every proposal with ErrTooManyRequests forever.
+	s.setAppliedIndex(ep.appliedi)
+	s.setTerm(ep.appliedt)
+
 	// As backends and implementations like alarmsStore changed, we need
 	// to re-bootstrap Appliers.
 	s.uberApply = s.NewUberApplier()

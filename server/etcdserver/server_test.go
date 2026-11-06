@@ -756,6 +756,96 @@ func TestSnapshotOrdering(t *testing.T) {
 	}
 }
 
+// exercise a leader-snapshot restore and verify that both appliedIndex/term
+// are aligned with etcdProgress
+func TestApplySnapshotAdvancesAppliedIndexAndTerm(t *testing.T) {
+	// Ignore the snapshot index verification in unit test, because
+	// it doesn't follow the e2e applying logic.
+	revertFunc := verify.DisableVerifications()
+	defer revertFunc()
+
+	// snapIndex needs to exceed maxGapBetweenApplyAndCommitIndex
+	// in order to observe the regression
+	const (
+		snapIndex = uint64(maxGapBetweenApplyAndCommitIndex) + 1
+		snapTerm  = uint64(7)
+	)
+
+	lg := zaptest.NewLogger(t)
+	n := newNopReadyNode()
+	cl := membership.NewCluster(lg)
+	be, _ := betesting.NewDefaultTmpBackend(t)
+	cl.SetBackend(schema.NewMembershipBackend(lg, be))
+
+	testdir := t.TempDir()
+	snapdir := filepath.Join(testdir, "member", "snap")
+	require.NoError(t, os.MkdirAll(snapdir, 0o755))
+
+	tr, snapDoneC := newSnapTransporter(lg, snapdir)
+	r := newRaftNode(raftNodeConfig{
+		lg:          lg,
+		isIDRemoved: func(id uint64) bool { return cl.IsIDRemoved(types.ID(id)) },
+		Node:        n,
+		transport:   tr,
+		storage:     mockstorage.NewStorageRecorder(testdir),
+		raftStorage: raft.NewMemoryStorage(),
+	})
+	ci := cindex.NewConsistentIndex(be)
+	s := &EtcdServer{
+		lgMu: new(sync.RWMutex),
+		lg:   lg,
+		Cfg: config.ServerConfig{
+			Logger:                 lg,
+			DataDir:                testdir,
+			SnapshotCatchUpEntries: DefaultSnapshotCatchUpEntries,
+			ServerFeatureGate:      features.NewDefaultServerFeatureGate("test", lg),
+		},
+		r:                 *r,
+		snapshotter:       snap.New(lg, snapdir),
+		cluster:           cl,
+		consistIndex:      ci,
+		beHooks:           serverstorage.NewBackendHooks(lg, ci),
+		firstCommitInTerm: notify.NewNotifier(),
+		lessor:            &lease.FakeLessor{},
+		uberApply:         uberApplierMock{},
+		authStore:         auth.NewAuthStore(lg, schema.NewAuthBackend(lg, be), nil, 1),
+	}
+	s.kv = mvcc.New(lg, be, &lease.FakeLessor{}, mvcc.StoreConfig{})
+	s.be = be
+
+	s.start()
+	defer s.Stop()
+
+	// appliedIndex and term must be 0
+	require.Equal(t, uint64(0), s.getAppliedIndex())
+	require.Equal(t, uint64(0), s.getTerm())
+
+	applied := s.applyWait.Wait(snapIndex)
+	n.readyc <- raft.Ready{Messages: []*raftpb.Message{{Type: raftpb.MsgSnap.Enum()}}}
+	snapMsg := <-snapDoneC
+
+	// snapTransporter named the snapshot as snapshot index + 1, rename the snapshot to snapIndex
+	// so we can pretend the leader snapshot was at snapIndex and the restore can find the snapshot file
+	savedPath := filepath.Join(snapdir, fmt.Sprintf("%016x.snap.db", snapMsg.Snapshot.Metadata.GetIndex()+1))
+	require.NoError(t, os.Rename(savedPath, filepath.Join(snapdir, fmt.Sprintf("%016x.snap.db", snapIndex))))
+
+	// pretend the leader sent a snapshot at snapIndex/snapTerm
+	snapMsg.Snapshot.Metadata.Index = new(snapIndex)
+	snapMsg.Snapshot.Metadata.Term = new(snapTerm)
+	n.readyc <- raft.Ready{Snapshot: snapMsg.Snapshot}
+
+	select {
+	case <-applied:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("timed out waiting for snapshot index %d to be applied", snapIndex)
+	}
+
+	// verify that appliedIndex/term/committedIndex were set from the snapshot
+	assert.Equal(t, snapIndex, s.getAppliedIndex())
+	assert.Equal(t, snapTerm, s.getTerm())
+	assert.Equal(t, snapIndex, s.getCommittedIndex())
+}
+
 // TestConcurrentApplyAndSnapshotV3 will send out snapshots concurrently with
 // proposals.
 func TestConcurrentApplyAndSnapshotV3(t *testing.T) {
