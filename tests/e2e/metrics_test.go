@@ -138,6 +138,7 @@ func TestNoMetricsMissing(t *testing.T) {
 		basicMetrics = []string{
 			"etcd_cluster_version",
 			"etcd_debugging_auth_revision",
+			"etcd_debugging_auth_simple_tokens",
 			"etcd_debugging_disk_backend_commit_rebalance_duration_seconds",
 			"etcd_debugging_disk_backend_commit_spill_duration_seconds",
 			"etcd_debugging_disk_backend_commit_write_duration_seconds",

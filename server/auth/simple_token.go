@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	letters                  = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	defaultSimpleTokenLength = 16
+	letters                       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	defaultSimpleTokenLength      = 16
+	simpleTokenCountWarnThreshold = 10000
 )
 
 // var for testing purposes
@@ -50,6 +51,7 @@ type simpleTokenTTLKeeper struct {
 	deleteTokenFunc func(string)
 	mu              *sync.Mutex
 	simpleTokenTTL  time.Duration
+	lg              *zap.Logger
 }
 
 func (tm *simpleTokenTTLKeeper) stop() {
@@ -62,6 +64,17 @@ func (tm *simpleTokenTTLKeeper) stop() {
 
 func (tm *simpleTokenTTLKeeper) addSimpleToken(token string) {
 	tm.tokens[token] = time.Now().Add(tm.simpleTokenTTL)
+	n := len(tm.tokens)
+	simpleTokenGauge.Set(float64(n))
+	// Log every simpleTokenCountWarnThreshold tokens so operators without
+	// metrics can see unbounded growth without flooding the log.
+	if n > 0 && n%simpleTokenCountWarnThreshold == 0 && tm.lg != nil {
+		tm.lg.Warn(
+			"high number of simple tokens stored in memory",
+			zap.Int("simple-token-count", n),
+			zap.Duration("auth-token-ttl", tm.simpleTokenTTL),
+		)
+	}
 }
 
 func (tm *simpleTokenTTLKeeper) resetSimpleToken(token string) {
@@ -72,6 +85,7 @@ func (tm *simpleTokenTTLKeeper) resetSimpleToken(token string) {
 
 func (tm *simpleTokenTTLKeeper) deleteSimpleToken(token string) {
 	delete(tm.tokens, token)
+	simpleTokenGauge.Set(float64(len(tm.tokens)))
 }
 
 func (tm *simpleTokenTTLKeeper) run() {
@@ -91,6 +105,7 @@ func (tm *simpleTokenTTLKeeper) run() {
 					delete(tm.tokens, t)
 				}
 			}
+			simpleTokenGauge.Set(float64(len(tm.tokens)))
 			tm.mu.Unlock()
 		case <-tm.stopc:
 			return
@@ -184,6 +199,7 @@ func (t *tokenSimple) enable() {
 		deleteTokenFunc: delf,
 		mu:              &t.simpleTokensMu,
 		simpleTokenTTL:  t.simpleTokenTTL,
+		lg:              t.lg,
 	}
 	go t.simpleTokenKeeper.run()
 }
@@ -197,6 +213,7 @@ func (t *tokenSimple) disable() {
 	if tk != nil {
 		tk.stop()
 	}
+	simpleTokenGauge.Set(0)
 }
 
 func (t *tokenSimple) info(ctx context.Context, token string, revision uint64) (*AuthInfo, bool) {

@@ -37,8 +37,18 @@ var (
 	// overridden by auth store initialization
 	reportCurrentAuthRevMu sync.RWMutex
 	reportCurrentAuthRev   = func() float64 { return 0 }
+
+	simpleTokenGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "etcd_debugging",
+			Subsystem: "auth",
+			Name:      "simple_tokens",
+			Help:      "The current number of simple tokens stored in memory.",
+		},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(currentAuthRevision)
+	prometheus.MustRegister(simpleTokenGauge)
 }

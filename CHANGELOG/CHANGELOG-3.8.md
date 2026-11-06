@@ -39,3 +39,4 @@ See [List of metrics](https://etcd.io/docs/latest/metrics/) for all metrics per 
 
 - Expose the full set of Go `runtime/metrics` on `/metrics` when `--metrics extensive` is set.
 - Add [`etcd_disk_backend_defrag_blocking_duration_seconds`](https://github.com/etcd-io/etcd/pull/22425)
+- Add [`etcd_debugging_auth_simple_tokens`](https://github.com/etcd-io/etcd/pull/22338); log a warning whenever the in-memory simple token count reaches a multiple of 10000.
