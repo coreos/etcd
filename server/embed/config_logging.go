@@ -31,6 +31,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"go.etcd.io/etcd/client/pkg/v3/logutil"
+	_ "go.etcd.io/etcd/client/pkg/v3/logutil/nonblock"
 )
 
 // GetLogger returns the logger.
