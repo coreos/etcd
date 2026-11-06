@@ -71,9 +71,9 @@ func newSnapshotReaderCloser(lg *zap.Logger, snapshot backend.Snapshot) io.ReadC
 			)
 		}
 		pw.CloseWithError(err)
-		err = snapshot.Close()
-		if err != nil {
-			lg.Panic("failed to close database snapshot", zap.Error(err))
+		closeErr := snapshot.Close()
+		if closeErr != nil {
+			lg.Panic("failed to close database snapshot", zap.Error(closeErr))
 		}
 	}()
 	return pr

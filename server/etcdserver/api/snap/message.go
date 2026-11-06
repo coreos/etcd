@@ -17,9 +17,6 @@ package snap
 import (
 	"io"
 
-	"google.golang.org/protobuf/proto"
-
-	"go.etcd.io/etcd/pkg/v3/ioutil"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
@@ -41,8 +38,8 @@ type Message struct {
 func NewMessage(rs *raftpb.Message, rc io.ReadCloser, rcSize int64) *Message {
 	return &Message{
 		Message:    rs,
-		ReadCloser: ioutil.NewExactReadCloser(rc, rcSize),
-		TotalSize:  int64(proto.Size(rs)) + rcSize,
+		ReadCloser: rc,
+		TotalSize:  int64(rs.Size()) + rcSize,
 		closeC:     make(chan bool, 1),
 	}
 }
