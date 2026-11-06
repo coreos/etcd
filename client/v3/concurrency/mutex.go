@@ -100,7 +100,7 @@ func (m *Mutex) Lock(ctx context.Context) error {
 		return werr
 	}
 
-	if len(gresp.Kvs) == 0 { // is the session key lost?
+	if len(gresp.Kvs) == 0 || gresp.Kvs[0].CreateRevision != m.myRev { // is the session key lost or recreated?
 		return ErrSessionExpired
 	}
 	m.hdr = gresp.Header

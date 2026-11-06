@@ -17,6 +17,7 @@ package concurrency_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -58,6 +59,59 @@ func TestMutexLockSessionExpired(t *testing.T) {
 	require.NoError(t, m1.Unlock(t.Context()))
 
 	<-m2Locked
+}
+
+// TestMutexLockKeyRecreated ensures that Lock does not succeed while another
+// session holds the lock, after another Mutex on the same session deleted and
+// recreated the key Lock waits on.
+func TestMutexLockKeyRecreated(t *testing.T) {
+	cli, err := integration.NewClient(t, clientv3.Config{Endpoints: exampleEndpoints()})
+	require.NoError(t, err)
+	defer cli.Close()
+
+	s1, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s1.Close()
+	s2, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s2.Close()
+	s3, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s3.Close()
+	m1 := concurrency.NewMutex(s1, "/my-lock/")
+	m2 := concurrency.NewMutex(s2, "/my-lock/")
+	m2b := concurrency.NewMutex(s2, "/my-lock/")
+	m3 := concurrency.NewMutex(s3, "/my-lock/")
+
+	require.NoError(t, m1.Lock(t.Context()))
+	wch := cli.Watch(t.Context(), "/my-lock/", clientv3.WithPrefix(), clientv3.WithRev(m1.Header().Revision+1))
+
+	// m2 puts the key of s2 and waits for m1.
+	m2Locked := make(chan error, 1)
+	go func() { m2Locked <- m2.Lock(t.Context()) }()
+	<-wch
+	// m2b fails to lock and deletes the key of s2.
+	require.ErrorIs(t, m2b.TryLock(t.Context()), concurrency.ErrLocked)
+	<-wch
+	// m3 puts the key of s3 and waits for m1.
+	m3Locked := make(chan error, 1)
+	go func() { m3Locked <- m3.Lock(t.Context()) }()
+	<-wch
+	// m2b puts the key of s2 again and waits for m3.
+	m2bLocked := make(chan error, 1)
+	go func() { m2bLocked <- m2b.Lock(t.Context()) }()
+	<-wch
+
+	require.NoError(t, m1.Unlock(t.Context()))
+	require.NoError(t, <-m3Locked)
+	// m2 must not lock while m3 holds the lock.
+	select {
+	case err := <-m2Locked:
+		require.Error(t, err, "m2 locked while m3 holds the lock")
+	case <-time.After(time.Second):
+	}
+	require.NoError(t, m3.Unlock(t.Context()))
+	<-m2bLocked
 }
 
 func TestMutexUnlock(t *testing.T) {
