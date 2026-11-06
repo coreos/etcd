@@ -92,6 +92,10 @@ k8s-coverage:
 	@echo "Running k8s coverage script"
 	ETCD_REPO="$(REPOSITORY_ROOT)" "$(REPOSITORY_ROOT)/tests/robustness/coverage/collect_kind_traces.sh"
 
+.PHONY: k8s-coverage-test
+k8s-coverage-test:
+	ETCD_REPO="$(REPOSITORY_ROOT)" "$(REPOSITORY_ROOT)/tests/robustness/coverage/run_coverage_test.sh"
+
 # Failpoints
 
 GOPATH = $(shell go env GOPATH)
