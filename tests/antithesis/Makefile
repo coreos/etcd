@@ -4,6 +4,7 @@ USER_ID := $(shell id -u)
 GROUP_ID := $(shell id -g)
 ARCH ?= $(shell go env GOARCH)
 REF = main
+IMAGE_REPOSITORY = ""
 IMAGE_TAG = latest
 
 CFG_NODE_COUNT ?= 3
@@ -46,41 +47,42 @@ antithesis-build-etcd-image-main: REF=main
 antithesis-build-etcd-image-main: antithesis-build-etcd-image
 
 .PHONY: antithesis-build-config-image
-antithesis-build-config-image: validate-node-count
+antithesis-build-config-image:
 	docker build -f config/Dockerfile config -t etcd-config:latest \
-		--build-arg IMAGE_TAG=$(IMAGE_TAG) \
-		--build-arg NODE_COUNT=$(CFG_NODE_COUNT)
+		--build-arg IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) \
+		--build-arg IMAGE_TAG=$(IMAGE_TAG)
 
-.PHONY: antithesis-docker-compose-up
-antithesis-docker-compose-up: validate-node-count
-	export USER_ID=$(USER_ID) && export GROUP_ID=$(GROUP_ID) && \
-		docker compose -f config/docker-compose-$(CFG_NODE_COUNT)-node.yml up
+.PHONY: antithesis-k8s-up
+antithesis-k8s-up: check-k8s-tools
+	kind create cluster --name etcd-antithesis
+	kind load docker-image etcd-client:latest --name etcd-antithesis
+	kind load docker-image etcd-server:latest --name etcd-antithesis
+	kubectl apply -f config/manifests
+	kubectl wait --for=condition=ready pod -l app=etcd --timeout=120s
+	kubectl wait --for=condition=ready pod -l app=etcd-client --timeout=120s
 
-.PHONY: antithesis-run-container-traffic
-antithesis-run-container-traffic: validate-node-count
-	export USER_ID=$(USER_ID) && export GROUP_ID=$(GROUP_ID) && \
-		docker compose -f config/docker-compose-$(CFG_NODE_COUNT)-node.yml exec client /opt/antithesis/test/v1/robustness/singleton_driver_traffic
+.PHONY: antithesis-run-k8s-traffic
+antithesis-run-k8s-traffic:
+	kubectl exec deployment/etcd-client -- /opt/antithesis/test/v1/robustness/singleton_driver_traffic
 
-.PHONY: antithesis-run-container-validation
-antithesis-run-container-validation: validate-node-count
-	export USER_ID=$(USER_ID) && export GROUP_ID=$(GROUP_ID) && \
-		docker compose -f config/docker-compose-$(CFG_NODE_COUNT)-node.yml exec client /opt/antithesis/test/v1/robustness/finally_validation
+.PHONY: antithesis-run-k8s-validation
+antithesis-run-k8s-validation:
+	kubectl exec deployment/etcd-client -- /opt/antithesis/test/v1/robustness/finally_validation
 
 .PHONY: antithesis-run-local-traffic
 antithesis-run-local-traffic:
-	export ETCD_ROBUSTNESS_DATA_PATHS=/tmp/etcddata0,/tmp/etcddata1,/tmp/etcddata2 && export ETCD_ROBUSTNESS_REPORT_PATH=report && export ETCD_ROBUSTNESS_ENDPOINTS=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 && \
+	export ETCD_ROBUSTNESS_DATA_PATHS=/tmp/etcddata/etcd-0,/tmp/etcddata/etcd-1,/tmp/etcddata/etcd-2 && export ETCD_ROBUSTNESS_REPORT_PATH=reports/report && export ETCD_ROBUSTNESS_ENDPOINTS=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 && \
 		go run --race ./test-template/robustness/traffic/main.go
 
 .PHONY: antithesis-run-local-validation
 antithesis-run-local-validation:
-	export ETCD_ROBUSTNESS_DATA_PATHS=/tmp/etcddata0,/tmp/etcddata1,/tmp/etcddata2 && export ETCD_ROBUSTNESS_REPORT_PATH=report && export ETCD_ROBUSTNESS_ENDPOINTS=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 && \
+	export ETCD_ROBUSTNESS_DATA_PATHS=/tmp/etcddata/etcd-0,/tmp/etcddata/etcd-1,/tmp/etcddata/etcd-2 && export ETCD_ROBUSTNESS_REPORT_PATH=reports/report && export ETCD_ROBUSTNESS_ENDPOINTS=127.0.0.1:12379,127.0.0.1:22379,127.0.0.1:32379 && \
 		go run --race ./test-template/robustness/finally/main.go
 
 .PHONY: antithesis-clean
-antithesis-clean: validate-node-count
-	export USER_ID=$(USER_ID) && export GROUP_ID=$(GROUP_ID) && \
-		docker compose -f config/docker-compose-$(CFG_NODE_COUNT)-node.yml down --remove-orphans
-	rm -rf /tmp/etcddata0 /tmp/etcddata1 /tmp/etcddata2 /tmp/etcdreport
+antithesis-clean: check-k8s-tools
+	kind delete cluster --name etcd-antithesis
+	rm -rf /tmp/etcddata /tmp/etcdreport
 
 .PHONY: validate-node-count
 validate-node-count:

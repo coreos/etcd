@@ -1,12 +1,11 @@
-ARG GO_VERSION=1.25.5
-
-FROM golang:$GO_VERSION AS build
-RUN go install github.com/a8m/envsubst/cmd/envsubst@v1.4.3
-
-ARG IMAGE_TAG
-ARG NODE_COUNT
-COPY docker-compose-${NODE_COUNT}-node.yml /docker-compose.yml.template
-RUN IMAGE_TAG=${IMAGE_TAG} cat /docker-compose.yml.template | envsubst > /docker-compose.yml
+FROM alpine AS build
+ARG IMAGE_REPOSITORY=
+ARG IMAGE_TAG=latest
+COPY manifests/ /manifests/
+RUN sed -i "s/etcd-client:latest/etcd-client:${IMAGE_TAG}/g" /manifests/client.yaml && \
+    sed -i "s/etcd-server:latest/etcd-server:${IMAGE_TAG}/g" /manifests/default-etcd-3-replicas.yaml && \
+    sed -i "s|image: etcd-client|image: ${IMAGE_REPOSITORY}etcd-client|g" /manifests/client.yaml && \
+    sed -i "s|image: etcd-server|image: ${IMAGE_REPOSITORY}etcd-server|g" /manifests/default-etcd-3-replicas.yaml
 
 FROM scratch
-COPY --from=build /docker-compose.yml /docker-compose.yml
+COPY --from=build /manifests/ /manifests/

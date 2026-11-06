@@ -91,13 +91,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/etcd/data
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        storageClassName: standard
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 200Mi
+              subPathExpr: $(ETCD_NAME)
+      volumes:
+        - name: data
+          hostPath:
+            path: /tmp/etcddata
+            type: DirectoryOrCreate

@@ -66,8 +66,9 @@ jobs:
           ETCD_REF: ${{ inputs.etcd_ref || 'main' }}
         run: |
           IMAGE_TAG="${ETCD_REF}_${{ github.sha }}"
-          make antithesis-build-config-image IMAGE_TAG="$IMAGE_TAG"
-          IMAGE="${{ env.REGISTRY }}/${{ env.REPOSITORY }}/etcd-config:${IMAGE_TAG}"
+          IMAGE_REPOSITORY="${{ env.REGISTRY }}/${{ env.REPOSITORY }}/"
+          IMAGE="${IMAGE_REPOSITORY}etcd-config:${IMAGE_TAG}"
+          make antithesis-build-config-image IMAGE_REPOSITORY="$IMAGE_REPOSITORY" IMAGE_TAG="$IMAGE_TAG"
           docker tag etcd-config:latest "$IMAGE"
           docker push "$IMAGE"
 
@@ -94,7 +95,7 @@ jobs:
       - name: Run Antithesis Tests
         uses: antithesishq/antithesis-trigger-action@80a5e9be591d303bf3c83e3ecbdc00102ad9de90 # v0.12
         with:
-          notebook_name: etcd
+          notebook_name: etcd_k8s
           tenant: linuxfoundation
           username: ${{ secrets.ANTITHESIS_WEBHOOK_USERNAME }}
           password: ${{ secrets.ANTITHESIS_WEBHOOK_PASSWORD }}
@@ -105,5 +106,5 @@ jobs:
           email_recipients: ${{ inputs.email || 'siarkowicz@google.com' }}
           test_name: ${{ inputs.test || 'etcd nightly antithesis run' }}
           additional_parameters: |-
-            custom.duration = ${{ inputs.duration || 12 }}
+            antithesis.duration = ${{ inputs.duration || 12 }}
             antithesis.source = ${{ inputs.etcd_ref || 'main' }}

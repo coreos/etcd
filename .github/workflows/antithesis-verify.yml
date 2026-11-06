@@ -1,5 +1,5 @@
 ---
-name: Verify Antithesis Docker Compose Pipeline
+name: Antithesis Verify
 
 permissions:
   contents: read
@@ -9,19 +9,17 @@ on:
     branches:
       - main
     paths:
-      - 'tests/antithesis/**'
-      - '.github/workflows/antithesis-verify.yml'
+      - "tests/antithesis/**"
+      - ".github/workflows/antithesis-verify.yml"
   pull_request:
+    branches:
+      - main
     paths:
-      - 'tests/antithesis/**'
-      - '.github/workflows/antithesis-verify.yml'
+      - "tests/antithesis/**"
+      - ".github/workflows/antithesis-verify.yml"
 
 jobs:
-  test-docker-compose:
-    strategy:
-      matrix:
-        node-count: [1, 3]
-    name: Test ${{ matrix.node-count }}-node cluster
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,41 +31,19 @@ jobs:
           make -C tests/antithesis antithesis-build-etcd-image
           make -C tests/antithesis antithesis-build-client-docker-image
 
-      - name: Run docker-compose up
+      - name: Set up Kubernetes cluster
         working-directory: ./tests/antithesis
-        run: |
-          make antithesis-docker-compose-up CFG_NODE_COUNT=${{ matrix.node-count }} &
-
-      - name: Check for healthy cluster
-        working-directory: ./tests/antithesis
-        run: |
-          timeout=120
-          interval=10
-          end_time=$(( $(date +%s) + timeout ))
-
-          while [ $(date +%s) -lt $end_time ]; do
-            # The client container might not be running yet, so ignore errors from docker compose logs
-            if docker compose -f config/docker-compose-${{ matrix.node-count }}-node.yml logs client 2>/dev/null | grep -q "Client \[entrypoint\]: cluster is healthy!"; then
-              echo "Cluster is healthy!"
-              exit 0
-            fi
-            echo "Waiting for cluster to become healthy..."
-            sleep $interval
-          done
-
-          echo "Cluster did not become healthy in ${timeout} seconds."
-          docker compose -f config/docker-compose-${{ matrix.node-count }}-node.yml logs
-          exit 1
+        run: make antithesis-k8s-up
 
       - name: Run traffic
         working-directory: ./tests/antithesis
-        run: make antithesis-run-container-traffic CFG_NODE_COUNT=${{ matrix.node-count }}
+        run: make antithesis-run-k8s-traffic
 
       - name: Run validation
         working-directory: ./tests/antithesis
-        run: make antithesis-run-container-validation CFG_NODE_COUNT=${{ matrix.node-count }}
+        run: make antithesis-run-k8s-validation
 
       - name: Clean up
         if: always()
         working-directory: ./tests/antithesis
-        run: make antithesis-clean CFG_NODE_COUNT=${{ matrix.node-count }}
+        run: make antithesis-clean

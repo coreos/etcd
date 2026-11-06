@@ -1,0 +1,42 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-client
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd-client
+  template:
+    metadata:
+      labels:
+        app: etcd-client
+    spec:
+      containers:
+        - name: client
+          image: etcd-client:latest
+          imagePullPolicy: Never
+          command: ["/opt/antithesis/entrypoint/entrypoint"]
+          env:
+            - name: ETCD_ROBUSTNESS_ENDPOINTS
+              value: "etcd-0.etcd.default.svc.cluster.local:2379,etcd-1.etcd.default.svc.cluster.local:2379,etcd-2.etcd.default.svc.cluster.local:2379"
+            - name: ETCD_ROBUSTNESS_DATA_PATHS
+              value: "/var/etcddata/etcd-0,/var/etcddata/etcd-1,/var/etcddata/etcd-2"
+            - name: ETCD_ROBUSTNESS_REPORT_PATH
+              value: "/var/reports/report"
+          volumeMounts:
+            - name: data
+              mountPath: /var/etcddata
+            - name: report
+              mountPath: /var/reports
+      volumes:
+        - name: data
+          hostPath:
+            path: /tmp/etcddata
+            type: DirectoryOrCreate
+        - name: report
+          hostPath:
+            path: /tmp/etcdreport
+            type: DirectoryOrCreate
