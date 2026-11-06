@@ -51,6 +51,30 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3rpc"
 )
 
+type limitedReadCloser struct {
+	r io.Reader
+	n int64
+}
+
+func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
+	if l.n <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > l.n {
+		p = p[:l.n]
+	}
+	n, err = l.r.Read(p)
+	l.n -= int64(n)
+	return n, err
+}
+
+func (l *limitedReadCloser) Close() error {
+	if c, ok := l.r.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
 type serveCtx struct {
 	lg *zap.Logger
 	l  net.Listener
@@ -446,6 +470,11 @@ func (ac *accessController) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 		http.Error(rw, "Request is nil", http.StatusBadRequest)
 		return
 	}
+	if req.ContentLength > int64(ac.s.Cfg.MaxRequestBytesWithOverhead()) {
+		http.Error(rw, "request body too large", http.StatusBadRequest)
+		return
+	}
+	req.Body = &limitedReadCloser{r: req.Body, n: int64(ac.s.Cfg.MaxRequestBytesWithOverhead())}
 	// redirect for backward compatibilities
 	if req.URL != nil && strings.HasPrefix(req.URL.Path, "/v3beta/") {
 		req.URL.Path = strings.Replace(req.URL.Path, "/v3beta/", "/v3/", 1)
