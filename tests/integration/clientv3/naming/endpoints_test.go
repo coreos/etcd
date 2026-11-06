@@ -183,3 +183,41 @@ func TestEndpointManagerCRUD(t *testing.T) {
 	require.Lenf(t, eps, 1, "unexpected the number of endpoints: %d", len(eps))
 	require.Truef(t, reflect.DeepEqual(eps[k3], e3), "unexpected endpoints: %s", k3)
 }
+
+func TestEndpointManagerDeleteEndpointRejectsRangeOptions(t *testing.T) {
+	integration.BeforeTest(t)
+
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	c := clus.RandClient()
+	em, err := endpoints.NewManager(c, "foo")
+	require.NoError(t, err)
+
+	emOther, err := endpoints.NewManager(c, "foo_other")
+	require.NoError(t, err)
+
+	err = em.AddEndpoint(t.Context(), "foo/a", endpoints.Endpoint{Addr: "127.0.0.1:2000"})
+	require.NoError(t, err)
+	err = em.AddEndpoint(t.Context(), "foo/b", endpoints.Endpoint{Addr: "127.0.0.1:2001"})
+	require.NoError(t, err)
+	err = emOther.AddEndpoint(t.Context(), "foo_other/a", endpoints.Endpoint{Addr: "127.0.0.1:2002"})
+	require.NoError(t, err)
+
+	// Range delete options must be rejected
+	for _, opt := range []etcd.OpOption{
+		etcd.WithFromKey(),
+		etcd.WithPrefix(),
+		etcd.WithRange("foo/z"),
+	} {
+		err = em.DeleteEndpoint(t.Context(), "foo/a", opt)
+		require.Error(t, err, "expected range delete option to be rejected")
+	}
+
+	// Verify that none of the endpoints were deleted
+	for _, key := range []string{"foo/a", "foo/b", "foo_other/a"} {
+		resp, err := c.Get(t.Context(), key)
+		require.NoError(t, err)
+		require.Lenf(t, resp.Kvs, 1, "expected %q to remain after rejected delete, got %d keys", key, len(resp.Kvs))
+	}
+}
