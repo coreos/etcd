@@ -15,6 +15,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -161,4 +162,135 @@ func TestV3ElectionObserve(t *testing.T) {
 	}
 
 	<-leader2c
+}
+
+// TestV3ElectionProclaimNotLeader checks that Proclaim fails when given
+// leader credentials that do not match the current leader (e.g. a stale
+// revision), rather than silently overwriting the election value.
+func TestV3ElectionProclaimNotLeader(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lease, err := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err)
+
+	lc := integration.ToGRPC(clus.Client(0)).Election
+	c, cerr := lc.Campaign(t.Context(), &epb.CampaignRequest{Name: []byte("foo"), Lease: lease.ID, Value: []byte("abc")})
+	require.NoError(t, cerr)
+
+	// forge a stale LeaderKey with the wrong revision; the compare against
+	// the actual CreateRevision should fail and reject the Proclaim.
+	staleLeader := &epb.LeaderKey{
+		Name:  c.Leader.Name,
+		Key:   c.Leader.Key,
+		Rev:   c.Leader.Rev + 1,
+		Lease: c.Leader.Lease,
+	}
+	_, perr := lc.Proclaim(t.Context(), &epb.ProclaimRequest{Leader: staleLeader, Value: []byte("def")})
+	require.ErrorContains(t, perr, "election: not leader")
+
+	// the value must be unchanged
+	lval, lverr := lc.Leader(t.Context(), &epb.LeaderRequest{Name: []byte("foo")})
+	require.NoError(t, lverr)
+	require.Equal(t, "abc", string(lval.Kv.Value))
+}
+
+// TestV3ElectionProclaimAfterResign checks that Proclaim fails once the
+// leader has resigned, since resignation deletes the backing leader key.
+func TestV3ElectionProclaimAfterResign(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lease, err := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err)
+
+	lc := integration.ToGRPC(clus.Client(0)).Election
+	c, cerr := lc.Campaign(t.Context(), &epb.CampaignRequest{Name: []byte("foo"), Lease: lease.ID, Value: []byte("abc")})
+	require.NoError(t, cerr)
+
+	_, rerr := lc.Resign(t.Context(), &epb.ResignRequest{Leader: c.Leader})
+	require.NoError(t, rerr)
+
+	_, perr := lc.Proclaim(t.Context(), &epb.ProclaimRequest{Leader: c.Leader, Value: []byte("def")})
+	require.ErrorContains(t, perr, "election: not leader")
+}
+
+// TestV3ElectionResignThenCampaignAgain checks that Resign fully releases
+// the election so a brand new Campaign (not one already waiting in line)
+// succeeds promptly rather than blocking on the resigned leader's key.
+func TestV3ElectionResignThenCampaignAgain(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lc := integration.ToGRPC(clus.Client(0)).Election
+
+	lease1, err1 := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err1)
+	c1, cerr1 := lc.Campaign(t.Context(), &epb.CampaignRequest{Name: []byte("foo"), Lease: lease1.ID, Value: []byte("abc")})
+	require.NoError(t, cerr1)
+
+	_, rerr := lc.Resign(t.Context(), &epb.ResignRequest{Leader: c1.Leader})
+	require.NoError(t, rerr)
+
+	lease2, err2 := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err2)
+
+	campaignc := make(chan error, 1)
+	go func() {
+		_, cerr2 := lc.Campaign(t.Context(), &epb.CampaignRequest{Name: []byte("foo"), Lease: lease2.ID, Value: []byte("def")})
+		campaignc <- cerr2
+	}()
+
+	select {
+	case cerr2 := <-campaignc:
+		require.NoError(t, cerr2)
+	case <-time.After(time.Second):
+		t.Fatalf("new campaign did not acquire leadership promptly after resign")
+	}
+
+	lval, lverr := lc.Leader(t.Context(), &epb.LeaderRequest{Name: []byte("foo")})
+	require.NoError(t, lverr)
+	require.Equal(t, "def", string(lval.Kv.Value))
+}
+
+// TestV3ElectionObserveCancellation checks that an Observe stream unblocks
+// promptly when the client cancels its context, rather than hanging the
+// server-side handler goroutine indefinitely.
+func TestV3ElectionObserveCancellation(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	lc := integration.ToGRPC(clus.Client(0)).Election
+
+	lease, err := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+	require.NoError(t, err)
+	_, cerr := lc.Campaign(t.Context(), &epb.CampaignRequest{Name: []byte("foo"), Lease: lease.ID, Value: []byte("abc")})
+	require.NoError(t, cerr)
+
+	octx, ocancel := context.WithCancel(t.Context())
+	s, operr := lc.Observe(octx, &epb.LeaderRequest{Name: []byte("foo")})
+	require.NoError(t, operr)
+
+	// consume the initial leadership notification before cancelling
+	_, rerr := s.Recv()
+	require.NoError(t, rerr)
+
+	ocancel()
+
+	recvc := make(chan error, 1)
+	go func() {
+		_, err := s.Recv()
+		recvc <- err
+	}()
+
+	select {
+	case err := <-recvc:
+		require.Errorf(t, err, "expected Recv to fail after context cancellation")
+	case <-time.After(time.Second):
+		t.Fatalf("Observe stream did not unblock within 1s of client cancellation")
+	}
 }
