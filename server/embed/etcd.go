@@ -925,6 +925,9 @@ func (e *Etcd) GetLogger() *zap.Logger {
 	return l
 }
 
+// maxCompactionRetentionHours is the largest whole-hour retention representable as a time.Duration.
+const maxCompactionRetentionHours = int64(math.MaxInt64 / time.Hour)
+
 func parseCompactionRetention(mode, retention string) (ret time.Duration, err error) {
 	h, err := strconv.Atoi(retention)
 	if err == nil && h >= 0 {
@@ -932,6 +935,9 @@ func parseCompactionRetention(mode, retention string) (ret time.Duration, err er
 		case CompactorModeRevision:
 			ret = time.Duration(int64(h))
 		case CompactorModePeriodic:
+			if int64(h) > maxCompactionRetentionHours {
+				return 0, fmt.Errorf("CompactionRetention %q exceeds the maximum of %d hours", retention, maxCompactionRetentionHours)
+			}
 			ret = time.Duration(int64(h)) * time.Hour
 		case "":
 			return 0, errors.New("--auto-compaction-mode is undefined")
@@ -941,6 +947,9 @@ func parseCompactionRetention(mode, retention string) (ret time.Duration, err er
 		ret, err = time.ParseDuration(retention)
 		if err != nil {
 			return 0, fmt.Errorf("error parsing CompactionRetention: %w", err)
+		}
+		if ret < 0 {
+			return 0, fmt.Errorf("CompactionRetention %q must not be negative", retention)
 		}
 	}
 	return ret, nil
