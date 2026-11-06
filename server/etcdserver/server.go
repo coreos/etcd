@@ -839,6 +839,7 @@ func (s *EtcdServer) run() {
 		case ap := <-s.r.apply():
 			f := schedule.NewJob("server_applyAll", func(context.Context) { s.applyAll(&ep, &ap) })
 			sched.Schedule(f)
+			applyBatchPending.Set(float64(sched.Pending()))
 		case leases := <-expiredLeaseC:
 			s.revokeExpiredLeases(leases)
 		case err := <-s.errorc:

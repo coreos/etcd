@@ -194,6 +194,8 @@ func (f *fifo) executeJob(todo Job, updatedFinishedStats bool) {
 		if !updatedFinishedStats {
 			f.finishCond.L.Lock()
 			f.finished++
+			// Clear the popped slot before re-slicing
+			f.pendings[0] = nil
 			f.pendings = f.pendings[1:]
 			f.finishCond.Broadcast()
 			f.finishCond.L.Unlock()

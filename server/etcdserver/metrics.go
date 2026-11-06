@@ -150,6 +150,12 @@ var (
 		},
 		[]string{"name", "stage"},
 	)
+	applyBatchPending = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "etcd_debugging",
+		Subsystem: "server",
+		Name:      "apply_batch_pending",
+		Help:      "The number of apply batches queued in the FIFO scheduler waiting for the apply goroutine.",
+	})
 	fdUsed = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "os",
 		Subsystem: "fd",
@@ -184,6 +190,7 @@ func init() {
 	prometheus.MustRegister(learnerPromoteFailed)
 	prometheus.MustRegister(fdUsed)
 	prometheus.MustRegister(fdLimit)
+	prometheus.MustRegister(applyBatchPending)
 
 	currentVersion.With(prometheus.Labels{
 		"server_version": version.Version,

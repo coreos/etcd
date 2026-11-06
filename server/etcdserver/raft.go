@@ -78,6 +78,16 @@ type toApply struct {
 	raftAdvancedC <-chan struct{}
 }
 
+// cloneCommittedEntries returns a copy of ents backed by a right-sized array
+func cloneCommittedEntries(ents []*raftpb.Entry) []*raftpb.Entry {
+	if len(ents) == 0 {
+		return nil
+	}
+	cp := make([]*raftpb.Entry, len(ents))
+	copy(cp, ents)
+	return cp
+}
+
 type raftNode struct {
 	lg *zap.Logger
 
@@ -215,7 +225,7 @@ func (r *raftNode) start(rh *raftReadyHandler) {
 						return
 					}
 				}
-				committedEntries := rd.CommittedEntries
+				committedEntries := cloneCommittedEntries(rd.CommittedEntries)
 				notifyc := make(chan struct{}, 1)
 				raftAdvancedC := make(chan struct{}, 1)
 				raftSnap := proto.Clone(rd.Snapshot).(*raftpb.Snapshot)
