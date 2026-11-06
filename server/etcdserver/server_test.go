@@ -1082,6 +1082,7 @@ func TestPublishV3(t *testing.T) {
 		ctx:        ctx,
 		cancel:     cancel,
 	}
+	srv.snapshotApplied = notify.NewNotifier()
 	srv.publishV3(time.Hour)
 
 	action := n.Action()
@@ -1126,7 +1127,113 @@ func TestPublishV3Stopped(t *testing.T) {
 		cancel: cancel,
 	}
 	close(srv.stopping)
+	srv.snapshotApplied = notify.NewNotifier()
 	srv.publishV3(time.Hour)
+}
+
+// newPublishTestServer returns a server whose proposals are recorded but never
+// applied locally, as for a member whose proposal is committed inside the
+// leader snapshot it installs instead of the entry.
+func newPublishTestServer(t *testing.T, n *nodeRecorder, cl *membership.RaftCluster) *EtcdServer {
+	ctx, cancel := context.WithCancel(t.Context())
+	lg := zaptest.NewLogger(t)
+	be, _ := betesting.NewDefaultTmpBackend(t)
+	t.Cleanup(func() { betesting.Close(t, be) })
+	return &EtcdServer{
+		lgMu:            new(sync.RWMutex),
+		lg:              lg,
+		readych:         make(chan struct{}),
+		Cfg:             config.ServerConfig{Logger: lg, TickMs: 1, SnapshotCatchUpEntries: DefaultSnapshotCatchUpEntries, MaxRequestBytes: 1000, ServerFeatureGate: features.NewDefaultServerFeatureGate("test", lg)},
+		memberID:        1,
+		r:               *newRaftNode(raftNodeConfig{lg: lg, Node: n, storage: mockstorage.NewStorageRecorder("")}),
+		w:               wait.New(),
+		stopping:        make(chan struct{}),
+		done:            make(chan struct{}),
+		attributes:      membership.Attributes{Name: "node1", ClientURLs: []string{"http://a"}},
+		cluster:         cl,
+		snapshotApplied: notify.NewNotifier(),
+		reqIDGen:        idutil.NewGenerator(0, time.Time{}),
+		authStore:       auth.NewAuthStore(lg, schema.NewAuthBackend(lg, be), nil, 0),
+		be:              be,
+		ctx:             ctx,
+		cancel:          cancel,
+	}
+}
+
+// TestPublishV3CompletedBySnapshot tests that publish succeeds without waiting
+// for its timeout when a leader snapshot applied meanwhile already holds the
+// member's attributes, because the member will never apply the entry itself.
+func TestPublishV3CompletedBySnapshot(t *testing.T) {
+	n := newNodeRecorderStream()
+	cl := membership.NewClusterFromMembers(zaptest.NewLogger(t), 1, []*membership.Member{{ID: 1}})
+	srv := newPublishTestServer(t, n, cl)
+
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		srv.publishV3(time.Hour)
+	}()
+	_, err := n.Wait(1)
+	require.NoError(t, err)
+
+	// The snapshot restores the membership with the attributes the leader
+	// applied from the proposal, then notifies, as applySnapshot does.
+	cl.UpdateAttributes(1, srv.attributes, membership.ApplyV2storeOnly)
+	srv.snapshotApplied.Notify()
+
+	// The stream recorder is unbuffered: a second proposal would block
+	// publishV3, so its return also shows it proposed only once.
+	select {
+	case <-published:
+	case <-time.After(10 * time.Second):
+		t.Fatal("publishV3 did not return after the snapshot carried the attributes")
+	}
+	select {
+	case <-srv.ReadyNotify():
+	default:
+		t.Fatal("server is not ready after publishing")
+	}
+}
+
+// TestPublishV3WaitsAfterSnapshotWithoutAttributes tests that a snapshot that
+// does not hold the member's attributes does not count as published: the
+// proposal then lies after the snapshot, so publish keeps waiting for it
+// rather than proposing again, and a later snapshot holding the attributes
+// still completes it.
+func TestPublishV3WaitsAfterSnapshotWithoutAttributes(t *testing.T) {
+	n := newNodeRecorderStream()
+	cl := membership.NewClusterFromMembers(zaptest.NewLogger(t), 1, []*membership.Member{{ID: 1}})
+	srv := newPublishTestServer(t, n, cl)
+
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		srv.publishV3(time.Hour)
+	}()
+	_, err := n.Wait(1)
+	require.NoError(t, err)
+
+	srv.snapshotApplied.Notify()
+	select {
+	case <-published:
+		t.Fatal("publish returned although the snapshot did not hold its attributes")
+	case act := <-n.Chan():
+		t.Fatalf("publish proposed again (%s) instead of waiting for its entry", act.Name)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-srv.ReadyNotify():
+		t.Fatal("server is ready although its attributes were never published")
+	default:
+	}
+
+	cl.UpdateAttributes(1, srv.attributes, membership.ApplyV2storeOnly)
+	srv.snapshotApplied.Notify()
+	select {
+	case <-published:
+	case <-time.After(10 * time.Second):
+		t.Fatal("publishV3 did not return after a later snapshot carried the attributes")
+	}
 }
 
 // TestPublishV3Retry tests that publish will keep retry until success.
@@ -1173,6 +1280,7 @@ func TestPublishV3Retry(t *testing.T) {
 			}
 		}
 	}()
+	srv.snapshotApplied = notify.NewNotifier()
 	srv.publishV3(10 * time.Nanosecond)
 	ch <- struct{}{}
 	<-ch

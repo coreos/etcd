@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -285,6 +286,9 @@ type EtcdServer struct {
 
 	firstCommitInTerm     *notify.Notifier
 	clusterVersionChanged *notify.Notifier
+	// snapshotApplied is notified after a leader snapshot has been applied,
+	// including the membership it carries.
+	snapshotApplied *notify.Notifier
 
 	*AccessController
 	// forceDiskSnapshot can force snapshot be triggered after apply, independent of the snapshotCount.
@@ -575,6 +579,7 @@ func (s *EtcdServer) start() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.read = read.NewRead(s, &s.r)
 	s.leaderChanged = notify.NewNotifier()
+	s.snapshotApplied = notify.NewNotifier()
 	if s.ClusterVersion() != nil {
 		lg.Info(
 			"starting etcd server",
@@ -1146,6 +1151,10 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, toApply *toApply) {
 	// As backends and implementations like alarmsStore changed, we need
 	// to re-bootstrap Appliers.
 	s.uberApply = s.NewUberApplier()
+
+	// Wake publishV3: its proposal may be committed inside this snapshot, and
+	// then this member never applies the entry that would answer the wait.
+	s.snapshotApplied.Notify()
 }
 
 func (s *EtcdServer) NewUberApplier() apply.UberApplier {
@@ -1815,8 +1824,37 @@ func (s *EtcdServer) publishV3(timeout time.Duration) {
 		}
 
 		ctx, cancel := context.WithTimeout(s.ctx, timeout)
+		// A member that joins behind the leader proposes before it receives the
+		// leader's snapshot. The leader can commit and apply the proposal at an
+		// index the snapshot covers; this member then installs the snapshot and
+		// never applies that entry, so the wait is never triggered and the
+		// attempt would only end at its timeout (7 s by default) although the
+		// attributes are already published. End the attempt as published when
+		// an applied snapshot holds them; otherwise keep waiting for the entry,
+		// which then lies after the snapshot and is applied here as usual.
+		var publishedBySnapshot atomic.Bool
+		go func(applied <-chan struct{}) {
+			for {
+				select {
+				case <-applied:
+				case <-ctx.Done():
+					return
+				}
+				// Receive again before checking, so a snapshot applied after
+				// the check still wakes this loop.
+				applied = s.snapshotApplied.Receive()
+				if s.hasPublishedAttributes() {
+					publishedBySnapshot.Store(true)
+					cancel()
+					return
+				}
+			}
+		}(s.snapshotApplied.Receive())
 		_, err := s.raftRequest(ctx, &pb.InternalRaftRequest{ClusterMemberAttrSet: req})
 		cancel()
+		if err != nil && publishedBySnapshot.Load() {
+			err = nil
+		}
 		switch err {
 		case nil:
 			close(s.readych)
@@ -1839,6 +1877,17 @@ func (s *EtcdServer) publishV3(timeout time.Duration) {
 			)
 		}
 	}
+}
+
+// hasPublishedAttributes reports whether the applied membership holds this
+// member's current attributes. It is only consulted after a leader snapshot
+// was applied: the snapshot is the leader's applied state, so the cluster has
+// the attributes and this member has applied at least that far. A member that
+// restarts with its attributes already in its own store still publishes
+// through Raft, as before.
+func (s *EtcdServer) hasPublishedAttributes() bool {
+	m := s.cluster.Member(s.MemberID())
+	return m != nil && m.Name == s.attributes.Name && slices.Equal(m.ClientURLs, s.attributes.ClientURLs)
 }
 
 func (s *EtcdServer) sendMergedSnap(merged *snap.Message) {
