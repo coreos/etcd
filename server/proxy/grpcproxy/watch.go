@@ -27,6 +27,7 @@ import (
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3rpc"
+	"go.etcd.io/etcd/server/v3/storage/mvcc"
 )
 
 type watchProxy struct {
@@ -263,7 +264,6 @@ func (wps *watchProxyStream) recvLoop() error {
 			wps.mu.Lock()
 			w := &watcher{
 				wr:  watchRange{string(cr.Key), string(cr.RangeEnd)},
-				id:  wps.nextWatcherID,
 				wps: wps,
 
 				nextrev:  cr.StartRevision,
@@ -281,12 +281,35 @@ func (wps *watchProxyStream) recvLoop() error {
 				wps.mu.Unlock()
 				continue
 			}
-			wps.nextWatcherID++
+			// Honor a client-supplied watch ID, mirroring mvcc.watchStream.Watch:
+			// for AutoWatchID auto-assign the next free ID; for an explicit ID
+			// reject duplicates. Previously the proxy ignored cr.WatchId and
+			// always auto-assigned, so an explicit ID was silently replaced and
+			// duplicate IDs went undetected (issue #12819).
+			if cr.WatchId == clientv3.AutoWatchID {
+				for wps.watchers[wps.nextWatcherID] != nil {
+					wps.nextWatcherID++
+				}
+				w.id = wps.nextWatcherID
+				wps.nextWatcherID++
+			} else if _, ok := wps.watchers[cr.WatchId]; ok {
+				w.post(&pb.WatchResponse{
+					Header:       &pb.ResponseHeader{},
+					WatchId:      cr.WatchId,
+					Created:      true,
+					Canceled:     true,
+					CancelReason: mvcc.ErrWatcherDuplicateID.Error(),
+				})
+				wps.mu.Unlock()
+				continue
+			} else {
+				w.id = cr.WatchId
+			}
 			w.nextrev = cr.StartRevision
 			wps.watchers[w.id] = w
 			wps.ranges.add(w)
 			wps.mu.Unlock()
-			wps.lg.Debug("create watcher", zap.String("key", w.wr.key), zap.String("end", w.wr.end), zap.Int64("watcherId", wps.nextWatcherID))
+			wps.lg.Debug("create watcher", zap.String("key", w.wr.key), zap.String("end", w.wr.end), zap.Int64("watcherId", w.id))
 		case *pb.WatchRequest_CancelRequest:
 			wps.delete(uv.CancelRequest.WatchId)
 			wps.lg.Debug("cancel watcher", zap.Int64("watcherId", uv.CancelRequest.WatchId))
