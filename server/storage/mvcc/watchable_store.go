@@ -363,7 +363,18 @@ func (s *watchableStore) syncWatchers() int {
 	compactionRev := s.store.compactMainRev
 
 	wg, minRev := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
-	evs := rangeEvents(s.store.lg, s.store.b, minRev, curRev+1, wg)
+	// Bound the scan to what can actually be delivered in a single pass.
+	// newWatcherBatch caps each watcher's batch at watchBatchMaxRevs distinct
+	// revisions, so scanning further than that is pure read amplification: a
+	// watcher far behind forces a full [minRev, curRev] rescan every 100ms,
+	// holding watchableStore.mu for the whole duration and stalling the apply
+	// loop. Limiting the scan window to the deliverable range resolves the
+	// latency without introducing memory pressure.
+	maxRev := minRev + int64(watchBatchMaxRevs) + 1
+	if maxRev > curRev+1 {
+		maxRev = curRev + 1
+	}
+	evs := rangeEvents(s.store.lg, s.store.b, minRev, maxRev, wg)
 
 	victims := make(watcherBatch)
 	wb := newWatcherBatch(wg, evs)
