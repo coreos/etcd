@@ -131,14 +131,23 @@ func testHashByRev(t *testing.T, s *store, rev int64) KeyValueHash {
 	return hash
 }
 
-// TestCompactionHash tests compaction hash
-// TODO: Change this to fuzz test
-func TestCompactionHash(t *testing.T) {
-	b, _ := betesting.NewDefaultTmpBackend(t)
-	s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
-	defer cleanup(s, b)
+// FuzzCompactionHash fuzzes compaction hash with varying batch limits.
+func FuzzCompactionHash(f *testing.F) {
+	f.Add(int64(1000))
+	f.Add(int64(100))
+	f.Add(int64(10))
 
-	testutil.TestCompactionHash(t.Context(), t, hashTestCase{s}, s.cfg.CompactionBatchLimit)
+	f.Fuzz(func(t *testing.T, compactionBatchLimit int64) {
+		if compactionBatchLimit <= 0 {
+			t.Skip("compactionBatchLimit must be positive")
+		}
+
+		b, _ := betesting.NewDefaultTmpBackend(t)
+		s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+		defer cleanup(s, b)
+
+		testutil.TestCompactionHash(t.Context(), t, hashTestCase{s}, int(compactionBatchLimit))
+	})
 }
 
 type hashTestCase struct {
