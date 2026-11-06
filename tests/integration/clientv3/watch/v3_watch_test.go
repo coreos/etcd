@@ -1365,23 +1365,23 @@ func TestV3WatchCancellation(t *testing.T) {
 		wcancel()
 	}
 
-	// Wait a little for cancellations to take hold
-	time.Sleep(3 * time.Second)
-
-	minWatches, err := clus.Members[0].Metric("etcd_debugging_mvcc_watcher_total")
-	require.NoError(t, err)
-
-	var expected string
+	expected := "1"
 	if integration.ThroughProxy {
 		// grpc proxy has additional 2 watches open
 		expected = "3"
-	} else {
-		expected = "1"
 	}
 
-	if minWatches != expected {
-		t.Fatalf("expected %s watch, got %s", expected, minWatches)
-	}
+	// Cancelled watchers are cleaned up asynchronously, so poll the metric until
+	// it settles rather than waiting a fixed amount of time. A fixed wait is both
+	// slower than necessary and flaky: on a loaded runner the cleanup can take
+	// longer than the wait and spuriously fail the test.
+	var minWatches string
+	var lastErr error
+	require.Eventuallyf(t, func() bool {
+		minWatches, lastErr = clus.Members[0].Metric("etcd_debugging_mvcc_watcher_total")
+		return lastErr == nil && minWatches == expected
+	}, 10*time.Second, 10*time.Millisecond,
+		"expected %s watch, got %s (last err: %v)", expected, minWatches, lastErr)
 }
 
 // TestV3WatchCloseCancelRace ensures that watch close doesn't decrement the watcher total too far.
