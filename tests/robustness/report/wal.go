@@ -181,7 +181,7 @@ func mergeMembersEntries(minCommitIndex uint64, memberEntries [][]*raftpb.Entry)
 				continue
 			}
 			if !areEntriesEqual(entryWithMostVotes, entry) {
-				diff := cmp.Diff(entryWithMostVotes, entry, protocmp.Transform(), protocmp.IgnoreDefaultScalars(), cmp.Comparer(bytes.Equal))
+				diff := cmp.Diff(transformRaftEntry(entryWithMostVotes), transformRaftEntry(entry), protocmp.Transform(), protocmp.IgnoreDefaultScalars(), cmp.Comparer(bytes.Equal))
 				return nil, fmt.Errorf("mismatching entries on raft index %d, diff: %s", raftIndex, diff)
 			}
 		}
@@ -193,14 +193,77 @@ func mergeMembersEntries(minCommitIndex uint64, memberEntries [][]*raftpb.Entry)
 	return mergedHistory, nil
 }
 
+type decodedRaftEntry struct {
+	Index uint64
+	Term  uint64
+	Type  raftpb.EntryType
+	Data  any
+}
+
+func transformRaftEntry(e *raftpb.Entry) decodedRaftEntry {
+	if e == nil {
+		return decodedRaftEntry{}
+	}
+	res := decodedRaftEntry{
+		Index: e.GetIndex(),
+		Term:  e.GetTerm(),
+		Type:  e.GetType(),
+		Data:  e.GetData(),
+	}
+	switch e.GetType() {
+	case raftpb.EntryNormal:
+		var req pb.InternalRaftRequest
+		if proto.Unmarshal(e.GetData(), &req) == nil {
+			res.Data = &req
+		}
+	case raftpb.EntryConfChange:
+		var cc raftpb.ConfChange
+		if proto.Unmarshal(e.GetData(), &cc) == nil {
+			res.Data = &cc
+		}
+	case raftpb.EntryConfChangeV2:
+		var cc raftpb.ConfChangeV2
+		if proto.Unmarshal(e.GetData(), &cc) == nil {
+			res.Data = &cc
+		}
+	}
+	return res
+}
+
 func areEntriesEqual(e1, e2 *raftpb.Entry) bool {
 	if e1 == nil || e2 == nil {
 		return e1 == e2
 	}
-	return e1.GetIndex() == e2.GetIndex() &&
-		e1.GetTerm() == e2.GetTerm() &&
-		e1.GetType() == e2.GetType() &&
-		bytes.Equal(e1.GetData(), e2.GetData())
+	if e1.GetIndex() != e2.GetIndex() ||
+		e1.GetTerm() != e2.GetTerm() ||
+		e1.GetType() != e2.GetType() {
+		return false
+	}
+	return areDataEqual(e1.GetType(), e1.GetData(), e2.GetData())
+}
+
+func areDataEqual(t raftpb.EntryType, data1, data2 []byte) bool {
+	if bytes.Equal(data1, data2) {
+		return true
+	}
+	switch t {
+	case raftpb.EntryNormal:
+		var req1, req2 pb.InternalRaftRequest
+		if proto.Unmarshal(data1, &req1) == nil && proto.Unmarshal(data2, &req2) == nil {
+			return cmp.Equal(&req1, &req2, protocmp.Transform(), protocmp.IgnoreDefaultScalars())
+		}
+	case raftpb.EntryConfChange:
+		var cc1, cc2 raftpb.ConfChange
+		if proto.Unmarshal(data1, &cc1) == nil && proto.Unmarshal(data2, &cc2) == nil {
+			return cmp.Equal(&cc1, &cc2, protocmp.Transform(), protocmp.IgnoreDefaultScalars())
+		}
+	case raftpb.EntryConfChangeV2:
+		var cc1, cc2 raftpb.ConfChangeV2
+		if proto.Unmarshal(data1, &cc1) == nil && proto.Unmarshal(data2, &cc2) == nil {
+			return cmp.Equal(&cc1, &cc2, protocmp.Transform(), protocmp.IgnoreDefaultScalars())
+		}
+	}
+	return false
 }
 
 func ReadWAL(lg *zap.Logger, dataDir string) (state *raftpb.HardState, ents []*raftpb.Entry, err error) {

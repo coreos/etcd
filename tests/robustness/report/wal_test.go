@@ -774,3 +774,44 @@ func TestParseEntryNormal_IgnoreV2(t *testing.T) {
 		})
 	}
 }
+
+func TestAreEntriesEqual_ProtobufSerializationDifference(t *testing.T) {
+	// e1 has Id field absent (Id: nil)
+	cc1 := &raftpb.ConfChange{
+		Id:      nil,
+		Type:    raftpb.ConfChangeAddNode.Enum(),
+		NodeId:  proto.Uint64(12345),
+		Context: []byte("test"),
+	}
+	data1, err := proto.Marshal(cc1)
+	require.NoError(t, err)
+
+	// e2 has Id field present with default zero (Id: 0)
+	cc2 := &raftpb.ConfChange{
+		Id:      proto.Uint64(0),
+		Type:    raftpb.ConfChangeAddNode.Enum(),
+		NodeId:  proto.Uint64(12345),
+		Context: []byte("test"),
+	}
+	data2, err := proto.Marshal(cc2)
+	require.NoError(t, err)
+
+	e1 := &raftpb.Entry{
+		Index: proto.Uint64(1),
+		Term:  proto.Uint64(1),
+		Type:  raftpb.EntryConfChange.Enum(),
+		Data:  data1,
+	}
+	e2 := &raftpb.Entry{
+		Index: proto.Uint64(1),
+		Term:  proto.Uint64(1),
+		Type:  raftpb.EntryConfChange.Enum(),
+		Data:  data2,
+	}
+
+	// They must not be byte-identical (due to Id field presence)
+	require.NotEqual(t, e1.Data, e2.Data)
+
+	// But they must be semantically equal
+	require.True(t, areEntriesEqual(e1, e2))
+}
