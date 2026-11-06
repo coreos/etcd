@@ -78,6 +78,17 @@ function update_module {
   fi
 }
 
+function check_otel_semconv {
+  local cursemconv newsemconv confirm
+  cursemconv=$(git grep go.opentelemetry.io/otel/semconv/v -- '**/*.go' | awk -F'[/"]' '{ print $(NF-1) }')
+  newsemconv=$(go list -deps | awk -F/ '/^go.opentelemetry.io\/otel\/semconv\/v[0-9.]+$/ { print $4 }' | sort -V | tail -n 1)
+  if [[ -n "$cursemconv" ]] && [[ -n "$newsemconv" ]] && [[ "$cursemconv" != "$newsemconv" ]]; then
+    read -p "An otel semconv update from $cursemconv to $newsemconv is available. Do you want to update it? [Y/n] " -r confirm
+    [[ "$confirm" == [Nn] ]] && return
+    git grep -l -z "go.opentelemetry.io/otel/semconv/$cursemconv" | xargs -0 sed -i "sXgo.opentelemetry.io/otel/semconv/${cursemconv}Xgo.opentelemetry.io/otel/semconv/${newsemconv}X"
+  fi
+}
+
 print_current_dep_version
 if is_fully_indirect; then
   read -p "Module ${mod} is a purely indirect dependency. Are you sure you want to update it? [y/N] " -r confirm
@@ -88,5 +99,7 @@ log_info "Updating '${mod}' to ${ver:-latest} across all modules..."
 run_for_workspace_modules update_module
 
 make fix-mod-tidy fix-bom update-go-workspace verify-dep
+
+check_otel_semconv
 
 print_current_dep_version

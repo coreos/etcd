@@ -610,6 +610,20 @@ function go_workspace_pass {
   fi
 }
 
+function otel_semconv_pass {
+  local cursemconv newsemconv
+
+  log_callout "Ensuring otel semconv version is in sync."
+
+  cursemconv=$(git grep go.opentelemetry.io/otel/semconv/v -- '**/*.go' | awk -F'[/"]' '{ print $(NF-1) }')
+  newsemconv=$(go list -deps | awk -F/ '/^go.opentelemetry.io\/otel\/semconv\/v[0-9.]+$/ { print $4 }' | sort -V | tail -n 1)
+  if [[ -n "$cursemconv" ]] && [[ -n "$newsemconv" ]] && [[ "$cursemconv" != "$newsemconv" ]]; then
+    log_error "otel semconv versions are not in sync: expected $newsemconv, have $cursemconv."
+    log_warning "Suggestion: run \"scripts/update_deps.sh go.opentelemetry.io/otel\" to address the issue."
+    return 255
+  fi
+}
+
 ########### MAIN ###############################################################
 
 function run_pass {
