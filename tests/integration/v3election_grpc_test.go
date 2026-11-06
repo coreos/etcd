@@ -15,13 +15,18 @@
 package integration
 
 import (
+	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/status"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/client/v3/concurrency"
 	epb "go.etcd.io/etcd/server/v3/etcdserver/api/v3election/v3electionpb"
 	"go.etcd.io/etcd/tests/v3/framework/integration"
 )
@@ -77,6 +82,143 @@ func TestV3ElectionCampaign(t *testing.T) {
 	if string(lval.Kv.Value) != "def" {
 		t.Fatalf("got election value %q, expected %q", string(lval.Kv.Value), "def")
 	}
+}
+
+func TestV3ElectionRequestBehavior(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	grpc := integration.ToGRPC(clus.Client(0))
+	lc := grpc.Election
+
+	campaign := func(t *testing.T, name, value string) *epb.LeaderKey {
+		t.Helper()
+		lease, err := grpc.Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+		require.NoError(t, err)
+		resp, err := lc.Campaign(t.Context(), &epb.CampaignRequest{
+			Name:  []byte(name),
+			Lease: lease.ID,
+			Value: []byte(value),
+		})
+		require.NoError(t, err)
+		return resp.Leader
+	}
+
+	requireNotLeader := func(t *testing.T, err error) {
+		t.Helper()
+		require.Error(t, err)
+		require.Equal(t, concurrency.ErrElectionNotLeader.Error(), status.Convert(err).Message())
+	}
+
+	t.Run("ProclaimRejectsMismatchedLeader", func(t *testing.T) {
+		const name = "proclaim-mismatched-leader"
+		leader := campaign(t, name, "first")
+		mismatchedLeader := *leader
+		mismatchedLeader.Rev++
+
+		_, err := lc.Proclaim(t.Context(), &epb.ProclaimRequest{
+			Leader: &mismatchedLeader,
+			Value:  []byte("second"),
+		})
+		requireNotLeader(t, err)
+
+		resp, err := lc.Leader(t.Context(), &epb.LeaderRequest{Name: []byte(name)})
+		require.NoError(t, err)
+		require.Equal(t, "first", string(resp.Kv.Value))
+
+		_, err = lc.Resign(t.Context(), &epb.ResignRequest{Leader: leader})
+		require.NoError(t, err)
+	})
+
+	t.Run("ProclaimRejectsResignedLeader", func(t *testing.T) {
+		leader := campaign(t, "proclaim-resigned-leader", "first")
+		_, err := lc.Resign(t.Context(), &epb.ResignRequest{Leader: leader})
+		require.NoError(t, err)
+
+		_, err = lc.Proclaim(t.Context(), &epb.ProclaimRequest{
+			Leader: leader,
+			Value:  []byte("second"),
+		})
+		requireNotLeader(t, err)
+	})
+
+	t.Run("ResignAllowsNewCampaign", func(t *testing.T) {
+		const name = "resign-new-campaign"
+		leader := campaign(t, name, "first")
+		_, err := lc.Resign(t.Context(), &epb.ResignRequest{Leader: leader})
+		require.NoError(t, err)
+
+		lease, err := grpc.Lease.LeaseGrant(t.Context(), &pb.LeaseGrantRequest{TTL: 30})
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		resp, err := lc.Campaign(ctx, &epb.CampaignRequest{
+			Name:  []byte(name),
+			Lease: lease.ID,
+			Value: []byte("second"),
+		})
+		require.NoError(t, err)
+		require.NotEqual(t, string(leader.Key), string(resp.Leader.Key))
+		current, err := lc.Leader(t.Context(), &epb.LeaderRequest{Name: []byte(name)})
+		require.NoError(t, err)
+		require.Equal(t, "second", string(current.Kv.Value))
+
+		_, err = lc.Resign(t.Context(), &epb.ResignRequest{Leader: resp.Leader})
+		require.NoError(t, err)
+	})
+
+	t.Run("ObserveStopsOnContextCancel", func(t *testing.T) {
+		metricValue := func(metricName string, extraLabels ...string) (int64, error) {
+			labels := append([]string{
+				`grpc_service="v3electionpb.Election"`,
+				`grpc_method="Observe"`,
+			}, extraLabels...)
+			value, err := clus.Members[0].Metric(metricName, labels...)
+			if err != nil {
+				return 0, err
+			}
+			if value == "" {
+				return 0, nil
+			}
+			return strconv.ParseInt(value, 10, 64)
+		}
+
+		startedCount, err := metricValue("grpc_server_started_total")
+		require.NoError(t, err)
+		canceledCount, err := metricValue("grpc_server_handled_total", `grpc_code="Canceled"`)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		stream, err := lc.Observe(ctx, &epb.LeaderRequest{Name: []byte("observe-cancel")})
+		require.NoError(t, err)
+		require.EventuallyWithTf(t, func(c *assert.CollectT) {
+			count, err := metricValue("grpc_server_started_total")
+			require.NoError(c, err)
+			require.Equal(c, startedCount+1, count)
+		}, 3*time.Second, 100*time.Millisecond, "Observe server handler did not start")
+
+		recvErrc := make(chan error, 1)
+		go func() {
+			_, err := stream.Recv()
+			recvErrc <- err
+		}()
+		cancel()
+
+		select {
+		case err := <-recvErrc:
+			require.Error(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("Observe did not stop after its context was canceled")
+		}
+
+		require.EventuallyWithTf(t, func(c *assert.CollectT) {
+			count, err := metricValue("grpc_server_handled_total", `grpc_code="Canceled"`)
+			require.NoError(c, err)
+			require.Equal(c, canceledCount+1, count)
+		}, 3*time.Second, 100*time.Millisecond, "Observe server handler did not stop after cancellation")
+	})
 }
 
 // TestV3ElectionObserve checks that an Observe stream receives
