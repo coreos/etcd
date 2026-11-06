@@ -145,7 +145,10 @@ func userAddCommandFunc(cmd *cobra.Command, args []string) {
 			if len(splitted) < 2 {
 				user = args[0]
 				if !passwordInteractive {
-					fmt.Scanf("%s", &password)
+					_, err := fmt.Scanf("%s", &password)
+					if err != nil {
+						cobrautl.ExitWithError(cobrautl.ExitError, fmt.Errorf("failed to read password from standard input: %w", err))
+					}
 				} else {
 					password = readPasswordInteractive(args[0])
 				}
@@ -240,7 +243,10 @@ func userChangePasswordCommandFunc(cmd *cobra.Command, args []string) {
 	var password string
 
 	if !passwordInteractive {
-		fmt.Scanf("%s", &password)
+		_, err := fmt.Scanf("%s", &password)
+		if err != nil {
+			cobrautl.ExitWithError(cobrautl.ExitError, fmt.Errorf("failed to read password from standard input: %w", err))
+		}
 	} else {
 		password = readPasswordInteractive(args[0])
 	}
