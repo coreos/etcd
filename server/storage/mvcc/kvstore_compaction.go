@@ -59,17 +59,24 @@ func (s *store) scheduleCompaction(compactMainRev, prevCompactRev int64) (KeyVal
 		for i := range keys {
 			rev = BytesToRev(keys[i])
 			if _, ok := keep[rev]; !ok {
-				tx.UnsafeDelete(schema.Key, keys[i])
+				tx.UnsafeDeleteForCompaction(schema.Key, keys[i])
 				keyCompactions++
 			}
 			h.WriteKeyValue(keys[i], values[i])
 		}
 
-		if len(keys) < batchNum {
+		finished := len(keys) < batchNum
+		if finished {
 			// gofail: var compactBeforeSetFinishedCompact struct{}
 			UnsafeSetFinishedCompact(tx, compactMainRev)
-			tx.Unlock()
-			dbCompactionPauseMs.Observe(float64(time.Since(start) / time.Millisecond))
+		}
+		tx.Unlock()
+
+		s.b.ForceCommit()
+		// gofail: var compactAfterCommitBatch struct{}
+		dbCompactionPauseMs.Observe(float64(time.Since(start) / time.Millisecond))
+
+		if finished {
 			// gofail: var compactAfterSetFinishedCompact struct{}
 			hash := h.Hash()
 			size, sizeInUse := s.b.Size(), s.b.SizeInUse()
@@ -87,14 +94,8 @@ func (s *store) scheduleCompaction(compactMainRev, prevCompactRev int64) (KeyVal
 			return hash, nil
 		}
 
-		tx.Unlock()
 		// update last
 		last = RevToBytes(Revision{Main: rev.Main, Sub: rev.Sub + 1}, last)
-		// Immediately commit the compaction deletes instead of letting them accumulate in the write buffer
-		// gofail: var compactBeforeCommitBatch struct{}
-		s.b.ForceCommit()
-		// gofail: var compactAfterCommitBatch struct{}
-		dbCompactionPauseMs.Observe(float64(time.Since(start) / time.Millisecond))
 
 		select {
 		case <-time.After(s.cfg.CompactionSleepInterval):

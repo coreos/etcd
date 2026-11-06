@@ -74,6 +74,7 @@ type BatchTx interface {
 	CommitAndStop()
 	LockInsideApply()
 	LockOutsideApply()
+	UnsafeDeleteForCompaction(bucket Bucket, key []byte)
 	UnsafeReadWriter
 }
 
@@ -244,6 +245,10 @@ func (t *batchTx) UnsafeDelete(bucketType Bucket, key []byte) {
 		)
 	}
 	t.pending++
+}
+
+func (t *batchTx) UnsafeDeleteForCompaction(bucketType Bucket, key []byte) {
+	t.UnsafeDelete(bucketType, key)
 }
 
 // UnsafeForEach must be called holding the lock on the tx.
@@ -418,6 +423,10 @@ func (t *batchTxBuffered) UnsafeSeqPut(bucket Bucket, key []byte, value []byte) 
 func (t *batchTxBuffered) UnsafeDelete(bucketType Bucket, key []byte) {
 	t.batchTx.UnsafeDelete(bucketType, key)
 	t.pendingDeleteOperations++
+}
+
+func (t *batchTxBuffered) UnsafeDeleteForCompaction(bucketType Bucket, key []byte) {
+	t.batchTx.UnsafeDeleteForCompaction(bucketType, key)
 }
 
 func (t *batchTxBuffered) UnsafeDeleteBucket(bucket Bucket) {
