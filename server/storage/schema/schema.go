@@ -80,7 +80,7 @@ func UnsafeMigrate(lg *zap.Logger, tx backend.UnsafeReadWriter, w wal.Version, t
 
 // DetectSchemaVersion returns version of storage schema. Returned value depends on etcd version that created the backend. For
 // * v3.6 and newer will return storage version.
-// * v3.5 will return it's version if it includes all storage fields added in v3.5 (might require a snapshot).
+// * v3.5 will return its version if it includes all storage fields added in v3.5 (might require a snapshot).
 // * v3.4 and older is not supported and will return error.
 func DetectSchemaVersion(lg *zap.Logger, tx backend.ReadTx) (v semver.Version, err error) {
 	tx.RLock()

@@ -38,7 +38,7 @@ func isValidDowngrade(verFrom *semver.Version, verTo *semver.Version) bool {
 	return verTo.Equal(allowedDowngradeVersion(verFrom))
 }
 
-// MustDetectDowngrade will detect local server joining cluster that doesn't support it's version.
+// MustDetectDowngrade will detect local server joining cluster that doesn't support its version.
 func MustDetectDowngrade(lg *zap.Logger, sv, cv *semver.Version) {
 	// only keep major.minor version for comparison against cluster version
 	sv = semver.New(sv.Major(), sv.Minor(), 0, "", "")

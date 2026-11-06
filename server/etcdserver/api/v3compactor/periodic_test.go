@@ -33,7 +33,7 @@ func TestPeriodicHourly(t *testing.T) {
 	retentionDuration := time.Duration(retentionHours) * time.Hour
 
 	fc := clockwork.NewFakeClock()
-	// TODO: Do not depand or real time (Recorder.Wait) in unit tests.
+	// TODO: Do not depend on real time (Recorder.Wait) in unit tests.
 	rg := &fakeRevGetter{testutil.NewRecorderStreamWithWaitTimout(0), 0}
 	compactable := &fakeCompactable{testutil.NewRecorderStreamWithWaitTimout(10 * time.Millisecond)}
 	tb := newPeriodic(zaptest.NewLogger(t), fc, retentionDuration, rg, compactable)

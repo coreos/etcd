@@ -78,7 +78,7 @@ func checkKeyInterval(
 ) bool {
 	if isOpenEnded(rangeEnd) {
 		rangeEnd = nil
-		// nil rangeEnd will be converetd to []byte{}, the largest element of BytesAffineComparable,
+		// nil rangeEnd will be converted to []byte{}, the largest element of BytesAffineComparable,
 		// in NewBytesAffineInterval().
 	}
 

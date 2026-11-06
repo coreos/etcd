@@ -465,7 +465,7 @@ func openWALFiles(lg *zap.Logger, dirpath string, names []string, nameIndex int,
 // If loaded snap doesn't match with the expected one, it will return
 // all the records and error ErrSnapshotMismatch.
 // TODO: detect not-last-snap error.
-// TODO: maybe loose the checking of match.
+// TODO: maybe lose the checking of match.
 // After ReadAll, the WAL will be ready for appending new records.
 //
 // ReadAll suppresses WAL entries that got overridden (i.e. a newer entry with the same index

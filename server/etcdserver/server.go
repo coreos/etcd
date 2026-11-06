@@ -204,7 +204,7 @@ type Server interface {
 	// Caution:
 	// 1. the returned channel is being closed when the leadership changes.
 	// 2. so the new channel needs to be obtained for each raft term.
-	// 3. user can loose some consecutive channel changes using this API.
+	// 3. user can lose some consecutive channel changes using this API.
 	LeaderChangedNotify() <-chan struct{}
 }
 
