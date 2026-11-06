@@ -194,12 +194,23 @@ func (s *store) hashByRev(rev int64) (hash KeyValueHash, currentRev int64, err e
 		rev = currentRev
 	}
 	keep := s.kvindex.Keep(rev)
+	// With an empty keep, the hasher includes every stored revision at or
+	// below compactRev. After the compaction finishes, these are the
+	// revisions in Keep(compactRev), plus tombstones at compactRev that the
+	// hasher skips. Before it finishes, older revisions are still stored.
+	// Filter by Keep(compactRev), so that the hash is the same before and
+	// after the compaction finishes, and equal to the hash of older versions
+	// after it finishes.
+	exactKeep := false
+	if len(keep) == 0 && compactRev > 0 {
+		keep, exactKeep = s.kvindex.Keep(compactRev), true
+	}
 
 	tx := s.b.ReadTx()
 	tx.RLock()
 	defer tx.RUnlock()
 	s.mu.RUnlock()
-	hash, err = unsafeHashByRev(tx, compactRev, rev, keep)
+	hash, err = unsafeHashByRev(tx, compactRev, rev, keep, exactKeep)
 	hashRevSec.Observe(time.Since(start).Seconds())
 	return hash, currentRev, err
 }

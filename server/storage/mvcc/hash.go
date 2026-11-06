@@ -30,8 +30,9 @@ const (
 	hashStorageMaxSize = 10
 )
 
-func unsafeHashByRev(tx backend.UnsafeReader, compactRevision, revision int64, keep map[Revision]struct{}) (KeyValueHash, error) {
+func unsafeHashByRev(tx backend.UnsafeReader, compactRevision, revision int64, keep map[Revision]struct{}, exactKeep bool) (KeyValueHash, error) {
 	h := newKVHasher(compactRevision, revision, keep)
+	h.exactKeep = exactKeep
 	err := tx.UnsafeForEach(schema.Key, func(k, v []byte) error {
 		h.WriteKeyValue(k, v)
 		return nil
@@ -44,6 +45,9 @@ type kvHasher struct {
 	compactRevision int64
 	revision        int64
 	keep            map[Revision]struct{}
+	// exactKeep applies keep below the compact revision even when keep is
+	// empty. Without it, an empty keep hashes every stored revision there.
+	exactKeep bool
 }
 
 func newKVHasher(compactRev, rev int64, keep map[Revision]struct{}) kvHasher {
@@ -69,7 +73,7 @@ func (h *kvHasher) WriteKeyValue(k, v []byte) {
 	lower := Revision{Main: h.compactRevision + 1}
 	// skip revisions that are scheduled for deletion
 	// due to compacting; don't skip if there isn't one.
-	if lower.GreaterThan(kr) && len(h.keep) > 0 {
+	if lower.GreaterThan(kr) && (h.exactKeep || len(h.keep) > 0) {
 		if _, ok := h.keep[kr]; !ok {
 			return
 		}
