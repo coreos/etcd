@@ -351,13 +351,17 @@ main() {
     local release_url
     local gh_release_args=()
 
-    # For the main branch (v3.6), we should mark the release as a prerelease.
-    # The release-3.5 (v3.5) branch, should be marked as latest. And release-3.4 (v3.4)
-    # should be left without any additional mark (therefore, it doesn't need a special argument).
-    if [ "${BRANCH}" = "main" ]; then
-      gh_release_args=(--prerelease)
-    elif [ "${BRANCH}" = "release-3.5" ]; then
-      gh_release_args=(--latest)
+    local prompt
+    log_warning "WARNING: Only releases from the latest stable branch should be marked as the latest release"
+    read -p "Mark this as a the latest release [y/N]? " -r prompt
+    if [[ "${prompt,,}" == "y" ]]; then
+      gh_release_args=(--latest=true)
+    else
+      log_warning "WARNING: Only releases from the latest unstable branch should be marked as pre-releases (i.e., alpha, beta, or release candidates)"
+      read -p "Mark this as a pre-release [y/N]? " -r prompt
+      if [[ "${prompt,,}" == "y" ]]; then
+        gh_release_args=(--prerelease=true)
+      fi
     fi
 
     if [ "${REPOSITORY}" = "$(pwd)" ]; then
@@ -400,9 +404,18 @@ main() {
 
     release_url=$(gh --repo "${gh_repo}" release view "${RELEASE_VERSION}" --json url --jq '.url')
 
-    log_warning ""
-    log_warning "WARNING: The GitHub release for ${RELEASE_VERSION} has been created as a draft, please go to ${release_url} and release it."
-    log_warning ""
+    # Give a 10 minute timeout to the user to confirm the release.
+    read -p "Release GitHub release for ${RELEASE_VERSION} [y/N]? " -t 600 -r confirm
+    if [[ "${confirm,,}" == "y" ]]; then
+      maybe_run gh release edit "${RELEASE_VERSION}" \
+          --repo "${gh_repo}" \
+          --draft=false \
+          "${gh_release_args[@]}"
+    else
+      log_warning ""
+      log_warning "WARNING: The GitHub release for ${RELEASE_VERSION} has been created as a draft, please review it at ${release_url}."
+      log_warning ""
+    fi
   fi
 
   log_success "Success."
