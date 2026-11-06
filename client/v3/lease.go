@@ -383,7 +383,7 @@ func (l *lessor) keepAliveCtxCloser(ctx context.Context, id LeaseID, donec <-cha
 func (l *lessor) closeRequireLeader() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, ka := range l.keepAlives {
+	for id, ka := range l.keepAlives {
 		reqIdxs := 0
 		// find all required leader channels, close, mark as nil
 		for i, ctx := range ka.ctxs {
@@ -400,6 +400,14 @@ func (l *lessor) closeRequireLeader() {
 			reqIdxs++
 		}
 		if reqIdxs == 0 {
+			continue
+		}
+		// Every subscription on this keepAlive required a leader, so once they
+		// are all closed there is nothing left to keep alive. Remove the entry
+		// from l.keepAlives; otherwise the orphaned entry keeps its keepalive
+		// goroutine sending requests forever after leader loss (etcd-io/etcd#22094).
+		if reqIdxs == len(ka.chs) {
+			delete(l.keepAlives, id)
 			continue
 		}
 		// remove all channels that required a leader from keepalive
