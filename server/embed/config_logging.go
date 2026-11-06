@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -103,20 +104,75 @@ func (cfg *Config) setupLogging() error {
 
 		if !isJournal {
 			copied := logutil.DefaultZapLoggerConfig
-			copied.OutputPaths = outputPaths
-			copied.ErrorOutputPaths = errOutputPaths
-			copied = logutil.MergeOutputPaths(copied)
 			copied.Level = zap.NewAtomicLevelAt(logutil.ConvertToZapLevel(cfg.LogLevel))
 			encoding, err := logutil.ConvertToZapFormat(cfg.LogFormat)
 			if err != nil {
 				return err
 			}
 			copied.Encoding = encoding
-			if cfg.ZapLoggerBuilder == nil {
-				lg, err := copied.Build()
-				if err != nil {
-					return err
+
+			// Build WriteSyncer(s) for each configured output path, wrapping any
+			// stdout/stderr sink with a non-blocking timeout. Without this, etcd
+			// hangs indefinitely if the container runtime stops draining the
+			// stdout/stderr pipe (see issue #22326): goroutines block inside a
+			// logging call and the process becomes fully unresponsive.
+			var writers []zapcore.WriteSyncer
+			for _, p := range outputPaths {
+				var ws zapcore.WriteSyncer
+				switch p {
+				case StdErrLogOutput:
+					ws = logutil.NewNonBlockingWriteSyncer(zapcore.AddSync(os.Stderr), 1*time.Second)
+				case StdOutLogOutput:
+					ws = logutil.NewNonBlockingWriteSyncer(zapcore.AddSync(os.Stdout), 1*time.Second)
+				default:
+					ws, err = zap.Open(p)
+					if err != nil {
+						return fmt.Errorf("cannot open log output %q: %w", p, err)
+					}
 				}
+				writers = append(writers, ws)
+			}
+			var ws zapcore.WriteSyncer
+			if len(writers) == 1 {
+				ws = writers[0]
+			} else {
+				ws = zapcore.NewMultiWriteSyncer(writers...)
+			}
+
+			// Build error output WriteSyncer(s), applying the same non-blocking
+			// timeout to stdout/stderr sinks.
+			var errWriters []zapcore.WriteSyncer
+			for _, p := range errOutputPaths {
+				var ews zapcore.WriteSyncer
+				switch p {
+				case StdErrLogOutput:
+					ews = logutil.NewNonBlockingWriteSyncer(zapcore.AddSync(os.Stderr), 1*time.Second)
+				case StdOutLogOutput:
+					ews = logutil.NewNonBlockingWriteSyncer(zapcore.AddSync(os.Stdout), 1*time.Second)
+				default:
+					ews, err = zap.Open(p)
+					if err != nil {
+						return fmt.Errorf("cannot open error log output %q: %w", p, err)
+					}
+				}
+				errWriters = append(errWriters, ews)
+			}
+			var errWS zapcore.WriteSyncer
+			if len(errWriters) == 1 {
+				errWS = errWriters[0]
+			} else {
+				errWS = zapcore.NewMultiWriteSyncer(errWriters...)
+			}
+
+			if cfg.ZapLoggerBuilder == nil {
+				var encoder zapcore.Encoder
+				if encoding == logutil.ConsoleLogFormat {
+					encoder = zapcore.NewConsoleEncoder(copied.EncoderConfig)
+				} else {
+					encoder = zapcore.NewJSONEncoder(copied.EncoderConfig)
+				}
+				core := zapcore.NewCore(encoder, ws, copied.Level)
+				lg := zap.New(core, zap.AddCaller(), zap.ErrorOutput(errWS))
 				cfg.ZapLoggerBuilder = NewZapLoggerBuilder(lg)
 			}
 		} else {

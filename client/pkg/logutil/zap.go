@@ -91,3 +91,42 @@ func mergePaths(old []string) []string {
 	slices.Sort(dup)
 	return slices.Compact(dup)
 }
+
+// NonBlockingWriteSyncer wraps a WriteSyncer with a timeout.
+// If the underlying Write blocks longer than the timeout, the log entry is dropped
+// and the caller returns immediately. This prevents process hangs when the
+// stdout/stderr pipe is not being drained (e.g., the container runtime has stopped).
+type NonBlockingWriteSyncer struct {
+	inner   zapcore.WriteSyncer
+	timeout time.Duration
+}
+
+// NewNonBlockingWriteSyncer creates a NonBlockingWriteSyncer with the given timeout.
+func NewNonBlockingWriteSyncer(inner zapcore.WriteSyncer, timeout time.Duration) *NonBlockingWriteSyncer {
+	return &NonBlockingWriteSyncer{
+		inner:   inner,
+		timeout: timeout,
+	}
+}
+
+// Write implements zapcore.WriteSyncer. It writes to the inner syncer in a goroutine
+// and waits up to timeout for completion. If the write times out, the log entry is
+// dropped silently and the caller returns immediately.
+func (s *NonBlockingWriteSyncer) Write(p []byte) (int, error) {
+	done := make(chan struct{}, 1)
+	go func() {
+		s.inner.Write(p)
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+		return len(p), nil
+	case <-time.After(s.timeout):
+		return len(p), nil
+	}
+}
+
+// Sync implements zapcore.WriteSyncer.
+func (s *NonBlockingWriteSyncer) Sync() error {
+	return s.inner.Sync()
+}
