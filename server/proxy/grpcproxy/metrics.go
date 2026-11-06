@@ -95,7 +95,11 @@ func HandleMetrics(mux *http.ServeMux, c *http.Client, eps []string) {
 		}
 		defer resp.Body.Close()
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		fmt.Fprintf(w, "%s", body)
 	})
 }
