@@ -104,9 +104,8 @@ func (txw *txWriteBuffer) writeback(txr *txReadBuffer) {
 			txr.buckets[k] = wb
 			continue
 		}
-		if seq, ok := txw.bucket2seq[k]; ok && !seq && wb.used > 1 {
-			// assume no duplicate keys
-			sort.Sort(wb)
+		if seq, ok := txw.bucket2seq[k]; ok && !seq {
+			wb.dedupe()
 		}
 		rb.merge(wb)
 	}

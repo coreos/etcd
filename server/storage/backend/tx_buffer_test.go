@@ -21,6 +21,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type testBucket struct {
+	id   BucketID
+	name []byte
+}
+
+func (b testBucket) ID() BucketID            { return b.id }
+func (b testBucket) Name() []byte            { return b.name }
+func (b testBucket) String() string          { return string(b.name) }
+func (b testBucket) IsSafeRangeBucket() bool { return false }
+
 func Test_bucketBuffer_CopyUsed_After_Add(t *testing.T) {
 	bb := &bucketBuffer{buf: make([]kv, 10), used: 0}
 	for i := 0; i < 20; i++ {
@@ -89,6 +99,32 @@ func Test_bucketBuffer_CopyUsed(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWritebackDedupesIntraBatchDuplicateForNonSeqBucket(t *testing.T) {
+	bucket := testBucket{id: 1, name: []byte("test")}
+	txw := &txWriteBuffer{
+		txBuffer:   txBuffer{buckets: make(map[BucketID]*bucketBuffer)},
+		bucket2seq: make(map[BucketID]bool),
+	}
+	txw.put(bucket, []byte("k"), []byte("OLD"))
+	txw.put(bucket, []byte("k"), []byte("NEW"))
+
+	rb := &bucketBuffer{buf: make([]kv, 10), used: 0}
+	rb.add([]byte("a"), []byte("1"))
+	txr := &txReadBuffer{
+		txBuffer: txBuffer{
+			buckets: map[BucketID]*bucketBuffer{
+				bucket.ID(): rb,
+			},
+		},
+	}
+
+	txw.writeback(txr)
+
+	keys, vals := txr.Range(bucket, []byte("k"), nil, 1)
+	assert.Equal(t, [][]byte{[]byte("k")}, keys)
+	assert.Equal(t, [][]byte{[]byte("NEW")}, vals)
 }
 
 func TestDedupe(t *testing.T) {
