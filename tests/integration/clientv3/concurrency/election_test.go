@@ -28,6 +28,50 @@ import (
 	"go.etcd.io/etcd/tests/v3/framework/integration"
 )
 
+func TestElectionCampaignSessionExpired(t *testing.T) {
+	const prefix = "/session-expiry-election"
+
+	cli, err := integration.NewClient(t, clientv3.Config{Endpoints: exampleEndpoints()})
+	require.NoError(t, err)
+	defer cli.Close()
+
+	s1, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	defer s1.Close()
+	e1 := concurrency.NewElection(s1, prefix)
+	require.NoError(t, e1.Campaign(t.Context(), "candidate1"))
+
+	s2, err := concurrency.NewSession(cli)
+	require.NoError(t, err)
+	e2 := concurrency.NewElection(s2, prefix)
+
+	campaignDone := make(chan error, 1)
+	go func() {
+		campaignDone <- e2.Campaign(t.Context(), "candidate2")
+	}()
+
+	// wait until candidate2 has joined the election before revoking its session
+	require.Eventually(t, func() bool {
+		resp, getErr := cli.Get(t.Context(), prefix+"/", clientv3.WithPrefix())
+		return getErr == nil && len(resp.Kvs) == 2
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// candidate2 should stop waiting even though candidate1 is still leader
+	require.NoError(t, s2.Close())
+	select {
+	case err = <-campaignDone:
+		require.ErrorIs(t, err, concurrency.ErrElectionNotLeader)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Campaign did not return after its session expired")
+	}
+
+	leader, err := e1.Leader(t.Context())
+	require.NoError(t, err)
+	require.Len(t, leader.Kvs, 1)
+	require.Equal(t, "candidate1", string(leader.Kvs[0].Value))
+	require.NoError(t, e1.Resign(t.Context()))
+}
+
 func TestResumeElection(t *testing.T) {
 	const prefix = "/resume-election/"
 

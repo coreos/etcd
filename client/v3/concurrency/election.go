@@ -90,7 +90,11 @@ func (e *Election) Campaign(ctx context.Context, val string) error {
 		}
 	}
 
-	err = waitDeletes(ctx, client, e.keyPrefix, e.leaderRev-1)
+	err = waitDeletes(ctx, client, e.keyPrefix, e.leaderKey, e.leaderRev-1)
+	if errors.Is(err, errWaitKeyDeleted) {
+		e.leaderSession = nil
+		return ErrElectionNotLeader
+	}
 	if err != nil {
 		// clean up in case of context cancel
 		select {
@@ -100,6 +104,17 @@ func (e *Election) Campaign(ctx context.Context, val string) error {
 			e.leaderSession = nil
 		}
 		return err
+	}
+
+	// Make sure the campaign key still exists before reporting success.
+	gresp, err := client.Get(ctx, e.leaderKey)
+	if err != nil {
+		e.leaderSession = nil
+		return err
+	}
+	if len(gresp.Kvs) == 0 {
+		e.leaderSession = nil
+		return ErrElectionNotLeader
 	}
 	e.hdr = resp.Header
 

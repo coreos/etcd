@@ -17,6 +17,7 @@ package concurrency_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -43,21 +44,30 @@ func TestMutexLockSessionExpired(t *testing.T) {
 	// acquire lock for s1
 	require.NoError(t, m1.Lock(t.Context()))
 
-	m2Locked := make(chan struct{})
-	var err2 error
+	m2Locked := make(chan error, 1)
 	go func() {
-		defer close(m2Locked)
 		// m2 blocks since m1 already acquired lock /my-lock/
-		if err2 = m2.Lock(t.Context()); err2 == nil {
-			t.Error("expect session expired error")
-		}
+		m2Locked <- m2.Lock(t.Context())
 	}()
 
-	// revoke the session of m2 before unlock m1
-	require.NoError(t, s2.Close())
-	require.NoError(t, m1.Unlock(t.Context()))
+	// wait until m2 has joined the lock queue before revoking its session
+	require.Eventually(t, func() bool {
+		resp, getErr := cli.Get(t.Context(), "/my-lock/", clientv3.WithPrefix())
+		return getErr == nil && len(resp.Kvs) == 2
+	}, 5*time.Second, 10*time.Millisecond)
 
-	<-m2Locked
+	// revoke m2's session while m1 still holds the lock
+	require.NoError(t, s2.Close())
+
+	select {
+	case err = <-m2Locked:
+		require.ErrorIs(t, err, concurrency.ErrSessionExpired)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Lock did not return after its session expired")
+	}
+
+	// m1 still owns the lock when m2 returns
+	require.NoError(t, m1.Unlock(t.Context()))
 }
 
 func TestMutexUnlock(t *testing.T) {
