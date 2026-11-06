@@ -29,6 +29,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"google.golang.org/grpc/metadata"
+
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -434,6 +436,20 @@ func newClientCfg(lg *zap.Logger, eps []string) (*clientv3.Config, error) {
 	return &cfg, nil
 }
 
+func contextPropagationUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req any,
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (any, error) {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		return handler(ctx, req)
+	}
+}
+
 func newTLS(ca, cert, key string, requireEmptyCN bool) *transport.TLSInfo {
 	if ca == "" && cert == "" && key == "" {
 		return nil
@@ -509,6 +525,7 @@ func newGRPCProxyServer(lg *zap.Logger, client *clientv3.Client) *grpc.Server {
 	}
 	grpcChainUnaryList := []grpc.UnaryServerInterceptor{
 		serverMetrics.UnaryServerInterceptor(),
+		contextPropagationUnaryServerInterceptor(),
 	}
 	if grpcProxyEnableLogging {
 		grpcChainStreamList = append(grpcChainStreamList,
