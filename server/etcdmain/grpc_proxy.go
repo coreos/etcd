@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -76,6 +77,7 @@ var (
 	grpcProxyCert                  string
 	grpcProxyKey                   string
 	grpcProxyInsecureSkipTLSVerify bool
+	grpcProxyTLSCurvePreferences   string
 
 	// tls for clients connecting to proxy
 
@@ -162,6 +164,7 @@ func newGRPCProxyStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&grpcProxyKey, "key", "", "identify secure connections with etcd servers using this TLS key file")
 	cmd.Flags().StringVar(&grpcProxyCA, "cacert", "", "verify certificates of TLS-enabled secure etcd servers using this CA bundle")
 	cmd.Flags().BoolVar(&grpcProxyInsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "skip authentication of etcd server TLS certificates (CAUTION: this option should be enabled only for testing purposes)")
+	cmd.Flags().StringVar(&grpcProxyTLSCurvePreferences, "tls-curve-preferences", "", "comma-separated list of TLS elliptic curves to prefer for client connections to etcd servers (e.g. 'P-256,P-384,P-521'). Empty means Go default. Useful for FIPS 140-3 deployments where X25519 cannot be negotiated.")
 
 	// client TLS for connecting to proxy
 	cmd.Flags().StringVar(&grpcProxyListenCert, "cert-file", "", "identify secure connections to the proxy using this TLS certificate file")
@@ -354,9 +357,9 @@ func mustNewClient(lg *zap.Logger) *clientv3.Client {
 	return client
 }
 
-func mustNewProxyClient(lg *zap.Logger, tls *transport.TLSInfo) *clientv3.Client {
+func mustNewProxyClient(lg *zap.Logger, tlsInfo *transport.TLSInfo) *clientv3.Client {
 	eps := []string{grpcProxyAdvertiseClientURL}
-	cfg, err := newProxyClientCfg(lg.Named("client"), eps, tls)
+	cfg, err := newProxyClientCfg(lg.Named("client"), eps, tlsInfo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -370,21 +373,21 @@ func mustNewProxyClient(lg *zap.Logger, tls *transport.TLSInfo) *clientv3.Client
 	return client
 }
 
-func newProxyHealthClient(lg *zap.Logger, tls *transport.TLSInfo) *clientv3.Client {
+func newProxyHealthClient(lg *zap.Logger, tlsInfo *transport.TLSInfo) *clientv3.Client {
 	if grpcProxyAdvertiseClientURL == "" {
 		return nil
 	}
-	return mustNewProxyClient(lg, tls)
+	return mustNewProxyClient(lg, tlsInfo)
 }
 
-func newProxyClientCfg(lg *zap.Logger, eps []string, tls *transport.TLSInfo) (*clientv3.Config, error) {
+func newProxyClientCfg(lg *zap.Logger, eps []string, tlsInfo *transport.TLSInfo) (*clientv3.Config, error) {
 	cfg := clientv3.Config{
 		Endpoints:   eps,
 		DialTimeout: 5 * time.Second,
 		Logger:      lg,
 	}
-	if tls != nil {
-		clientTLS, err := tls.ClientConfig()
+	if tlsInfo != nil {
+		clientTLS, err := tlsInfo.ClientConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -415,12 +418,12 @@ func newClientCfg(lg *zap.Logger, eps []string) (*clientv3.Config, error) {
 	}
 	cfg.PermitWithoutStream = grpcProxyPermitWithoutStream
 
-	tls := newTLS(grpcProxyCA, grpcProxyCert, grpcProxyKey, true)
-	if tls == nil && grpcProxyInsecureSkipTLSVerify {
-		tls = &transport.TLSInfo{}
+	tlsInfo := newTLS(grpcProxyCA, grpcProxyCert, grpcProxyKey, true)
+	if tlsInfo == nil && grpcProxyInsecureSkipTLSVerify {
+		tlsInfo = &transport.TLSInfo{}
 	}
-	if tls != nil {
-		clientTLS, err := tls.ClientConfig()
+	if tlsInfo != nil {
+		clientTLS, err := tlsInfo.ClientConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -428,8 +431,21 @@ func newClientCfg(lg *zap.Logger, eps []string) (*clientv3.Config, error) {
 		if clientTLS.InsecureSkipVerify {
 			lg.Warn("--insecure-skip-tls-verify was given, this grpc proxy process skips authentication of etcd server TLS certificates. This option should be enabled only for testing purposes.")
 		}
+		// Apply TLS curve preferences if the operator set the flag.
+		if grpcProxyTLSCurvePreferences != "" {
+			names := strings.Split(grpcProxyTLSCurvePreferences, ",")
+			for i := range names {
+				names[i] = strings.TrimSpace(names[i])
+			}
+			curves, err := tlsutil.GetCurveIDs(names)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --tls-curve-preferences: %w", err)
+			}
+			clientTLS.CurvePreferences = curves
+			lg.Info("restricted gRPC proxy TLS curves", zap.Strings("curves", names))
+		}
 		cfg.TLS = clientTLS
-		lg.Info("gRPC proxy client TLS", zap.String("tls-info", fmt.Sprintf("%+v", tls)))
+		lg.Info("gRPC proxy client TLS", zap.String("tls-info", fmt.Sprintf("%+v", tlsInfo)))
 	}
 	return &cfg, nil
 }
