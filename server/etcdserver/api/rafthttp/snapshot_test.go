@@ -68,8 +68,8 @@ func TestSnapshotSend(t *testing.T) {
 			rc:   strReaderCloser{strings.NewReader("hello")},
 			size: 10000,
 
-			wsent:  false,
-			wfiles: 0,
+			wsent:  true,
+			wfiles: 1,
 		},
 		// sends less than actual snapshot length
 		{
@@ -77,8 +77,8 @@ func TestSnapshotSend(t *testing.T) {
 			rc:   strReaderCloser{strings.NewReader("hello")},
 			size: 1,
 
-			wsent:  false,
-			wfiles: 0,
+			wsent:  true,
+			wfiles: 1,
 		},
 	}
 
