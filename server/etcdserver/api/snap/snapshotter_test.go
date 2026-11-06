@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap/zaptest"
@@ -62,5 +63,49 @@ func TestReleaseSnapDBs(t *testing.T) {
 		if !fileutil.Exist(filename) {
 			t.Errorf("expected %s (index: %d) to be retained, but it no longer exists", filename, index)
 		}
+	}
+}
+
+// TestReleaseSnapDBsRetainsSnapshotPendingApply reproduces the scenario from
+// https://github.com/etcd-io/etcd/issues/18055. A follower saves the database
+// file for snapshot A on receipt (rafthttp -> SaveDBFrom) and the snapshot
+// waits in the apply queue. Before A is applied, a newer snapshot B arrives
+// and the raft loop releases all older database files (ReleaseSnapDBs),
+// deleting A's file while its apply is still pending. When the apply loop
+// finally opens A's file (OpenSnapshotBackend -> DBFilePath), the file is
+// gone and etcdserver panics with "failed to open snapshot backend".
+func TestReleaseSnapDBsRetainsSnapshotPendingApply(t *testing.T) {
+	dir := t.TempDir()
+	ss := New(zaptest.NewLogger(t), dir)
+
+	const (
+		indexA uint64 = 100
+		indexB uint64 = 200
+	)
+
+	// Snapshot A is received and its database file saved.
+	if _, err := ss.SaveDBFrom(strings.NewReader("A"), indexA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Snapshot B arrives before A has been applied; the raft loop releases
+	// older snapshot database files.
+	if err := ss.ReleaseSnapDBs(&raftpb.Snapshot{Metadata: &raftpb.SnapshotMetadata{Index: new(uint64(indexB))}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The apply loop now looks up snapshot A's database file to apply it.
+	if _, err := ss.DBFilePath(indexA); err != nil {
+		t.Errorf("DBFilePath(%d) = %v, want success: a saved snapshot db must not be released before it has been applied", indexA, err)
+	}
+
+	// Once the apply path has consumed the file, the protection is dropped
+	// and any leftover file becomes eligible for cleanup again.
+	ss.ReleaseDBSnapshot(indexA)
+	if err := ss.ReleaseSnapDBs(&raftpb.Snapshot{Metadata: &raftpb.SnapshotMetadata{Index: new(uint64(indexB))}}); err != nil {
+		t.Fatal(err)
+	}
+	if fileutil.Exist(filepath.Join(dir, fmt.Sprintf("%016x.snap.db", indexA))) {
+		t.Errorf("expected snapshot db for index %d to be deleted after its apply completed", indexA)
 	}
 }

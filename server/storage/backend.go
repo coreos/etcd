@@ -68,6 +68,9 @@ func OpenSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot
 	if err := os.Rename(snapPath, cfg.BackendPath()); err != nil {
 		return nil, fmt.Errorf("failed to rename database snapshot file (%w)", err)
 	}
+	// The snapshot db file has been consumed by the rename above; drop its
+	// pending-apply protection so ReleaseSnapDBs can clean up any leftover.
+	ss.ReleaseDBSnapshot(snapshot.Metadata.GetIndex())
 	return OpenBackend(cfg, hooks), nil
 }
 
