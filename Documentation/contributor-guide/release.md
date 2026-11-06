@@ -6,13 +6,12 @@ The procedure includes some manual steps for sanity checking, but it can probabl
 
 ## Release management
 
-Under the leadership of **James Blair** [@jmhbnz](https://github.com/jmhbnz) and **Ivan Valdes Castillo** [@ivanvc](https://github.com/ivanvc), the following pool of release candidates manages the release of each etcd major/minor version as well as manages patches
+Under the leadership of **Ivan Valdes Castillo** [@ivanvc](https://github.com/ivanvc), the following pool of release candidates manages the release of each etcd major/minor version as well as manages patches
 to each stable release branch. They are responsible for communicating the timelines and status of each release and
 for ensuring the stability of the release branch.
 
 - Benjamin Wang [@ahrtr](https://github.com/ahrtr)
 - Fu Wei [@fuweid](https://github.com/fuweid)
-- James Blair [@jmhbnz](https://github.com/jmhbnz)
 - Ivan Valdes Castillo [@ivanvc](https://github.com/ivanvc)
 - Marek Siarkowicz [@serathius](https://github.com/serathius)
 - Sahdev Zala [@spzala](https://github.com/spzala)
@@ -33,6 +32,22 @@ All release version numbers follow the format of [semantic versioning 2.0.0](htt
 - The cherrypick PRs should target the appropriate release branch (`base:release-<major>-<minor>`). The k8s infra cherry pick robot `/cherrypick <branch>` PR chatops command may be used to automatically generate cherrypick PRs.
 - The release patch manager reviews the cherrypick PRs. Please discuss carefully what is backported to the patch release. Each patch release should be strictly better than its predecessor.
 - The release patch manager will cherry-pick these commits starting from the oldest one into stable branch.
+
+## Release cadence
+
+To make etcd's release cycles more predictable, the project targets **one major or minor version release per year**.
+
+Maintainers retain some flexibility to adjust this cadence based on the situation — for example, the cycle may be extended slightly if there are no significant changes, but it should not exceed 18 months.
+
+In practice, some meaningful improvements for users are almost always expected over such a period. Nonetheless, the cadence holds even in the unlikely case of few or no user-facing feature changes — a release may still include:
+
+- Dependency updates (e.g. Go toolchain upgrades, third-party library bumps).
+- Accumulated bug fixes and security patches.
+- Operational or performance improvements that do not surface as new user-facing features.
+
+In short, the absence of large new features is not a reason to skip a scheduled major or minor release.
+
+Code freeze is declared at least one month before the final release. After code freeze, maintainers may still accept critical changes at their discretion.
 
 ## Write a release note
 
