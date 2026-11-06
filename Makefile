@@ -100,22 +100,30 @@ fuzz:
 
 # Static analysis
 .PHONY: verify
-verify: verify-bom verify-lint verify-dep verify-shellcheck verify-mod-tidy \
+verify: verify-bom verify-modern-sbom verify-lint verify-dep verify-shellcheck verify-mod-tidy \
 	verify-shellws verify-proto-annotations verify-genproto verify-yamllint \
 	verify-markdown-marker verify-go-versions verify-gomodguard \
 	verify-go-workspace verify-grpc-experimental
 
 .PHONY: fix
-fix: fix-mod-tidy fix-dep fix-bom fix-lint fix-yamllint sync-toolchain-directive \
+fix: fix-mod-tidy fix-dep fix-bom fix-modern-sbom fix-lint fix-yamllint sync-toolchain-directive \
 	update-go-workspace fix-shell-ws
 
 .PHONY: verify-bom
 verify-bom:
 	PASSES="bom" ./scripts/test.sh
 
+.PHONY: verify-modern-sbom
+verify-modern-sbom:
+	./scripts/verify_modern_sbom.sh
+
 .PHONY: fix-bom
 fix-bom:
 	./scripts/fix/bom.sh
+
+.PHONY: fix-modern-sbom
+fix-modern-sbom:
+	./scripts/fix/modern-sbom.sh
 
 .PHONY: verify-dep
 verify-dep:
