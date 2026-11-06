@@ -65,6 +65,14 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 			if lastErr == nil {
 				return nil
 			}
+			if isContextError(lastErr) {
+				if ctx.Err() != nil {
+					// parent context is done (e.g. client.Close()), this is expected
+					return lastErr
+				}
+				// callCtx deadline or cancellation, retry without logging
+				continue
+			}
 			c.GetLogger().Warn(
 				"retrying of unary invoker failed",
 				zap.String("target", cc.Target()),
@@ -73,14 +81,6 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 				zap.Uint("attempt", attempt),
 				zap.Error(lastErr),
 			)
-			if isContextError(lastErr) {
-				if ctx.Err() != nil {
-					// its the context deadline or cancellation.
-					return lastErr
-				}
-				// its the callCtx deadline or cancellation, in which case try again.
-				continue
-			}
 			if c.shouldRefreshToken(lastErr, callOpts) {
 				gtErr := c.refreshToken(ctx)
 				if gtErr != nil {
@@ -117,7 +117,9 @@ func (c *Client) streamClientInterceptor(optFuncs ...retryOption) grpc.StreamCli
 		// (see https://github.com/etcd-io/etcd/issues/11954 for more).
 		err := c.getToken(ctx)
 		if err != nil {
-			c.GetLogger().Error("clientv3/retry_interceptor: getToken failed", zap.Error(err))
+			if !isContextError(err) || ctx.Err() == nil {
+				c.GetLogger().Error("clientv3/retry_interceptor: getToken failed", zap.Error(err))
+			}
 			return nil, err
 		}
 		grpcOpts, retryOpts := filterCallOptions(opts)
@@ -131,7 +133,9 @@ func (c *Client) streamClientInterceptor(optFuncs ...retryOption) grpc.StreamCli
 		}
 		newStreamer, err := streamer(ctx, desc, cc, method, grpcOpts...)
 		if err != nil {
-			c.GetLogger().Error("streamer failed to create ClientStream", zap.Error(err))
+			if !isContextError(err) || ctx.Err() == nil {
+				c.GetLogger().Error("streamer failed to create ClientStream", zap.Error(err))
+			}
 			return nil, err // TODO(mwitkow): Maybe dial and transport errors should be retriable?
 		}
 		retryingStreamer := &serverStreamingRetryingStream{
