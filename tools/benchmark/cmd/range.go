@@ -145,7 +145,9 @@ func rangeFunc(cmd *cobra.Command, args []string) {
 		baseOpts = append(baseOpts, v3.WithRange(end))
 	}
 
-	r := newReport(cmd.Name())
+	reportName := cmd.Name()
+	r := newReport(reportName)
+	finish := printReport(r, reportName)
 	for i := range clients {
 		wg.Add(1)
 		go func(c *v3.Client) {
@@ -180,11 +182,10 @@ func rangeFunc(cmd *cobra.Command, args []string) {
 		close(requests)
 	}()
 
-	rc := r.Run()
 	wg.Wait()
 	close(r.Results())
 	bar.Finish()
-	fmt.Printf("%s", <-rc)
+	finish()
 	printDefragDuration()
 }
 

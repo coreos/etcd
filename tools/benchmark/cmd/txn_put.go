@@ -80,7 +80,9 @@ func txnPutFunc(cmd *cobra.Command, _ []string) {
 	bar = pb.New(txnPutTotal)
 	bar.Start()
 
-	r := newReport(cmd.Name())
+	reportName := cmd.Name()
+	r := newReport(reportName)
+	finish := printReport(r, reportName)
 	for i := range clients {
 		wg.Add(1)
 		go func(c *v3.Client) {
@@ -108,10 +110,9 @@ func txnPutFunc(cmd *cobra.Command, _ []string) {
 		close(requests)
 	}()
 
-	rc := r.Run()
 	wg.Wait()
 	close(r.Results())
 	bar.Finish()
-	fmt.Println(<-rc)
+	finish()
 	printDefragDuration()
 }

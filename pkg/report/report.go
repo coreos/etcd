@@ -17,6 +17,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -238,19 +239,21 @@ func (r *report) sprintLatencies() string {
 	return s
 }
 
-func (r *report) histogram() string {
-	bc := 10
-	buckets := make([]float64, bc+1)
-	counts := make([]int, bc+1)
-	bs := (r.stats.Slowest - r.stats.Fastest) / float64(bc)
+// bucketLatencies partitions s.Lats into bc equal-width buckets between
+// s.Fastest and s.Slowest, returning the bucket upper bounds, per-bucket
+// counts, and the largest count (used for bar-chart normalization).
+func bucketLatencies(s Stats, bc int) (buckets []float64, counts []int, max int) {
+	buckets = make([]float64, bc+1)
+	counts = make([]int, bc+1)
+	bs := (s.Slowest - s.Fastest) / float64(bc)
 	for i := 0; i < bc; i++ {
-		buckets[i] = r.stats.Fastest + bs*float64(i)
+		buckets[i] = s.Fastest + bs*float64(i)
 	}
-	buckets[bc] = r.stats.Slowest
+	buckets[bc] = s.Slowest
+
 	var bi int
-	var max int
-	for i := 0; i < len(r.stats.Lats); {
-		if r.stats.Lats[i] <= buckets[bi] {
+	for i := 0; i < len(s.Lats); {
+		if s.Lats[i] <= buckets[bi] {
 			i++
 			counts[bi]++
 			if max < counts[bi] {
@@ -260,6 +263,11 @@ func (r *report) histogram() string {
 			bi++
 		}
 	}
+	return buckets, counts, max
+}
+
+func (r *report) histogram() string {
+	buckets, counts, max := bucketLatencies(r.stats, 10)
 	s := "\nResponse time histogram:\n"
 	for i := 0; i < len(buckets); i++ {
 		// Normalize bar lengths.
@@ -278,4 +286,89 @@ func (r *report) errors() string {
 		s += fmt.Sprintf("  [%d]\t%s\n", num, err)
 	}
 	return s
+}
+
+// ---------------------------------------------------------------------------
+// JSON output support
+// ---------------------------------------------------------------------------
+
+// JSONReport is the JSON-serialisable form of a benchmark run's statistics.
+// Field names use snake_case so the output is friendly to jq, Python, etc.
+type JSONReport struct {
+	Label          string             `json:"label,omitempty"`
+	TotalSecs      float64            `json:"total_secs"`
+	SlowestSecs    float64            `json:"slowest_secs"`
+	FastestSecs    float64            `json:"fastest_secs"`
+	AverageSecs    float64            `json:"average_secs"`
+	StddevSecs     float64            `json:"stddev_secs"`
+	RequestsPerSec float64            `json:"requests_per_sec"`
+	Percentiles    map[string]float64 `json:"percentiles"`
+	Histogram      []JSONBucket       `json:"histogram"`
+	Errors         []JSONError        `json:"errors,omitempty"`
+}
+
+// JSONBucket is one bucket in the response-time histogram.
+type JSONBucket struct {
+	UpperBoundSecs float64 `json:"upper_bound_secs"`
+	Count          int     `json:"count"`
+}
+
+// JSONError records one distinct error string and its occurrence count.
+type JSONError struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+// round4 rounds v to 4 decimal places, matching the default text-report
+// precision ("%4.4f") so JSON and text outputs agree numerically.
+func round4(v float64) float64 {
+	return math.Round(v*1e4) / 1e4
+}
+
+// FormatJSON serialises Stats as indented JSON and returns the string.
+// Floating-point fields are rounded to 4 decimal places to match the
+// default text-report precision.
+func FormatJSON(s Stats, label string) (string, error) {
+	pcs, vals := Percentiles(s.Lats)
+	pctMap := make(map[string]float64, len(pcs))
+	for i, p := range pcs {
+		key := fmt.Sprintf("p%g", p)
+		pctMap[key] = round4(vals[i])
+	}
+
+	bc := 10
+	buckets, counts, _ := bucketLatencies(s, bc)
+	jsonBuckets := make([]JSONBucket, bc+1)
+	for i := range jsonBuckets {
+		jsonBuckets[i] = JSONBucket{UpperBoundSecs: round4(buckets[i]), Count: counts[i]}
+	}
+
+	errKeys := make([]string, 0, len(s.ErrorDist))
+	for k := range s.ErrorDist {
+		errKeys = append(errKeys, k)
+	}
+	sort.Strings(errKeys)
+	jsonErrs := make([]JSONError, 0, len(errKeys))
+	for _, k := range errKeys {
+		jsonErrs = append(jsonErrs, JSONError{Message: k, Count: s.ErrorDist[k]})
+	}
+
+	jr := JSONReport{
+		Label:          label,
+		TotalSecs:      round4(s.Total.Seconds()),
+		SlowestSecs:    round4(s.Slowest),
+		FastestSecs:    round4(s.Fastest),
+		AverageSecs:    round4(s.Average),
+		StddevSecs:     round4(s.Stddev),
+		RequestsPerSec: round4(s.RPS),
+		Percentiles:    pctMap,
+		Histogram:      jsonBuckets,
+		Errors:         jsonErrs,
+	}
+
+	b, err := json.MarshalIndent(jr, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

@@ -92,7 +92,8 @@ func putFunc(cmd *cobra.Command, _ []string) {
 	bar = pb.New(putTotal)
 	bar.Start()
 
-	r := newReport(cmd.Name())
+	reportName := cmd.Name()
+	r := newReport(reportName)
 	for i := range clients {
 		wg.Add(1)
 		go func(c *v3.Client) {
@@ -130,11 +131,11 @@ func putFunc(cmd *cobra.Command, _ []string) {
 		}()
 	}
 
-	rc := r.Run()
+	finish := printReport(r, reportName)
 	wg.Wait()
 	close(r.Results())
 	bar.Finish()
-	fmt.Println(<-rc)
+	finish()
 	printDefragDuration()
 
 	if checkHashkv {
