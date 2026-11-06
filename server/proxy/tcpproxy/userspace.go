@@ -166,8 +166,8 @@ func (tp *TCPProxy) serve(in net.Conn) {
 		if remote == nil {
 			break
 		}
-		// TODO: add timeout
-		out, err = net.Dial("tcp", remote.addr)
+		// Use a timeout to prevent hanging on unreachable endpoints
+		out, err = net.DialTimeout("tcp", remote.addr, 5*time.Second)
 		if err == nil {
 			break
 		}
@@ -182,15 +182,20 @@ func (tp *TCPProxy) serve(in net.Conn) {
 		return
 	}
 
+	// Use sync.Once to prevent double-close of connections
+	var inOnce, outOnce sync.Once
+	closeIn := func() { inOnce.Do(func() { in.Close() }) }
+	closeOut := func() { outOnce.Do(func() { out.Close() }) }
+
 	go func() {
 		io.Copy(in, out)
-		in.Close()
-		out.Close()
+		closeIn()
+		closeOut()
 	}()
 
 	io.Copy(out, in)
-	out.Close()
-	in.Close()
+	closeOut()
+	closeIn()
 }
 
 func (tp *TCPProxy) runMonitor() {
