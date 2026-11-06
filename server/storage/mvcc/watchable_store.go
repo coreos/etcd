@@ -363,7 +363,16 @@ func (s *watchableStore) syncWatchers() int {
 	compactionRev := s.store.compactMainRev
 
 	wg, minRev := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
-	evs := rangeEvents(s.store.lg, s.store.b, minRev, curRev+1, wg)
+	// Bound the backend scan by entry count, not revision range.  Without this,
+	// a watcher that falls 500K+ revisions behind triggers an O(range) full-
+	// table scan on every syncWatchers iteration while holding s.mu + store.revMu
+	// — the root cause of Kubernetes-scale apply-loop starvation (#22264).
+	// The entry-limit is generous enough to fill per-watcher event batches
+	// (watchBatchMaxRevs entries per watcher × maxWatchersPerSync watchers)
+	// so eventBatch.moreRev still fires correctly when a watcher has more
+	// revisions waiting beyond this iteration.
+	scanLimit := int64(watchBatchMaxRevs * maxWatchersPerSync * 2)
+	evs := rangeEvents(s.store.lg, s.store.b, minRev, curRev+1, scanLimit, wg)
 
 	victims := make(watcherBatch)
 	wb := newWatcherBatch(wg, evs)
@@ -416,7 +425,8 @@ func (s *watchableStore) syncWatchers() int {
 }
 
 // rangeEvents returns events in range [minRev, maxRev).
-func rangeEvents(lg *zap.Logger, b backend.Backend, minRev, maxRev int64, c contains) []*mvccpb.Event {
+// Passing limit=0 disables entry-count bounding (unbounded scan).
+func rangeEvents(lg *zap.Logger, b backend.Backend, minRev, maxRev int64, limit int64, c contains) []*mvccpb.Event {
 	if minRev < 0 {
 		lg.Warn("Unexpected negative revision range start", zap.Int64("minRev", minRev))
 		minRev = 0
@@ -429,7 +439,7 @@ func rangeEvents(lg *zap.Logger, b backend.Backend, minRev, maxRev int64, c cont
 	// values are actual key-value pairs in backend.
 	tx := b.ReadTx()
 	tx.RLock()
-	revs, vs := tx.UnsafeRange(schema.Key, minBytes, maxBytes, 0)
+	revs, vs := tx.UnsafeRange(schema.Key, minBytes, maxBytes, limit)
 	evs := kvsToEvents(lg, c, revs, vs)
 	// Must unlock after kvsToEvents, because vs (come from boltdb memory) is not deep copy.
 	// We can only unlock after Unmarshal, which will do deep copy.

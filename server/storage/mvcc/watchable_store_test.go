@@ -436,7 +436,7 @@ func TestRangeEvents(t *testing.T) {
 	}
 	for i, tc := range tcs {
 		t.Run(fmt.Sprintf("%d rangeEvents(%d, %d)", i, tc.minRev, tc.maxRev), func(t *testing.T) {
-			if diff := cmp.Diff(tc.expectEvents, rangeEvents(lg, b, tc.minRev, tc.maxRev, fakeContains{}), protocmp.Transform(), cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.expectEvents, rangeEvents(lg, b, tc.minRev, tc.maxRev, 0, fakeContains{}), protocmp.Transform(), cmpopts.EquateEmpty()); diff != "" {
 				t.Fatalf("unexpected events (-want +got):\n%s", diff)
 			}
 		})
