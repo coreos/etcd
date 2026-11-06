@@ -32,6 +32,8 @@ var ErrNotEmptyDatabase = errors.New("non empty database at start, required by m
 func ValidateAndReturnVisualize(lg *zap.Logger, cfg Config, reports []report.ClientReport, persistedRequests []model.EtcdRequest, timeout time.Duration) (result RobustnessResult) {
 	result.Assumptions = ResultFromError(checkValidationAssumptions(reports))
 	if result.Assumptions.Error() != nil {
+		result.Watch = Result{Status: Skipped, Message: "Assumtion Failed"}
+		result.Serializable = Result{Status: Skipped, Message: "Assumtion Failed"}
 		return result
 	}
 	linearizableOperations, serializableOperations, operationsForVisualization := prepareAndCategorizeOperations(reports)
@@ -47,10 +49,14 @@ func ValidateAndReturnVisualize(lg *zap.Logger, cfg Config, reports []report.Cli
 	// Skip other validations if model is not linearizable, as they are expected to fail too and obfuscate the logs.
 	if result.Linearization.Error() != nil {
 		lg.Info("Skipping other validations as linearization failed")
+		result.Watch = Result{Status: Skipped, Message: "linearization failed"}
+		result.Serializable = Result{Status: Skipped, Message: "linearization failed"}
 		return result
 	}
 	if len(persistedRequests) == 0 {
 		lg.Info("Skipping other validations as persisted requests were empty")
+		result.Watch = Result{Status: Skipped, Message: "no persisted requests"}
+		result.Serializable = Result{Status: Skipped, Message: "no persisted requests"}
 		return result
 	}
 	replay := model.NewReplay(persistedRequests)

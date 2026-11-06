@@ -41,6 +41,7 @@ var (
 	Success ResultStatus = "Success"
 	Failure ResultStatus = "Failure"
 	Timeout ResultStatus = "Timeout"
+	Skipped ResultStatus = "Skipped"
 )
 
 func (r RobustnessResult) Error() error {

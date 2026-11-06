@@ -73,6 +73,9 @@ func assertResult(result validate.Result, name string) {
 	switch result.Status {
 	case validate.Success, validate.Failure:
 		assert.Always(result.Status == validate.Success, name, map[string]any{"msg": result.Message})
+	case validate.Skipped:
+		// Validation intentionally skipped (e.g. an earlier stage already
+		// failed, or required data wasn't available) — expected, not a bug.
 	default:
 		assert.Unreachable(name, map[string]any{"error": result.Error().Error()})
 	}
