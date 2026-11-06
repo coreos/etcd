@@ -613,7 +613,7 @@ func cloneKeyIndex(ki *keyIndex) *keyIndex {
 	for i, gen := range ki.generations {
 		generations[i] = *cloneGeneration(&gen)
 	}
-	return &keyIndex{ki.key, ki.modified, generations}
+	return &keyIndex{ki.key, ki.modified, generations, ki.liveSize}
 }
 
 func cloneGeneration(g *generation) *generation {

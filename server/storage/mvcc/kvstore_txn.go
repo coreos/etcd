@@ -17,6 +17,7 @@ package mvcc
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -257,7 +258,9 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 
 	tw.trace.Step("marshal mvccpb.KeyValue")
 	tw.tx.UnsafeSeqPut(schema.Key, ibytes, d)
-	tw.s.kvindex.Put(key, idxRev)
+	liveSize := int64(len(key) + len(value))
+	prevSize := tw.s.kvindex.PutSize(key, idxRev, liveSize)
+	atomic.AddInt64(&tw.s.logicalBytes, liveSize-prevSize)
 	tw.changes = append(tw.changes, kv)
 	tw.trace.Step("store kv pair into bolt db")
 
@@ -321,7 +324,7 @@ func (tw *storeTxnWrite) delete(key []byte) {
 	}
 
 	tw.tx.UnsafeSeqPut(schema.Key, ibytes, d)
-	err = tw.s.kvindex.Tombstone(key, idxRev.Revision)
+	prevSize, err := tw.s.kvindex.TombstoneSize(key, idxRev.Revision)
 	if err != nil {
 		tw.storeTxnCommon.s.lg.Fatal(
 			"failed to tombstone an existing key",
@@ -329,6 +332,7 @@ func (tw *storeTxnWrite) delete(key []byte) {
 			zap.Error(err),
 		)
 	}
+	atomic.AddInt64(&tw.s.logicalBytes, -prevSize)
 	tw.changes = append(tw.changes, kv)
 
 	item := lease.LeaseItem{Key: string(key)}

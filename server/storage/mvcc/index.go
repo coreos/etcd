@@ -27,7 +27,14 @@ type index interface {
 	Revisions(key, end []byte, atRev int64, limit int, withTotalCount bool) ([]Revision, int)
 	CountRevisions(key, end []byte, atRev int64) int
 	Put(key []byte, rev Revision)
+	// PutSize behaves like Put but records size as the key's live logical byte
+	// size and returns the previous live size (0 if the key was absent or
+	// tombstoned). The store uses size-prev to maintain its logical-size counter.
+	PutSize(key []byte, rev Revision, size int64) (prevSize int64)
 	Tombstone(key []byte, rev Revision) error
+	// TombstoneSize behaves like Tombstone but returns the key's live logical
+	// byte size before it was removed, so the store can decrement its counter.
+	TombstoneSize(key []byte, rev Revision) (prevSize int64, err error)
 	Compact(rev int64) map[Revision]struct{}
 	Keep(rev int64) map[Revision]struct{}
 	Equal(b index) bool
@@ -63,6 +70,26 @@ func (ti *treeIndex) Put(key []byte, rev Revision) {
 		return
 	}
 	okeyi.put(ti.lg, rev.Main, rev.Sub)
+}
+
+func (ti *treeIndex) PutSize(key []byte, rev Revision, size int64) (prevSize int64) {
+	keyi := &keyIndex{key: key}
+
+	ti.Lock()
+	defer ti.Unlock()
+	okeyi, ok := ti.tree.Get(keyi)
+	if !ok {
+		keyi.put(ti.lg, rev.Main, rev.Sub)
+		keyi.liveSize = size
+		ti.tree.ReplaceOrInsert(keyi)
+		return 0
+	}
+	// A re-put after a tombstone starts a fresh generation, so liveSize was
+	// reset to 0 by the tombstone; prevSize is then 0 and the delta is size.
+	prevSize = okeyi.liveSize
+	okeyi.put(ti.lg, rev.Main, rev.Sub)
+	okeyi.liveSize = size
+	return prevSize
 }
 
 func (ti *treeIndex) Get(key []byte, atRev int64) (modified, created Revision, ver int64, err error) {
@@ -200,6 +227,24 @@ func (ti *treeIndex) Tombstone(key []byte, rev Revision) error {
 	}
 
 	return ki.tombstone(ti.lg, rev.Main, rev.Sub)
+}
+
+func (ti *treeIndex) TombstoneSize(key []byte, rev Revision) (prevSize int64, err error) {
+	keyi := &keyIndex{key: key}
+
+	ti.Lock()
+	defer ti.Unlock()
+	ki, ok := ti.tree.Get(keyi)
+	if !ok {
+		return 0, ErrRevisionNotFound
+	}
+
+	prevSize = ki.liveSize
+	if err = ki.tombstone(ti.lg, rev.Main, rev.Sub); err != nil {
+		return 0, err
+	}
+	ki.liveSize = 0
+	return prevSize, nil
 }
 
 func (ti *treeIndex) Compact(rev int64) map[Revision]struct{} {

@@ -124,6 +124,11 @@ type KV interface {
 	// HashStorage returns HashStorage interface for KV storage.
 	HashStorage() HashStorage
 
+	// LogicalBytes returns the logical (live-keyspace) byte size of the store:
+	// the sum of len(key)+len(value) over every live key, excluding revision
+	// history, tombstones, and storage-engine space amplification.
+	LogicalBytes() int64
+
 	// Compact frees all superseded keys with revisions less than rev.
 	Compact(trace *traceutil.Trace, rev int64) (<-chan struct{}, error)
 

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -72,6 +73,16 @@ type store struct {
 	currentRev int64
 	// compactMainRev is the main revision of the last compaction.
 	compactMainRev int64
+
+	// logicalBytes is the running sum of the logical byte size
+	// (len(key)+len(value)) of every live key in the store. Unlike the backend's
+	// physical Size(), it is unaffected by revision history, tombstones, or the
+	// storage engine's reclaimable slack (e.g. the bbolt freelist), so it
+	// reflects the true keyspace size — how much real data the store holds versus
+	// how large the file has grown. It is maintained incrementally on put/delete
+	// and rebuilt on restore, and read atomically (writes happen under the
+	// write-txn lock).
+	logicalBytes int64
 
 	fifoSched schedule.Scheduler
 
@@ -352,7 +363,7 @@ func (s *store) restore() error {
 	scheduledCompact, _ := UnsafeReadScheduledCompact(tx)
 	// index keys concurrently as they're loaded in from tx
 	keysGauge.Set(0)
-	rkvc, revc := restoreIntoIndex(s.lg, s.kvindex)
+	rkvc, resc := restoreIntoIndex(s.lg, s.kvindex)
 	for {
 		keys, vals := tx.UnsafeRange(schema.Key, min, max, int64(restoreChunkKeys))
 		if len(keys) == 0 {
@@ -374,7 +385,9 @@ func (s *store) restore() error {
 
 	{
 		s.revMu.Lock()
-		s.currentRev = <-revc
+		res := <-resc
+		s.currentRev = res.currentRev
+		atomic.StoreInt64(&s.logicalBytes, res.logicalBytes)
 
 		// keys in the range [compacted revision -N, compaction] might all be deleted due to compaction.
 		// the correct revision should be set to compaction revision in the case, not the largest revision
@@ -441,11 +454,22 @@ type revKeyValue struct {
 	kstr string
 }
 
-func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int64) {
-	rkvc, revc := make(chan revKeyValue, restoreChunkKeys), make(chan int64, 1)
+// restoreResult carries the outputs of an index restore: the highest revision
+// seen and the rebuilt logical (live-keyspace) byte size.
+type restoreResult struct {
+	currentRev   int64
+	logicalBytes int64
+}
+
+func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan restoreResult) {
+	rkvc, resc := make(chan revKeyValue, restoreChunkKeys), make(chan restoreResult, 1)
 	go func() {
 		currentRev := int64(1)
-		defer func() { revc <- currentRev }()
+		// logicalBytes accumulates the live-keyspace byte size as revisions are
+		// replayed in ascending order (last write wins, tombstones subtract), so
+		// it ends equal to the sum of every live key's len(key)+len(value).
+		var logicalBytes int64
+		defer func() { resc <- restoreResult{currentRev: currentRev, logicalBytes: logicalBytes} }()
 		// restore the tree index from streaming the unordered index.
 		kiCache := make(map[string]*keyIndex, restoreChunkKeys)
 		for rkv := range rkvc {
@@ -483,21 +507,28 @@ func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int
 					if err := ki.tombstone(lg, rev.Main, rev.Sub); err != nil {
 						lg.Warn("tombstone encountered error", zap.Error(err))
 					}
+					logicalBytes -= ki.liveSize
+					ki.liveSize = 0
 					continue
 				}
 				ki.put(lg, rev.Main, rev.Sub)
+				sz := int64(len(rkv.kv.Key) + len(rkv.kv.Value))
+				logicalBytes += sz - ki.liveSize
+				ki.liveSize = sz
 			} else {
 				if isTombstone(rkv.key) {
 					ki.restoreTombstone(lg, rev.Main, rev.Sub)
 				} else {
 					ki.restore(lg, Revision{Main: rkv.kv.CreateRevision}, rev, rkv.kv.Version)
+					ki.liveSize = int64(len(rkv.kv.Key) + len(rkv.kv.Value))
+					logicalBytes += ki.liveSize
 				}
 				idx.Insert(ki)
 				kiCache[rkv.kstr] = ki
 			}
 		}
 	}()
-	return rkvc, revc
+	return rkvc, resc
 }
 
 func restoreChunk(lg *zap.Logger, kvc chan<- revKeyValue, keys, vals [][]byte, keyToLease map[string]lease.LeaseID) {
@@ -536,6 +567,9 @@ func (s *store) setupMetricsReporter() {
 	reportDbTotalSizeInUseInBytesMu.Lock()
 	reportDbTotalSizeInUseInBytes = func() float64 { return float64(b.SizeInUse()) }
 	reportDbTotalSizeInUseInBytesMu.Unlock()
+	reportDbLogicalSizeMu.Lock()
+	reportDbLogicalSize = func() float64 { return float64(s.LogicalBytes()) }
+	reportDbLogicalSizeMu.Unlock()
 	reportDbOpenReadTxNMu.Lock()
 	reportDbOpenReadTxN = func() float64 { return float64(b.OpenReadTxN()) }
 	reportDbOpenReadTxNMu.Unlock()
@@ -557,4 +591,12 @@ func (s *store) setupMetricsReporter() {
 
 func (s *store) HashStorage() HashStorage {
 	return s.hashes
+}
+
+// LogicalBytes returns the logical (live-keyspace) byte size: the sum of
+// len(key)+len(value) over every live key. It excludes revision history,
+// tombstones, and any storage-engine space amplification, so unlike the
+// backend's physical Size() it is stable under an LSM's compaction backlog.
+func (s *store) LogicalBytes() int64 {
+	return atomic.LoadInt64(&s.logicalBytes)
 }

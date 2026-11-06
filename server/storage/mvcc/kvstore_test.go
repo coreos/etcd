@@ -1094,9 +1094,19 @@ func (i *fakeIndex) Put(key []byte, rev Revision) {
 	i.Recorder.Record(testutil.Action{Name: "put", Params: []any{key, rev}})
 }
 
+func (i *fakeIndex) PutSize(key []byte, rev Revision, size int64) (prevSize int64) {
+	i.Recorder.Record(testutil.Action{Name: "put", Params: []any{key, rev}})
+	return 0
+}
+
 func (i *fakeIndex) Tombstone(key []byte, rev Revision) error {
 	i.Recorder.Record(testutil.Action{Name: "tombstone", Params: []any{key, rev}})
 	return nil
+}
+
+func (i *fakeIndex) TombstoneSize(key []byte, rev Revision) (prevSize int64, err error) {
+	i.Recorder.Record(testutil.Action{Name: "tombstone", Params: []any{key, rev}})
+	return 0, nil
 }
 
 func (i *fakeIndex) RangeSince(key, end []byte, rev int64) []Revision {

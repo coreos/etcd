@@ -202,6 +202,23 @@ var (
 	reportDbTotalSizeInUseInBytesMu sync.RWMutex
 	reportDbTotalSizeInUseInBytes   = func() float64 { return 0 }
 
+	dbLogicalSize = prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Namespace: "etcd",
+			Subsystem: "mvcc",
+			Name:      "db_logical_size_in_bytes",
+			Help:      "Logical size of the live keyspace in bytes: the sum of key+value bytes over all live keys, excluding revision history, tombstones, and reclaimable storage-engine slack (e.g. the bbolt freelist). Unlike db_total_size_in_bytes, this reflects how much real data is stored rather than how large the file has grown.",
+		},
+		func() float64 {
+			reportDbLogicalSizeMu.RLock()
+			defer reportDbLogicalSizeMu.RUnlock()
+			return reportDbLogicalSize()
+		},
+	)
+	// overridden by mvcc initialization
+	reportDbLogicalSizeMu sync.RWMutex
+	reportDbLogicalSize   = func() float64 { return 0 }
+
 	dbOpenReadTxN = prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Namespace: "etcd",
@@ -304,6 +321,7 @@ func init() {
 	prometheus.MustRegister(dbCompactionKeysCounter)
 	prometheus.MustRegister(dbTotalSize)
 	prometheus.MustRegister(dbTotalSizeInUse)
+	prometheus.MustRegister(dbLogicalSize)
 	prometheus.MustRegister(dbOpenReadTxN)
 	prometheus.MustRegister(hashSec)
 	prometheus.MustRegister(hashRevSec)

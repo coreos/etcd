@@ -74,6 +74,12 @@ type keyIndex struct {
 	key         []byte
 	modified    Revision // the main rev of the last modification
 	generations []generation
+	// liveSize is the logical byte size (len(key)+len(value)) of the key's
+	// current live value, or 0 when the key is tombstoned/absent. It feeds the
+	// store's logical-size counter (see store.logicalBytes) and is maintained by
+	// treeIndex.PutSize/TombstoneSize and the restore path. It is NOT part of the
+	// revision history and is untouched by compaction.
+	liveSize int64
 }
 
 // put puts a revision to the keyIndex.
