@@ -15,6 +15,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,38 +31,10 @@ import (
 
 	"go.etcd.io/etcd/client/pkg/v3/logutil"
 	"go.etcd.io/etcd/client/pkg/v3/srv"
-	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/pkg/v3/cobrautl"
 	"go.etcd.io/etcd/pkg/v3/flags"
 )
-
-// GlobalFlags are flags that defined globally
-// and are inherited to all sub-commands.
-type GlobalFlags struct {
-	Insecure              bool
-	InsecureSkipVerify    bool
-	InsecureDiscovery     bool
-	Endpoints             []string
-	DialTimeout           time.Duration
-	CommandTimeOut        time.Duration
-	KeepAliveTime         time.Duration
-	KeepAliveTimeout      time.Duration
-	MaxCallSendMsgSize    int
-	MaxCallRecvMsgSize    int
-	DNSClusterServiceName string
-
-	TLS transport.TLSInfo
-
-	OutputFormat string
-	IsHex        bool
-
-	User     string
-	Password string
-	Token    string
-
-	Debug bool
-}
 
 type discoveryCfg struct {
 	domain      string
@@ -71,12 +44,98 @@ type discoveryCfg struct {
 
 var display printer = &simplePrinter{}
 
+var newClientFunc = clientv3.New
+
+const (
+	FlagEndpoints             = "endpoints"
+	FlagDebug                 = "debug"
+	FlagWriteOut              = "write-out"
+	FlagHex                   = "hex"
+	FlagDialTimeout           = "dial-timeout"
+	FlagCommandTimeout        = "command-timeout"
+	FlagKeepAliveTime         = "keepalive-time"
+	FlagKeepAliveTimeout      = "keepalive-timeout"
+	FlagMaxRequestBytes       = "max-request-bytes"
+	FlagMaxRecvBytes          = "max-recv-bytes"
+	FlagInsecureTransport     = "insecure-transport"
+	FlagInsecureDiscovery     = "insecure-discovery"
+	FlagInsecureSkipTLSVerify = "insecure-skip-tls-verify"
+	FlagCert                  = "cert"
+	FlagKey                   = "key"
+	FlagCACert                = "cacert"
+	FlagAuthJWTToken          = "auth-jwt-token"
+	FlagUser                  = "user"
+	FlagPassword              = "password"
+	FlagDiscoverySRV          = "discovery-srv"
+	FlagDiscoverySRVName      = "discovery-srv-name"
+)
+
+func RegisterGlobalFlags(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringSlice(FlagEndpoints, []string{"127.0.0.1:2379"}, "gRPC endpoints")
+	cmd.PersistentFlags().Bool(FlagDebug, false, "enable client-side debug logging")
+	cmd.PersistentFlags().StringP(FlagWriteOut, "w", "simple", "set the output format (fields, json, protobuf, simple, table)")
+	cmd.PersistentFlags().Bool(FlagHex, false, "print byte strings as hex encoded strings")
+	cmd.PersistentFlags().Duration(FlagDialTimeout, 2*time.Second, "dial timeout for client connections")
+	cmd.PersistentFlags().Duration(FlagCommandTimeout, 5*time.Second, "timeout for short running command (excluding dial timeout)")
+	cmd.PersistentFlags().Duration(FlagKeepAliveTime, 2*time.Second, "keepalive time for client connections")
+	cmd.PersistentFlags().Duration(FlagKeepAliveTimeout, 6*time.Second, "keepalive timeout for client connections")
+	cmd.PersistentFlags().Int(FlagMaxRequestBytes, 0, "client-side request send limit in bytes (if 0, it defaults to 2.0 MiB (2 * 1024 * 1024).)")
+	cmd.PersistentFlags().Int(FlagMaxRecvBytes, 0, "client-side response receive limit in bytes (if 0, it defaults to \"math.MaxInt32\")")
+	cmd.PersistentFlags().Bool(FlagInsecureTransport, true, "disable transport security for client connections")
+	cmd.PersistentFlags().Bool(FlagInsecureDiscovery, true, "accept insecure SRV records describing cluster endpoints")
+	cmd.PersistentFlags().Bool(FlagInsecureSkipTLSVerify, false, "skip server certificate verification (CAUTION: this option should be enabled only for testing purposes)")
+	cmd.PersistentFlags().String(FlagCert, "", "identify secure client using this TLS certificate file")
+	cmd.PersistentFlags().String(FlagKey, "", "identify secure client using this TLS key file")
+	cmd.PersistentFlags().String(FlagCACert, "", "verify certificates of TLS-enabled secure servers using this CA bundle")
+	cmd.PersistentFlags().String(FlagAuthJWTToken, "", "JWT token used for authentication (if this option is used, --user and --password should not be set)")
+	cmd.PersistentFlags().String(FlagUser, "", "username[:password] for authentication (prompt if password is not supplied)")
+	cmd.PersistentFlags().String(FlagPassword, "", "password for authentication (if this option is used, --user option shouldn't include password)")
+	cmd.PersistentFlags().StringP(FlagDiscoverySRV, "d", "", "domain name to query for SRV records describing cluster endpoints")
+	cmd.PersistentFlags().String(FlagDiscoverySRVName, "", "service name to query when using DNS discovery")
+}
+
+type ClientFactory func(clientv3.Config) (*clientv3.Client, error)
+
+type clientFactoryKey struct{}
+
+// WithClientFactory attaches a custom client factory to the provided context.
+// Tests can inject fakes without mutating the global client constructor.
+func WithClientFactory(ctx context.Context, factory ClientFactory) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if factory == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, clientFactoryKey{}, factory)
+}
+
+func WithClient(ctx context.Context, cli *clientv3.Client) context.Context {
+	if cli == nil {
+		return ctx
+	}
+	return WithClientFactory(ctx, func(clientv3.Config) (*clientv3.Client, error) {
+		return cli, nil
+	})
+}
+
+func clientFactoryFromCmd(cmd *cobra.Command) ClientFactory {
+	if cmd != nil {
+		if ctx := cmd.Context(); ctx != nil {
+			if factory, ok := ctx.Value(clientFactoryKey{}).(ClientFactory); ok && factory != nil {
+				return factory
+			}
+		}
+	}
+	return newClientFunc
+}
+
 func initDisplayFromCmd(cmd *cobra.Command) {
-	isHex, err := cmd.Flags().GetBool("hex")
+	isHex, err := cmd.Flags().GetBool(FlagHex)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
-	outputType, err := cmd.Flags().GetString("write-out")
+	outputType, err := cmd.Flags().GetString(FlagWriteOut)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -105,7 +164,7 @@ func clientConfigFromCmd(cmd *cobra.Command) *clientv3.ConfigSpec {
 	}
 	flags.SetPflagsFromEnv(lg, "ETCDCTL", fs)
 
-	debug, err := cmd.Flags().GetBool("debug")
+	debug, err := cmd.Flags().GetBool(FlagDebug)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -153,17 +212,21 @@ func mustClientCfgFromCmd(cmd *cobra.Command) *clientv3.Config {
 
 func mustClientFromCmd(cmd *cobra.Command) *clientv3.Client {
 	cfg := clientConfigFromCmd(cmd)
-	return mustClient(cfg)
+	return mustClientWithFactory(cmd, cfg)
 }
 
 func mustClient(cc *clientv3.ConfigSpec) *clientv3.Client {
+	return mustClientWithFactory(nil, cc)
+}
+
+func mustClientWithFactory(cmd *cobra.Command, cc *clientv3.ConfigSpec) *clientv3.Client {
 	lg, _ := logutil.CreateDefaultZapLogger(zap.InfoLevel)
 	cfg, err := clientv3.NewClientConfig(cc, lg)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
 
-	client, err := clientv3.New(*cfg)
+	client, err := clientFactoryFromCmd(cmd)(*cfg)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadConnection, err)
 	}
@@ -183,7 +246,7 @@ func argOrStdin(args []string, stdin io.Reader, i int) (string, error) {
 }
 
 func dialTimeoutFromCmd(cmd *cobra.Command) time.Duration {
-	dialTimeout, err := cmd.Flags().GetDuration("dial-timeout")
+	dialTimeout, err := cmd.Flags().GetDuration(FlagDialTimeout)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -191,7 +254,7 @@ func dialTimeoutFromCmd(cmd *cobra.Command) time.Duration {
 }
 
 func keepAliveTimeFromCmd(cmd *cobra.Command) time.Duration {
-	keepAliveTime, err := cmd.Flags().GetDuration("keepalive-time")
+	keepAliveTime, err := cmd.Flags().GetDuration(FlagKeepAliveTime)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -199,7 +262,7 @@ func keepAliveTimeFromCmd(cmd *cobra.Command) time.Duration {
 }
 
 func keepAliveTimeoutFromCmd(cmd *cobra.Command) time.Duration {
-	keepAliveTimeout, err := cmd.Flags().GetDuration("keepalive-timeout")
+	keepAliveTimeout, err := cmd.Flags().GetDuration(FlagKeepAliveTimeout)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -207,7 +270,7 @@ func keepAliveTimeoutFromCmd(cmd *cobra.Command) time.Duration {
 }
 
 func maxCallSendMsgSizeFromCmd(cmd *cobra.Command) int {
-	maxRequestBytes, err := cmd.Flags().GetInt("max-request-bytes")
+	maxRequestBytes, err := cmd.Flags().GetInt(FlagMaxRequestBytes)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -215,7 +278,7 @@ func maxCallSendMsgSizeFromCmd(cmd *cobra.Command) int {
 }
 
 func maxCallRecvMsgSizeFromCmd(cmd *cobra.Command) int {
-	maxReceiveBytes, err := cmd.Flags().GetInt("max-recv-bytes")
+	maxReceiveBytes, err := cmd.Flags().GetInt(FlagMaxRecvBytes)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -244,7 +307,7 @@ func secureCfgFromCmd(cmd *cobra.Command) *clientv3.SecureConfig {
 }
 
 func insecureTransportFromCmd(cmd *cobra.Command) bool {
-	insecureTr, err := cmd.Flags().GetBool("insecure-transport")
+	insecureTr, err := cmd.Flags().GetBool(FlagInsecureTransport)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -252,7 +315,7 @@ func insecureTransportFromCmd(cmd *cobra.Command) bool {
 }
 
 func insecureSkipVerifyFromCmd(cmd *cobra.Command) bool {
-	skipVerify, err := cmd.Flags().GetBool("insecure-skip-tls-verify")
+	skipVerify, err := cmd.Flags().GetBool(FlagInsecureSkipTLSVerify)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -261,21 +324,21 @@ func insecureSkipVerifyFromCmd(cmd *cobra.Command) bool {
 
 func keyAndCertFromCmd(cmd *cobra.Command) (cert, key, cacert string) {
 	var err error
-	if cert, err = cmd.Flags().GetString("cert"); err != nil {
+	if cert, err = cmd.Flags().GetString(FlagCert); err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
-	} else if cert == "" && cmd.Flags().Changed("cert") {
+	} else if cert == "" && cmd.Flags().Changed(FlagCert) {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, errors.New("empty string is passed to --cert option"))
 	}
 
-	if key, err = cmd.Flags().GetString("key"); err != nil {
+	if key, err = cmd.Flags().GetString(FlagKey); err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
-	} else if key == "" && cmd.Flags().Changed("key") {
+	} else if key == "" && cmd.Flags().Changed(FlagKey) {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, errors.New("empty string is passed to --key option"))
 	}
 
-	if cacert, err = cmd.Flags().GetString("cacert"); err != nil {
+	if cacert, err = cmd.Flags().GetString(FlagCACert); err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
-	} else if cacert == "" && cmd.Flags().Changed("cacert") {
+	} else if cacert == "" && cmd.Flags().Changed(FlagCACert) {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, errors.New("empty string is passed to --cacert option"))
 	}
 
@@ -283,15 +346,15 @@ func keyAndCertFromCmd(cmd *cobra.Command) (cert, key, cacert string) {
 }
 
 func authCfgFromCmd(cmd *cobra.Command) *clientv3.AuthConfig {
-	userFlag, err := cmd.Flags().GetString("user")
+	userFlag, err := cmd.Flags().GetString(FlagUser)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
-	passwordFlag, err := cmd.Flags().GetString("password")
+	passwordFlag, err := cmd.Flags().GetString(FlagPassword)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
-	tokenFlag, err := cmd.Flags().GetString("auth-jwt-token")
+	tokenFlag, err := cmd.Flags().GetString(FlagAuthJWTToken)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
@@ -328,7 +391,7 @@ func authCfgFromCmd(cmd *cobra.Command) *clientv3.AuthConfig {
 }
 
 func insecureDiscoveryFromCmd(cmd *cobra.Command) bool {
-	discovery, err := cmd.Flags().GetBool("insecure-discovery")
+	discovery, err := cmd.Flags().GetBool(FlagInsecureDiscovery)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -336,7 +399,7 @@ func insecureDiscoveryFromCmd(cmd *cobra.Command) bool {
 }
 
 func discoverySrvFromCmd(cmd *cobra.Command) string {
-	domainStr, err := cmd.Flags().GetString("discovery-srv")
+	domainStr, err := cmd.Flags().GetString(FlagDiscoverySRV)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
@@ -344,7 +407,7 @@ func discoverySrvFromCmd(cmd *cobra.Command) string {
 }
 
 func discoveryDNSClusterServiceNameFromCmd(cmd *cobra.Command) string {
-	serviceNameStr, err := cmd.Flags().GetString("discovery-srv-name")
+	serviceNameStr, err := cmd.Flags().GetString(FlagDiscoverySRVName)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
@@ -366,7 +429,7 @@ func endpointsFromCmd(cmd *cobra.Command) ([]string, error) {
 	}
 	// If domain discovery returns no endpoints, check endpoints flag
 	if len(eps) == 0 {
-		eps, err = cmd.Flags().GetStringSlice("endpoints")
+		eps, err = cmd.Flags().GetStringSlice(FlagEndpoints)
 		if err == nil {
 			for i, ip := range eps {
 				eps[i] = strings.TrimSpace(ip)

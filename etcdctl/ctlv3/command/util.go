@@ -78,7 +78,7 @@ func Argify(s string) []string {
 }
 
 func commandCtx(cmd *cobra.Command) (context.Context, context.CancelFunc) {
-	timeOut, err := cmd.Flags().GetDuration("command-timeout")
+	timeOut, err := cmd.Flags().GetDuration(FlagCommandTimeout)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitError, err)
 	}
@@ -86,7 +86,7 @@ func commandCtx(cmd *cobra.Command) (context.Context, context.CancelFunc) {
 }
 
 func isCommandTimeoutFlagSet(cmd *cobra.Command) bool {
-	commandTimeoutFlag := cmd.Flags().Lookup("command-timeout")
+	commandTimeoutFlag := cmd.Flags().Lookup(FlagCommandTimeout)
 	if commandTimeoutFlag == nil {
 		panic("expect command-timeout flag to exist")
 	}
