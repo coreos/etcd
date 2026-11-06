@@ -285,11 +285,9 @@ func interruptableContext(ctx context.Context, attemptCleanup func()) (context.C
 	signal.Notify(signalChan, os.Interrupt)
 	go func() {
 		defer signal.Stop(signalChan)
-		select {
-		case <-signalChan:
-			cancel()
-			attemptCleanup()
-		}
+		<-signalChan
+		cancel()
+		attemptCleanup()
 	}()
 	return ctx, cancel
 }
