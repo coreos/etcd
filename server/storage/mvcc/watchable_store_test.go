@@ -987,3 +987,43 @@ func TestStressWatchCancelClose(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestProgressIfSyncDeadlock reproduces the three-way lock cycle in which
+// progressIfSync (holding watchable.mu, waiting on store.mu via s.rev()), an
+// in-flight write txn (holding store.mu, waiting on watchable.mu in End()), and
+// a concurrent Commit (waiting on store.mu) deadlock the apply loop. It fails if
+// End() cannot complete, i.e. if progressIfSync takes store.mu while holding
+// watchable.mu.
+func TestProgressIfSyncDeadlock(t *testing.T) {
+	b, _ := betesting.NewDefaultTmpBackend(t)
+	// Use newWatchableStore (no background sync/victim loops) for a controlled interleaving.
+	s := newWatchableStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+	defer func() { _ = s.store.Close() }()
+
+	// W: open a write txn -> now holding store.mu.RLock until End().
+	tw := s.Write(traceutil.TODO())
+	tw.Put([]byte("k"), []byte("v"), lease.NoLease)
+
+	// C: Commit wants store.mu.Lock; it blocks behind W's RLock and queues the writer,
+	// which makes subsequent store.mu.RLock callers block (RWMutex writer preference).
+	go func() { s.Commit() }()
+	time.Sleep(100 * time.Millisecond)
+
+	// P: progressIfSync grabs watchable.mu.RLock, then blocks on store.mu.RLock behind C.
+	go func() { s.progressAll(map[WatchID]*watcher{}) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// W: End() now wants watchable.mu.Lock, held (RLock) by P -> cycle closes unless
+	// progressIfSync avoids taking store.mu while holding watchable.mu.
+	done := make(chan struct{})
+	go func() {
+		tw.End()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("deadlock: write txn End() blocked on watchable.mu while progressIfSync holds it and waits on store.mu")
+	}
+}
