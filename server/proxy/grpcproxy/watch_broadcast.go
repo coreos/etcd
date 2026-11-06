@@ -82,6 +82,11 @@ func (wb *watchBroadcast) bcast(wr clientv3.WatchResponse) {
 	// watchers start on the given revision, if any; ignore header rev on create
 	if wb.responses > 0 || wb.nextrev == 0 {
 		wb.nextrev = wr.Header.Revision + 1
+		// A catch-up batch carries the current revision in its header, not the revision of
+		// its last event, so using the header would let coalesce() skip the events in between.
+		if n := len(wr.Events); n > 0 {
+			wb.nextrev = wr.Events[n-1].Kv.ModRevision + 1
+		}
 	}
 	wb.responses++
 	for r := range wb.receivers {
