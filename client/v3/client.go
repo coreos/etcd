@@ -44,7 +44,7 @@ import (
 var (
 	ErrNoAvailableEndpoints = errors.New("etcdclient: no available endpoints")
 	ErrOldCluster           = errors.New("etcdclient: old cluster version")
-	ErrMutuallyExclusiveCfg = errors.New("Username/Password and Token configurations are mutually exclusive")
+	ErrMutuallyExclusiveCfg = errors.New("etcdclient: username/password and token configurations are mutually exclusive")
 )
 
 // Client provides and manages an etcd v3 client session.
@@ -449,8 +449,7 @@ func newClient(cfg *Config) (*Client, error) {
 	if err != nil {
 		client.cancel()
 		client.resolver.Close()
-		// TODO: Error like `fmt.Errorf(dialing [%s] failed: %v, strings.Join(cfg.Endpoints, ";"), err)` would help with debugging a lot.
-		return nil, err
+		return nil, fmt.Errorf("etcdclient: dialing [%s] failed: %w", strings.Join(cfg.Endpoints, ";"), err)
 	}
 	client.conn = conn
 
@@ -470,8 +469,7 @@ func newClient(cfg *Config) (*Client, error) {
 	if err != nil {
 		client.Close()
 		cancel()
-		// TODO: Consider fmt.Errorf("communicating with [%s] failed: %v", strings.Join(cfg.Endpoints, ";"), err)
-		return nil, err
+		return nil, fmt.Errorf("etcdclient: communicating with [%s] failed: %w", strings.Join(cfg.Endpoints, ";"), err)
 	}
 	cancel()
 
