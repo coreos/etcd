@@ -316,6 +316,10 @@ func (c *RecordingClient) Endpoints() []string {
 	return c.client.Endpoints()
 }
 
+func (c *RecordingClient) SetEndpoints(endpoints ...string) {
+	c.client.SetEndpoints(endpoints...)
+}
+
 func (c *RecordingClient) Watch(ctx context.Context, key string, rev int64, withPrefix bool, withProgressNotify bool, withPrevKV bool) clientv3.WatchChan {
 	request := model.WatchRequest{
 		Key:                key,

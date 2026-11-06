@@ -224,6 +224,12 @@ func SimulateWatchTraffic(ctx context.Context, wg *sync.WaitGroup, profile *Watc
 			defer c.Close()
 			tf.RunWatchLoop(ctx, c, baseParam)
 		}(c)
+
+		if profile.EndpointSwitchPeriod != nil {
+			wg.Go(func() {
+				runEndpointSwitchLoop(ctx, c, endpoints, *profile.EndpointSwitchPeriod, baseParam.Finish)
+			})
+		}
 	}
 	for range profile.ClusterClientCount {
 		c, err := clientSet.NewClient(endpoints)
@@ -236,6 +242,12 @@ func SimulateWatchTraffic(ctx context.Context, wg *sync.WaitGroup, profile *Watc
 			defer c.Close()
 			tf.RunWatchLoop(ctx, c, baseParam)
 		}(c)
+
+		if profile.EndpointSwitchPeriod != nil {
+			wg.Go(func() {
+				runEndpointSwitchLoop(ctx, c, endpoints, *profile.EndpointSwitchPeriod, baseParam.Finish)
+			})
+		}
 	}
 	return nil
 }
@@ -377,9 +389,10 @@ type KeyValue struct {
 }
 
 type Watch struct {
-	MemberClientCount   int
-	ClusterClientCount  int
-	RevisionOffsetRange Range
+	MemberClientCount    int
+	ClusterClientCount   int
+	RevisionOffsetRange  Range
+	EndpointSwitchPeriod *time.Duration
 }
 
 type Compaction struct {
@@ -493,4 +506,17 @@ func CheckEmptyDatabaseAtStart(ctx context.Context, lg *zap.Logger, endpoints []
 		break
 	}
 	return nil
+}
+
+func runEndpointSwitchLoop(ctx context.Context, c *client.RecordingClient, endpoints []string, period time.Duration, finish <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-finish:
+			return
+		case <-time.After(period):
+			c.SetEndpoints(endpoints...)
+		}
+	}
 }
