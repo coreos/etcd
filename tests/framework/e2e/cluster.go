@@ -287,6 +287,10 @@ func WithAuthTokenOpts(token string) EPClusterOption {
 	return func(c *EtcdProcessClusterConfig) { c.ServerConfig.AuthToken = token }
 }
 
+func WithAuthTokenTTL(ttl uint) EPClusterOption {
+	return func(c *EtcdProcessClusterConfig) { c.ServerConfig.AuthTokenTTL = ttl }
+}
+
 func WithRollingStart(rolling bool) EPClusterOption {
 	return func(c *EtcdProcessClusterConfig) { c.RollingStart = rolling }
 }
