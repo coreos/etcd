@@ -16,6 +16,7 @@ package ordering
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -30,6 +31,18 @@ type mockKV struct {
 
 func (kv *mockKV) Do(ctx context.Context, op clientv3.Op) (clientv3.OpResponse, error) {
 	return kv.response, nil
+}
+
+type mockReplayKV struct {
+	clientv3.KV
+	responses []clientv3.OpResponse
+	calls     int
+}
+
+func (kv *mockReplayKV) Do(ctx context.Context, op clientv3.Op) (clientv3.OpResponse, error) {
+	resp := kv.responses[kv.calls]
+	kv.calls++
+	return resp, nil
 }
 
 var rangeTests = []struct {
@@ -146,5 +159,134 @@ func TestTxnOrdering(t *testing.T) {
 		if rev := res.Header.Revision; rev < tt.prevRev {
 			t.Errorf("#%d: expected revision %d, got %d", i, tt.prevRev, rev)
 		}
+	}
+}
+
+func TestTxnOrderingDoesNotRetryMutableTxn(t *testing.T) {
+	tests := []struct {
+		name      string
+		succeeded bool
+		thenOps   []clientv3.Op
+		elseOps   []clientv3.Op
+	}{
+		{
+			name:      "write in selected then branch",
+			succeeded: true,
+			thenOps:   []clientv3.Op{clientv3.OpPut("key", "value")},
+		},
+		{
+			name:    "write in selected else branch",
+			elseOps: []clientv3.Op{clientv3.OpDelete("key")},
+		},
+		{
+			name:      "write in nested transaction",
+			succeeded: true,
+			thenOps: []clientv3.Op{clientv3.OpTxn(
+				nil,
+				[]clientv3.Op{clientv3.OpPut("key", "value")},
+				nil,
+			)},
+		},
+		{
+			name:    "write in unselected then branch",
+			thenOps: []clientv3.Op{clientv3.OpPut("key", "value")},
+		},
+		{
+			name:      "write in unselected else branch",
+			succeeded: true,
+			elseOps:   []clientv3.Op{clientv3.OpDelete("key")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			staleResponse := (&clientv3.TxnResponse{
+				Header:    &pb.ResponseHeader{Revision: 9},
+				Succeeded: tt.succeeded,
+			}).OpResponse()
+			freshResponse := (&clientv3.TxnResponse{Header: &pb.ResponseHeader{Revision: 10}}).OpResponse()
+			mKV := &mockReplayKV{
+				KV:        clientv3.NewKVFromKVClient(nil, nil),
+				responses: []clientv3.OpResponse{staleResponse, freshResponse},
+			}
+			violationCalls := 0
+			kv := &kvOrdering{
+				KV: mKV,
+				orderViolationFunc: func(op clientv3.Op, resp clientv3.OpResponse, prevRev int64) error {
+					violationCalls++
+					return nil
+				},
+				prevRev: 10,
+			}
+
+			cmp := clientv3.Compare(clientv3.Version("condition"), "=", 1)
+			_, _ = kv.Txn(t.Context()).If(cmp).Then(tt.thenOps...).Else(tt.elseOps...).Commit()
+			if violationCalls != 1 {
+				t.Fatalf("expected one ordering violation, got %d", violationCalls)
+			}
+			if mKV.calls != 1 {
+				t.Fatalf("expected one transaction execution, got %d", mKV.calls)
+			}
+		})
+	}
+}
+
+func TestTxnOrderingReturnsViolationErrorWithoutRetry(t *testing.T) {
+	staleResponse := (&clientv3.TxnResponse{
+		Header:    &pb.ResponseHeader{Revision: 9},
+		Succeeded: true,
+	}).OpResponse()
+	mKV := &mockReplayKV{
+		KV:        clientv3.NewKVFromKVClient(nil, nil),
+		responses: []clientv3.OpResponse{staleResponse},
+	}
+	wantErr := errors.New("ordering violation")
+	kv := &kvOrdering{
+		KV: mKV,
+		orderViolationFunc: func(op clientv3.Op, resp clientv3.OpResponse, prevRev int64) error {
+			return wantErr
+		},
+		prevRev: 10,
+	}
+
+	_, err := kv.Txn(t.Context()).Then(clientv3.OpPut("key", "value")).Commit()
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected error %v, got %v", wantErr, err)
+	}
+	if mKV.calls != 1 {
+		t.Fatalf("expected one transaction execution, got %d", mKV.calls)
+	}
+}
+
+func TestTxnOrderingRetriesReadOnlyTxn(t *testing.T) {
+	staleResponse := (&clientv3.TxnResponse{Header: &pb.ResponseHeader{Revision: 9}}).OpResponse()
+	freshResponse := (&clientv3.TxnResponse{Header: &pb.ResponseHeader{Revision: 10}}).OpResponse()
+	mKV := &mockReplayKV{
+		KV:        clientv3.NewKVFromKVClient(nil, nil),
+		responses: []clientv3.OpResponse{staleResponse, freshResponse},
+	}
+	violationCalls := 0
+	kv := &kvOrdering{
+		KV: mKV,
+		orderViolationFunc: func(op clientv3.Op, resp clientv3.OpResponse, prevRev int64) error {
+			violationCalls++
+			return nil
+		},
+		prevRev: 10,
+	}
+
+	nestedGet := clientv3.OpTxn(nil, []clientv3.Op{clientv3.OpGet("nested")}, nil)
+	resp, err := kv.Txn(t.Context()).Then(clientv3.OpGet("key"), nestedGet).Commit()
+	if err != nil {
+		t.Fatalf("expected response, got error %v", err)
+	}
+	if resp.Header.Revision != 10 {
+		t.Fatalf("expected revision 10, got %d", resp.Header.Revision)
+	}
+	if violationCalls != 1 {
+		t.Fatalf("expected one ordering violation, got %d", violationCalls)
+	}
+	if mKV.calls != 2 {
+		t.Fatalf("expected two transaction executions, got %d", mKV.calls)
 	}
 }

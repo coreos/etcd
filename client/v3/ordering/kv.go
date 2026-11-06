@@ -139,6 +139,8 @@ func (txn *txnOrdering) Commit() (*clientv3.TxnResponse, error) {
 	// middle of the Commit operation.
 	prevRev := txn.getPrevRev()
 	opTxn := clientv3.OpTxn(txn.cmps, txn.thenOps, txn.elseOps)
+	// A retry can select a different branch, so every possible operation must be read-only.
+	canRetry := isReadOnly(opTxn)
 	for {
 		opResp, err := txn.KV.Do(txn.ctx, opTxn)
 		if err != nil {
@@ -153,5 +155,28 @@ func (txn *txnOrdering) Commit() (*clientv3.TxnResponse, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !canRetry {
+			// The successful response may represent an applied mutation, so do not replay it.
+			return txnResp, nil
+		}
 	}
+}
+
+func isReadOnly(op clientv3.Op) bool {
+	if op.IsGet() {
+		return true
+	}
+	if !op.IsTxn() {
+		return false
+	}
+
+	_, thenOps, elseOps := op.Txn()
+	for _, branch := range [][]clientv3.Op{thenOps, elseOps} {
+		for _, nestedOp := range branch {
+			if !isReadOnly(nestedOp) {
+				return false
+			}
+		}
+	}
+	return true
 }

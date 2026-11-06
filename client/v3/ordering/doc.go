@@ -16,6 +16,9 @@
 // to detect ordering violations from stale responses. Users may define a
 // policy on how to handle the ordering violation, but typically the client
 // should connect to another endpoint and reissue the request.
+// The wrapper only reissues read-only transactions. If a transaction that may
+// write has an ordering violation and the policy returns nil, the wrapper returns
+// the original response rather than risk applying the mutation twice.
 //
 // The most common situation where an ordering violation happens is a client
 // reconnects to a partitioned member and issues a serializable read. Since the
