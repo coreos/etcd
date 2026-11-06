@@ -506,6 +506,43 @@ func TestCacheCompactionResync(t *testing.T) {
 	})
 }
 
+// TestCacheReadyAfterCompactionResync ensures that the cache becomes ready again
+// once it has resynced after a compaction canceled its watch.
+func TestCacheReadyAfterCompactionResync(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mw := newMockWatcher(16)
+		fakeClient := &clientv3.Client{
+			Watcher: mw,
+			KV: newKVStub(
+				&clientv3.GetResponse{Header: &pb.ResponseHeader{Revision: 5}},
+				&clientv3.GetResponse{Header: &pb.ResponseHeader{Revision: 10}},
+			),
+		}
+		cache, err := New(fakeClient, "")
+		if err != nil {
+			t.Fatalf("New cache: %v", err)
+		}
+		defer cache.Close()
+
+		// The watch from revision 6 is created.
+		mw.triggerCreatedNotify()
+		synctest.Wait()
+		if !cache.Ready() {
+			t.Fatal("cache not ready after the first watch")
+		}
+
+		// A compaction at revision 10 cancels the watch. After the retry's back-off,
+		// the cache resyncs at revision 10, and its watch from revision 11 is created.
+		mw.errorCompacted(10)
+		mw.triggerCreatedNotify()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if !cache.Ready() {
+			t.Fatal("cache not ready after the resync")
+		}
+	})
+}
+
 func waitUntil(t *testing.T, timeout, poll time.Duration, cond func() bool) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
