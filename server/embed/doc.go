@@ -15,6 +15,15 @@
 /*
 Package embed provides bindings for embedding an etcd server in a program.
 
+For programmatic peer TLS, set Config.PeerTLSInfo.ConfigProvider to a
+transport.TLSConfigProvider and use HTTPS peer URLs. Both inbound peer listeners
+and outbound Raft transports use the provider. Its ServerConfig and ClientConfig
+methods supply TLS configurations; TLS callbacks can update certificates and
+trust for new connections without restarting etcd. The provider is responsible
+for TLS versions, peer authentication and authorization, and protocol negotiation.
+TLSInfo's file-based certificates, SAN checks and CRL checks are not applied when
+a provider is set. Without a provider, the existing TLSInfo behavior is unchanged.
+
 Launch an embedded etcd server using the configuration defaults:
 
 	import (

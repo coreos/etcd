@@ -58,7 +58,13 @@ func newTLSListener(l net.Listener, tlsinfo *TLSInfo, check tlsCheckFunc) (net.L
 	}
 	tlscfg, err := tlsinfo.ServerConfig()
 	if err != nil {
+		l.Close()
 		return nil, err
+	}
+	if tlsinfo.ConfigProvider != nil {
+		// A provider owns authentication and authorization, including identities
+		// that are not based on the remote IP address or DNS name.
+		check = func(context.Context, *tls.Conn) error { return nil }
 	}
 
 	hf := tlsinfo.HandshakeFailure
@@ -66,7 +72,7 @@ func newTLSListener(l net.Listener, tlsinfo *TLSInfo, check tlsCheckFunc) (net.L
 		hf = func(*tls.Conn, error) {}
 	}
 
-	if len(tlsinfo.CRLFile) > 0 {
+	if tlsinfo.ConfigProvider == nil && len(tlsinfo.CRLFile) > 0 {
 		prevCheck := check
 		check = func(ctx context.Context, tlsConn *tls.Conn) error {
 			if err := prevCheck(ctx, tlsConn); err != nil {
@@ -176,10 +182,10 @@ func (l *tlsListener) acceptLoop() {
 
 // ConfigureCRLVerification appends a VerifyConnection hook to cfg that
 // rejects any peer certificate whose serial number appears in the CRL file
-// configured on info. It is a no-op when CRLFile is empty. Any existing
+// configured on info. It is a no-op when CRLFile is empty or ConfigProvider is set. Any existing
 // VerifyConnection hook is called first and its error short-circuits.
 func (info TLSInfo) ConfigureCRLVerification(cfg *tls.Config) {
-	if len(info.CRLFile) == 0 {
+	if info.ConfigProvider != nil || len(info.CRLFile) == 0 {
 		return
 	}
 	crlFile := info.CRLFile

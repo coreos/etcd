@@ -137,6 +137,12 @@ func newListenConfig(sopts *SocketOpts) net.ListenConfig {
 }
 
 type TLSInfo struct {
+	// ConfigProvider optionally supplies programmatic TLS configurations. It takes
+	// precedence over the certificate and TLS verification settings in TLSInfo,
+	// including SAN and CRL checks. LocalAddr and HandshakeFailure still apply.
+	// It is intended for Go callers, such as embedded etcd, and is not serialized.
+	ConfigProvider TLSConfigProvider `json:"-" yaml:"-"`
+
 	// CertFile is the _server_ cert, it will also be used as a _client_ certificate if ClientCertFile is empty
 	CertFile string
 	// KeyFile is the key for the CertFile
@@ -214,7 +220,7 @@ func (info TLSInfo) String() string {
 }
 
 func (info TLSInfo) Empty() bool {
-	return info.CertFile == "" && info.KeyFile == ""
+	return info.ConfigProvider == nil && info.CertFile == "" && info.KeyFile == ""
 }
 
 func SelfCert(lg *zap.Logger, dirpath string, hosts []string, selfSignedCertValidity uint, additionalUsages ...x509.ExtKeyUsage) (TLSInfo, error) {
@@ -527,6 +533,9 @@ func (info TLSInfo) cafiles() []string {
 
 // ServerConfig generates a tls.Config object for use by an HTTP server.
 func (info TLSInfo) ServerConfig() (*tls.Config, error) {
+	if info.ConfigProvider != nil {
+		return cloneTLSConfig(info.ConfigProvider.ServerConfig())
+	}
 	cfg, err := info.baseConfig()
 	if err != nil {
 		return nil, err
@@ -560,6 +569,9 @@ func (info TLSInfo) ServerConfig() (*tls.Config, error) {
 
 // ClientConfig generates a tls.Config object for use by an HTTP client.
 func (info TLSInfo) ClientConfig() (*tls.Config, error) {
+	if info.ConfigProvider != nil {
+		return cloneTLSConfig(info.ConfigProvider.ClientConfig())
+	}
 	var cfg *tls.Config
 	var err error
 
