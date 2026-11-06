@@ -37,6 +37,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 
@@ -1176,6 +1177,66 @@ func TestPublishV3Retry(t *testing.T) {
 	srv.publishV3(10 * time.Nanosecond)
 	ch <- struct{}{}
 	<-ch
+}
+
+// TestPublishV3WaitsForApplyAfterTooManyRequests ensures that a member whose
+// applied index lags its committed index past the request limit does not
+// retry its rejected publish in a tight loop, and proposes once it has
+// applied enough entries.
+func TestPublishV3WaitsForApplyAfterTooManyRequests(t *testing.T) {
+	n := newNodeRecorder()
+	ch := make(chan any, 1)
+	ch <- &apply2.Result{}
+	ctx, cancel := context.WithCancel(t.Context())
+	core, logs := observer.New(zap.WarnLevel)
+	lg := zap.New(core)
+	be, _ := betesting.NewDefaultTmpBackend(t)
+	defer betesting.Close(t, be)
+	srv := &EtcdServer{
+		lgMu:       new(sync.RWMutex),
+		lg:         lg,
+		readych:    make(chan struct{}),
+		Cfg:        config.ServerConfig{Logger: lg, TickMs: 1, SnapshotCatchUpEntries: DefaultSnapshotCatchUpEntries, MaxRequestBytes: 1000, ServerFeatureGate: features.NewDefaultServerFeatureGate("test", lg)},
+		memberID:   1,
+		r:          *newRaftNode(raftNodeConfig{lg: lg, Node: n, storage: mockstorage.NewStorageRecorder("")}),
+		w:          wait.NewWithResponse(ch),
+		applyWait:  wait.NewTimeList(),
+		stopping:   make(chan struct{}),
+		attributes: membership.Attributes{Name: "node1", ClientURLs: []string{"http://a"}},
+		cluster:    &membership.RaftCluster{},
+		reqIDGen:   idutil.NewGenerator(0, time.Time{}),
+		authStore:  auth.NewAuthStore(lg, schema.NewAuthBackend(lg, be), nil, 0),
+		be:         be,
+		ctx:        ctx,
+		cancel:     cancel,
+	}
+	const committed = 3 * maxGapBetweenApplyAndCommitIndex
+	srv.setCommittedIndex(committed)
+
+	donec := make(chan struct{})
+	go func() {
+		defer close(donec)
+		srv.publishV3(time.Hour)
+	}()
+
+	// The first attempt is rejected; publish must then wait for apply.
+	require.Eventually(t, func() bool { return logs.Len() > 0 }, 5*time.Second, time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	require.Equal(t, 1, logs.FilterMessage("failed to publish local member to cluster through raft").Len())
+	require.Empty(t, n.Action())
+
+	// Applying up to the limit lets the retry through.
+	srv.setAppliedIndex(committed - maxGapBetweenApplyAndCommitIndex)
+	srv.applyWait.Trigger(committed - maxGapBetweenApplyAndCommitIndex)
+	select {
+	case <-donec:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publish did not finish after apply caught up")
+	}
+	action := n.Action()
+	require.Len(t, action, 1)
+	require.Equal(t, "Propose", action[0].Name)
+	require.Equal(t, 1, logs.FilterMessage("failed to publish local member to cluster through raft").Len())
 }
 
 func TestUpdateVersionV3(t *testing.T) {

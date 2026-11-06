@@ -1837,7 +1837,29 @@ func (s *EtcdServer) publishV3(timeout time.Duration) {
 				zap.Duration("publish-timeout", timeout),
 				zap.Error(err),
 			)
+			if errorspkg.Is(err, errors.ErrTooManyRequests) {
+				s.waitApplyWithinRequestLimit(timeout)
+			}
 		}
+	}
+}
+
+// waitApplyWithinRequestLimit waits until this member has applied far enough
+// for a proposal at the current committed index to pass the request limit, or
+// until the timeout or the server stops. Without it, a member that catches up
+// from far behind retries its rejected publish in a tight loop until it has
+// applied enough entries.
+func (s *EtcdServer) waitApplyWithinRequestLimit(timeout time.Duration) {
+	ci := s.getCommittedIndex()
+	if ci <= maxNormalGap {
+		return
+	}
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-s.applyWait.Wait(ci - maxNormalGap):
+	case <-t.C:
+	case <-s.stopping:
 	}
 }
 
