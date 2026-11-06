@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -358,6 +359,34 @@ func (c integrationClient) Snapshot(ctx context.Context, outFile string) error {
 
 func (c integrationClient) Downgrade(ctx context.Context, action clientv3.DowngradeAction, version string) (*clientv3.DowngradeResponse, error) {
 	return c.Client.Downgrade(ctx, action, version)
+}
+
+func (c integrationClient) MoveLeader(ctx context.Context, transfereeID uint64) error {
+	// MoveLeader requests must be served by the leader, so find the leader's
+	// endpoint first, the same way etcdctl resolves it.
+	var leaderEp string
+	for _, ep := range c.Endpoints() {
+		status, err := c.Client.Status(ctx, ep)
+		if err != nil {
+			return err
+		}
+		if status.Header.GetMemberId() == status.Leader {
+			leaderEp = ep
+			break
+		}
+	}
+	if leaderEp == "" {
+		return fmt.Errorf("no leader endpoint found in %v", c.Endpoints())
+	}
+	// The embedded clientv3.Client sends maintenance RPCs to whichever endpoint
+	// the balancer picked, so dial the leader endpoint explicitly instead.
+	conn, err := c.Dial(leaderEp)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_, err = pb.NewMaintenanceClient(conn).MoveLeader(ctx, &pb.MoveLeaderRequest{TargetID: transfereeID})
+	return err
 }
 
 func (c integrationClient) TimeToLive(ctx context.Context, id clientv3.LeaseID, o config.LeaseOption) (*clientv3.LeaseTimeToLiveResponse, error) {

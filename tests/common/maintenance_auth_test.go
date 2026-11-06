@@ -50,7 +50,7 @@ func TestDefragmentWithUserAuth(t *testing.T) {
 }
 
 func testDefragmentWithAuth(t *testing.T, expectConnectionError, expectOperationError bool, opts ...config.ClientOption) {
-	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, func(ctx context.Context, cc intf.Client) error {
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, nil, func(ctx context.Context, cc intf.Client) error {
 		return cc.Defragment(ctx, config.DefragOption{Timeout: 10 * time.Second})
 	}, opts...)
 }
@@ -80,7 +80,7 @@ func testDowngradeWithAuth(t *testing.T, expectConnectionError, expectOperationE
 	// downgrade validate only accepts a target of exactly one minor version below the current one
 	targetVersion := semver.New(currentVersion.Major(), currentVersion.Minor()-1, 0, "", "")
 
-	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, func(ctx context.Context, cc intf.Client) error {
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, nil, func(ctx context.Context, cc intf.Client) error {
 		_, err := cc.Downgrade(ctx, clientv3.DowngradeValidate, targetVersion.String())
 		return err
 	}, opts...)
@@ -106,7 +106,7 @@ func TestHashKVWithUserAuth(t *testing.T) {
 }
 
 func testHashKVWithAuth(t *testing.T, expectConnectionError, expectOperationError bool, opts ...config.ClientOption) {
-	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, func(ctx context.Context, cc intf.Client) error {
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, nil, func(ctx context.Context, cc intf.Client) error {
 		_, err := cc.HashKV(ctx, 0)
 		return err
 	}, opts...)
@@ -131,9 +131,24 @@ func TestMoveLeaderWithUserAuth(t *testing.T) {
 	testMoveLeaderWithAuth(t, false, true, WithAuth("user0", "user0Pass"))
 }
 
-func testMoveLeaderWithAuth(t *testing.T, _expectConnectionError, _expectOperationError bool, _opts ...config.ClientOption) {
-	// TODO(ahrtr): finish this after we added interface methods `MoveLeader` into `Client`
-	t.Skip()
+func testMoveLeaderWithAuth(t *testing.T, expectConnectionError, expectOperationError bool, opts ...config.ClientOption) {
+	// The transferee must be resolved before auth is enabled so the assertions
+	// below only exercise the MoveLeader call itself.
+	var transfereeID uint64
+	prepare := func(ctx context.Context, cc intf.Client) {
+		statuses, err := cc.Status(ctx)
+		require.NoError(t, err)
+		for _, status := range statuses {
+			if status.Header.GetMemberId() != status.Leader {
+				transfereeID = status.Header.GetMemberId()
+				break
+			}
+		}
+		require.NotZero(t, transfereeID)
+	}
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, prepare, func(ctx context.Context, cc intf.Client) error {
+		return cc.MoveLeader(ctx, transfereeID)
+	}, opts...)
 }
 
 /*
@@ -156,7 +171,7 @@ func TestSnapshotWithUserAuth(t *testing.T) {
 }
 
 func testSnapshotWithAuth(t *testing.T, expectConnectionError, expectOperationError bool, opts ...config.ClientOption) {
-	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, func(ctx context.Context, cc intf.Client) error {
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, nil, func(ctx context.Context, cc intf.Client) error {
 		return cc.Snapshot(ctx, filepath.Join(t.TempDir(), "snapshot.db"))
 	}, opts...)
 }
@@ -181,7 +196,7 @@ func TestStatusWithUserAuth(t *testing.T) {
 }
 
 func testStatusWithAuth(t *testing.T, expectConnectionError, expectOperationError bool, opts ...config.ClientOption) {
-	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, func(ctx context.Context, cc intf.Client) error {
+	testMaintenanceOperationWithAuth(t, expectConnectionError, expectOperationError, nil, func(ctx context.Context, cc intf.Client) error {
 		_, err := cc.Status(ctx)
 		return err
 	}, opts...)
@@ -212,7 +227,7 @@ func setupAuthForMaintenanceTest(c intf.Client) error {
 	return setupAuth(c, roles, users)
 }
 
-func testMaintenanceOperationWithAuth(t *testing.T, expectConnectError, expectOperationError bool, f func(context.Context, intf.Client) error, opts ...config.ClientOption) {
+func testMaintenanceOperationWithAuth(t *testing.T, expectConnectError, expectOperationError bool, prepare func(context.Context, intf.Client), f func(context.Context, intf.Client) error, opts ...config.ClientOption) {
 	testRunner.BeforeTest(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -221,6 +236,9 @@ func testMaintenanceOperationWithAuth(t *testing.T, expectConnectError, expectOp
 	defer clus.Close()
 
 	cc := testutils.MustClient(clus.Client())
+	if prepare != nil {
+		prepare(ctx, cc)
+	}
 	err := setupAuthForMaintenanceTest(cc)
 	require.NoError(t, err)
 

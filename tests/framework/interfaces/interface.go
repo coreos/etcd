@@ -53,6 +53,7 @@ type Client interface {
 	Defragment(context context.Context, opts config.DefragOption) error
 	Snapshot(context context.Context, outFile string) error
 	Downgrade(ctx context.Context, action clientv3.DowngradeAction, version string) (*clientv3.DowngradeResponse, error)
+	MoveLeader(context context.Context, transfereeID uint64) error
 	AlarmList(context context.Context) (*clientv3.AlarmResponse, error)
 	AlarmDisarm(context context.Context, alarmMember *clientv3.AlarmMember) (*clientv3.AlarmResponse, error)
 	Grant(context context.Context, ttl int64) (*clientv3.LeaseGrantResponse, error)
