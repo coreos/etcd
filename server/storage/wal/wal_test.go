@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -1249,3 +1250,67 @@ func TestLastRecordLengthExceedFileEnd(t *testing.T) {
 	// environment, but only once.
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
+
+func walFsyncCount() uint64 {
+	var m dto.Metric
+	if err := walFsyncSec.Write(&m); err != nil {
+		panic(err)
+	}
+	return m.GetHistogram().GetSampleCount()
+}
+
+// TestReadAllTailFsync verifies that ReadAll fsyncs the tail file in write mode
+// and skips fsync when unsafeNoFsync is set or in read mode.
+func TestReadAllTailFsync(t *testing.T) {
+	p := t.TempDir()
+	w, err := Create(zaptest.NewLogger(t), p, []byte("metadata"))
+	require.NoError(t, err)
+
+	es := []*raftpb.Entry{
+		{Index: new(uint64(1)), Term: new(uint64(1)), Data: []byte("entry1")},
+		{Index: new(uint64(2)), Term: new(uint64(1)), Data: []byte("entry2")},
+	}
+	require.NoError(t, w.Save(&raftpb.HardState{}, es))
+	require.NoError(t, w.Close())
+
+	t.Run("write mode fsyncs tail file", func(t *testing.T) {
+		w, err := Open(zaptest.NewLogger(t), p, &walpb.Snapshot{})
+		require.NoError(t, err)
+		defer w.Close()
+
+		before := walFsyncCount()
+		_, _, ents, err := w.ReadAll()
+		require.NoError(t, err)
+		require.Len(t, ents, 2)
+		after := walFsyncCount()
+		require.Equal(t, before+1, after, "expected ReadAll in write mode to fsync tail file")
+	})
+
+	t.Run("write mode with unsafeNoFsync skips fsync", func(t *testing.T) {
+		w, err := Open(zaptest.NewLogger(t), p, &walpb.Snapshot{})
+		require.NoError(t, err)
+		defer w.Close()
+
+		w.SetUnsafeNoFsync()
+		before := walFsyncCount()
+		_, _, ents, err := w.ReadAll()
+		require.NoError(t, err)
+		require.Len(t, ents, 2)
+		after := walFsyncCount()
+		require.Equal(t, before, after, "expected ReadAll with unsafeNoFsync to skip tail fsync")
+	})
+
+	t.Run("read mode skips fsync", func(t *testing.T) {
+		w, err := OpenForRead(zaptest.NewLogger(t), p, &walpb.Snapshot{})
+		require.NoError(t, err)
+		defer w.Close()
+
+		before := walFsyncCount()
+		_, _, ents, err := w.ReadAll()
+		require.NoError(t, err)
+		require.Len(t, ents, 2)
+		after := walFsyncCount()
+		require.Equal(t, before, after, "expected ReadAll in read mode to skip tail fsync")
+	})
+}
+
