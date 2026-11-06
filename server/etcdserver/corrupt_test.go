@@ -578,3 +578,40 @@ func TestHashKVHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestHashKVHandlerRejectsOversizedBody(t *testing.T) {
+	localClusterID := 111196
+
+	etcdSrv := &EtcdServer{}
+	etcdSrv.cluster = newTestCluster(t)
+	etcdSrv.cluster.SetID(types.ID(localClusterID), types.ID(localClusterID))
+	be, _ := betesting.NewDefaultTmpBackend(t)
+	defer betesting.Close(t, be)
+	etcdSrv.kv = mvcc.New(zap.NewNop(), be, &lease.FakeLessor{}, mvcc.StoreConfig{})
+	defer func() {
+		assert.NoError(t, etcdSrv.kv.Close())
+	}()
+	ph := &hashKVHandler{
+		lg:     zap.NewNop(),
+		server: etcdSrv,
+	}
+	srv := httptest.NewServer(ph)
+	defer srv.Close()
+
+	// A legitimate HashKVRequest is a few bytes; pad it well past
+	// maxHashKVHTTPRequestSize with an unknown field so it still unmarshals
+	// if the size limit were not enforced.
+	padding := strings.Repeat("a", maxHashKVHTTPRequestSize*2)
+	oversizedBody := []byte(`{"revision":1,"padding":"` + padding + `"}`)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+PeerHashKVPath, bytes.NewReader(oversizedBody))
+	require.NoErrorf(t, err, "failed to create request: %v", err)
+	req.Header.Set("X-Etcd-Cluster-ID", strconv.FormatUint(uint64(localClusterID), 16))
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoErrorf(t, err, "failed to get http response: %v", err)
+	defer resp.Body.Close()
+
+	require.Equalf(t, http.StatusRequestEntityTooLarge, resp.StatusCode,
+		"oversized hashKV request body should be rejected, got status %d", resp.StatusCode)
+}

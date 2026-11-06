@@ -510,6 +510,11 @@ func (s *EtcdServer) getPeerHashKVs(rev int64) []*peerHashKVResp {
 
 const PeerHashKVPath = "/members/hashkv"
 
+// maxHashKVHTTPRequestSize bounds how much of a request body ServeHTTP will
+// read. A legitimate HashKVRequest is a few bytes; this mirrors the same
+// bound already applied to the sibling lease HTTP handler.
+const maxHashKVHTTPRequestSize = 64 * 1024
+
 type hashKVHandler struct {
 	lg     *zap.Logger
 	server *EtcdServer
@@ -535,8 +540,13 @@ func (h *hashKVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	b, err := io.ReadAll(r.Body)
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxHashKVHTTPRequestSize))
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "error reading body", http.StatusBadRequest)
 		return
 	}
