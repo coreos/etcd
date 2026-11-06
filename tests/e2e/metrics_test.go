@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
@@ -65,8 +64,8 @@ func metricsTest(cx ctlCtx) {
 		{"/metrics", "etcd_mvcc_put_total 2"},
 		{"/metrics", "etcd_debugging_mvcc_keys_total 1"},
 		{"/metrics", "etcd_mvcc_delete_total 3"},
-		{"/metrics", fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, version.Version)},
-		{"/metrics", fmt.Sprintf(`etcd_cluster_version{cluster_version="%s"} 1`, version.Cluster(version.Version))},
+		{"/metrics", fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, e2e.ServerVersion())},
+		{"/metrics", fmt.Sprintf(`etcd_cluster_version{cluster_version="%s"} 1`, e2e.ServerClusterVersion())},
 		{"/metrics", `grpc_server_handled_total{grpc_code="Canceled",grpc_method="Watch",grpc_service="etcdserverpb.Watch",grpc_type="bidi_stream"} 6`},
 		{"/health", `{"health":"true","reason":""}`},
 	} {

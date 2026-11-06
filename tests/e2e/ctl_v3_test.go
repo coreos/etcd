@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.etcd.io/etcd/pkg/v3/featuregate"
@@ -75,7 +74,7 @@ func TestClusterVersion(t *testing.T) {
 				cfg: *cfg,
 				epc: epc,
 			}
-			cv := version.Cluster(version.Version)
+			cv := e2e.ServerClusterVersion()
 			clusterVersionTest(ctx, `"etcdcluster":"`+cv)
 		})
 	}
@@ -104,7 +103,7 @@ func clusterVersionTest(cx ctlCtx, expected string) {
 
 func ctlV3Version(cx ctlCtx) error {
 	cmdArgs := append(cx.PrefixArgs(), "version")
-	return e2e.SpawnWithExpectWithEnv(cmdArgs, cx.envMap, expect.ExpectedResponse{Value: version.Version})
+	return e2e.SpawnWithExpectWithEnv(cmdArgs, cx.envMap, expect.ExpectedResponse{Value: e2e.ServerVersion()})
 }
 
 // TestCtlV3DialWithHTTPScheme ensures that client handles Endpoints with HTTPS scheme.

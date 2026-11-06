@@ -22,7 +22,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
 )
@@ -50,10 +49,10 @@ func testCurlV3CipherSuites(t *testing.T, valid bool) {
 func cipherSuiteTestValid(cx ctlCtx) {
 	if err := e2e.CURLGet(cx.epc, e2e.CURLReq{
 		Endpoint: "/metrics",
-		Expected: expect.ExpectedResponse{Value: fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, version.Version)},
+		Expected: expect.ExpectedResponse{Value: fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, e2e.ServerVersion())},
 		Ciphers:  "ECDHE-RSA-AES128-GCM-SHA256", // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 	}); err != nil {
-		require.ErrorContains(cx.t, err, fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, version.Version))
+		require.ErrorContains(cx.t, err, fmt.Sprintf(`etcd_server_version{server_version="%s"} 1`, e2e.ServerVersion()))
 	}
 }
 

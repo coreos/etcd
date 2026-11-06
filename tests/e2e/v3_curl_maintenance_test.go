@@ -20,7 +20,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
 )
@@ -56,7 +55,7 @@ func testCurlV3MaintenanceStatus(cx ctlCtx) {
 		}
 	}
 
-	require.Equal(cx.t, version.Version, resp["version"])
+	require.Equal(cx.t, e2e.ServerVersion(), resp["version"])
 }
 
 func TestCurlV3MaintenanceDefragment(t *testing.T) {

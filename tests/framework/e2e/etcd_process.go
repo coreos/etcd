@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -503,26 +504,61 @@ func parseFailpointsBody(body io.Reader) (map[string]string, error) {
 }
 
 var GetVersionFromBinary = func(binaryPath string) (*semver.Version, error) {
+	versionString, err := GetFullVersionFromBinary(binaryPath)
+	if err != nil {
+		return nil, err
+	}
+	version, err := semver.NewVersion(versionString)
+	if err != nil {
+		return nil, err
+	}
+	return semver.New(version.Major(), version.Minor(), version.Patch(), "", ""), nil
+}
+
+// GetFullVersionFromBinary returns the version string reported by the binary
+// verbatim, including any pre-release and build metadata. Unlike
+// GetVersionFromBinary it preserves values injected at build time through the
+// `-X .../api/v3/version.Version` ldflag.
+func GetFullVersionFromBinary(binaryPath string) (string, error) {
 	if !fileutil.Exist(binaryPath) {
-		return nil, fmt.Errorf("binary path does not exist: %s", binaryPath)
+		return "", fmt.Errorf("binary path does not exist: %s", binaryPath)
 	}
 	lines, err := RunUtilCompletion([]string{binaryPath, "--version"}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("could not find binary version from %s, err: %w", binaryPath, err)
+		return "", fmt.Errorf("could not find binary version from %s, err: %w", binaryPath, err)
 	}
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "etcd Version:") {
-			versionString := strings.TrimSpace(strings.SplitAfter(line, ":")[1])
-			version, err := semver.NewVersion(versionString)
-			if err != nil {
-				return nil, err
-			}
-			return semver.New(version.Major(), version.Minor(), version.Patch(), "", ""), nil
+			return strings.TrimSpace(strings.SplitAfter(line, ":")[1]), nil
 		}
 	}
 
-	return nil, fmt.Errorf("could not find version in binary output of %s, lines outputted were %v", binaryPath, lines)
+	return "", fmt.Errorf("could not find version in binary output of %s, lines outputted were %v", binaryPath, lines)
+}
+
+// serverVersion is resolved lazily because BinPath is only populated once
+// InitFlags has run.
+var serverVersion = sync.OnceValue(func() string {
+	v, err := GetFullVersionFromBinary(BinPath.Etcd)
+	if err != nil {
+		return version.Version
+	}
+	return v
+})
+
+// ServerVersion returns the version string reported by the etcd binary under
+// test. It differs from version.Version compiled into the test binary whenever
+// etcd is built with a custom version symbol, so e2e assertions about versions
+// reported by the server must use this instead.
+func ServerVersion() string {
+	return serverVersion()
+}
+
+// ServerClusterVersion returns the major.minor cluster version of the etcd
+// binary under test.
+func ServerClusterVersion() string {
+	return version.Cluster(ServerVersion())
 }
 
 // setGetVersionFromBinary changes the GetVersionFromBinary function to a mock in testing.

@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.etcd.io/etcd/tests/v3/framework/config"
@@ -101,7 +100,7 @@ func TestReleaseUpgrade(t *testing.T) {
 	// TODO: update after release candidate
 	// expect upgraded cluster version
 	// new cluster version needs more time to upgrade
-	ver := version.Cluster(version.Version)
+	ver := e2e.ServerClusterVersion()
 	for i := 0; i < 7; i++ {
 		if err = e2e.CURLGet(epc, e2e.CURLReq{Endpoint: "/version", Expected: expect.ExpectedResponse{Value: `"etcdcluster":"` + ver}}); err != nil {
 			t.Logf("#%d: %v is not ready yet (%v)", i, ver, err)

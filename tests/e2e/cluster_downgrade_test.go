@@ -122,7 +122,7 @@ func testDowngradeUpgrade(t *testing.T, numberOfMembersToDowngrade int, clusterS
 	for i := 0; i < len(epc.Procs); i++ {
 		e2e.ValidateVersion(t, epc.Cfg, epc.Procs[i], version.Versions{
 			Cluster: currentVersionStr,
-			Server:  version.Version,
+			Server:  e2e.ServerVersion(),
 			Storage: currentVersionStr,
 		})
 	}
