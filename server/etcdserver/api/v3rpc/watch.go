@@ -208,7 +208,7 @@ func (ws *watchServer) Watch(stream pb.Watch_WatchServer) (err error) {
 		}
 	}()
 
-	// TODO: There's a race here. When a stream  is closed (e.g. due to a cancellation),
+	// TODO: There's a race here. When a stream is closed (e.g. due to a cancellation),
 	// the underlying error (e.g. a gRPC stream error) may be returned and handled
 	// through errc if the recv goroutine finishes before the send goroutine.
 	// When the recv goroutine wins, the stream error is retained. When recv loses

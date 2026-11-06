@@ -48,12 +48,12 @@ type walVersion struct {
 	entries []*raftpb.Entry
 }
 
-// MinimalEtcdVersion returns minimal etcd able to interpret entries from  WAL log,
+// MinimalEtcdVersion returns minimal etcd able to interpret entries from the WAL log.
 func (w *walVersion) MinimalEtcdVersion() *semver.Version {
 	return MinimalEtcdVersion(w.entries)
 }
 
-// MinimalEtcdVersion returns minimal etcd able to interpret entries from  WAL log,
+// MinimalEtcdVersion returns minimal etcd able to interpret entries from the WAL log,
 // determined by looking at entries since the last snapshot and returning the highest
 // etcd version annotation from used messages, fields, enums and their values.
 func MinimalEtcdVersion(ents []*raftpb.Entry) *semver.Version {

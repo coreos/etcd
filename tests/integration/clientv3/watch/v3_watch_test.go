@@ -1150,7 +1150,7 @@ func TestWatchWithProgressNotify(t *testing.T) {
 		t.Fatalf("watch request failed (%v)", err)
 	}
 
-	// two creation  + one notification
+	// two creation + one notification
 	for i := 0; i < 3; i++ {
 		rok, resp := waitResponse(wStream, testInterval+time.Second)
 		if resp.Created {

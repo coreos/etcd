@@ -29,7 +29,7 @@ import (
 // SetFlagsFromEnv parses all registered flags in the given flagset,
 // and if they are not already set it attempts to set their values from
 // environment variables. Environment variables take the name of the flag but
-// are UPPERCASE, have the given prefix  and any dashes are replaced by
+// are UPPERCASE, have the given prefix and any dashes are replaced by
 // underscores - for example: some-flag => ETCD_SOME_FLAG
 func SetFlagsFromEnv(lg *zap.Logger, prefix string, fs *flag.FlagSet) error {
 	var err error

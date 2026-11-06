@@ -334,7 +334,7 @@ func isSafeRetry(c *Client, err error, callOpts *options) bool {
 
 	// Situation when learner refuses RPC it is supposed to not serve is from the server
 	// perspective not retryable.
-	// But for backward-compatibility reasons we need  to support situation that
+	// But for backward-compatibility reasons we need to support situation that
 	// customer provides mix of learners (not yet voters) and voters with an
 	// expectation to pick voter in the next attempt.
 	// TODO: Ideally client should be 'aware' which endpoint represents: leader/voter/learner with high probability.
