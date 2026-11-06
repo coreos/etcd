@@ -287,10 +287,6 @@ type EtcdServer struct {
 	clusterVersionChanged *notify.Notifier
 
 	*AccessController
-	// forceDiskSnapshot can force snapshot be triggered after apply, independent of the snapshotCount.
-	// Should only be set within apply code path. Used to force snapshot after cluster version downgrade.
-	// TODO: Replace with flush db in v3.7 assuming v3.6 bootstraps from db file.
-	forceDiskSnapshot bool
 	corruptionChecker CorruptionChecker
 }
 
@@ -1204,7 +1200,7 @@ func (s *EtcdServer) applyEntries(ep *etcdProgress, apply *toApply) {
 }
 
 func (s *EtcdServer) ForceSnapshot() {
-	s.forceDiskSnapshot = true
+	s.Backend().ForceCommit()
 }
 
 func (s *EtcdServer) snapshotIfNeededAndCompactRaftLog(ep *etcdProgress) {
@@ -1219,7 +1215,7 @@ func (s *EtcdServer) snapshotIfNeededAndCompactRaftLog(ep *etcdProgress) {
 }
 
 func (s *EtcdServer) shouldSnapshotToDisk(ep *etcdProgress) bool {
-	return (s.forceDiskSnapshot && ep.appliedi != ep.diskSnapshotIndex) || (ep.appliedi-ep.diskSnapshotIndex > s.Cfg.SnapshotCount)
+	return (ep.appliedi != ep.diskSnapshotIndex) || (ep.appliedi-ep.diskSnapshotIndex > s.Cfg.SnapshotCount)
 }
 
 func (s *EtcdServer) shouldSnapshotToMemory(ep *etcdProgress) bool {
@@ -2084,9 +2080,7 @@ func (s *EtcdServer) snapshot(ep *etcdProgress, toDisk bool) {
 			zap.Uint64("local-member-applied-index", ep.appliedi),
 			zap.Uint64("local-member-snapshot-index", ep.diskSnapshotIndex),
 			zap.Uint64("local-member-snapshot-count", s.Cfg.SnapshotCount),
-			zap.Bool("snapshot-forced", s.forceDiskSnapshot),
 		)
-		s.forceDiskSnapshot = false
 		// commit kv to write metadata (for example: consistent index) to disk.
 		//
 		// This guarantees that Backend's consistent_index is >= index of last snapshot.
