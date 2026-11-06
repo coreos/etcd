@@ -487,24 +487,9 @@ func TestIndexRevisionsWithTotalCount(t *testing.T) {
 func TestIndexCompactAndKeep(t *testing.T) {
 	maxRev := int64(20)
 
-	// key: "foo"
-	// modified: 10
-	// generations:
-	//	{{10, 0}}
-	//	{{1, 0}, {5, 0}, {9, 0}(t)}
-	//
-	// key: "foo1"
-	// modified: 10, 1
-	// generations:
-	//	{{10, 1}}
-	//	{{2, 0}, {6, 0}, {7, 0}(t)}
-	//
-	// key: "foo2"
-	// modified: 8
-	// generations:
-	//	{empty}
-	//	{{3, 0}, {4, 0}, {8, 0}(t)}
-	//
+	// foo:  put@1, put@5, delete@9, put@10
+	// foo1: put@2, put@6, delete@7, put@10.1
+	// foo2: put@3, put@4, delete@8
 	buildTreeIndex := func() index {
 		ti := newTreeIndex(zaptest.NewLogger(t))
 
@@ -522,40 +507,16 @@ func TestIndexCompactAndKeep(t *testing.T) {
 		return ti
 	}
 
+	// Compact and Keep report the revisions retained at or before atRev.
+	// Compact includes a tombstone at atRev; Keep omits it for hash compatibility.
 	afterCompacts := []struct {
-		atRev      int
-		keyIndexes []keyIndex
-		keep       map[Revision]struct{}
-		compacted  map[Revision]struct{}
+		atRev     int
+		keep      map[Revision]struct{}
+		compacted map[Revision]struct{}
 	}{
+		// At revision 1, retain foo@1; foo1 and foo2 have no earlier versions.
 		{
 			atRev: 1,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 1}: {},
 			},
@@ -563,34 +524,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 1}: {},
 			},
 		},
+		// At revision 2, retain foo@1 and foo1@2; foo2 has not been created yet.
 		{
 			atRev: 2,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 1}: {},
 				{Main: 2}: {},
@@ -600,34 +536,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 2}: {},
 			},
 		},
+		// At revision 3, retain each key's first version: foo@1, foo1@2, foo2@3.
 		{
 			atRev: 3,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 3}, {Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 1}: {},
 				{Main: 2}: {},
@@ -639,34 +550,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 3}: {},
 			},
 		},
+		// At revision 4, foo2@4 replaces foo2@3; foo@1 and foo1@2 remain.
 		{
 			atRev: 4,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 1}, {Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 1}: {},
 				{Main: 2}: {},
@@ -678,34 +564,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 4}: {},
 			},
 		},
+		// At revision 5, foo@5 replaces foo@1; retain foo1@2 and foo2@4.
 		{
 			atRev: 5,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 2}, {Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 2}: {},
 				{Main: 4}: {},
@@ -717,34 +578,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 5}: {},
 			},
 		},
+		// At revision 6, foo1@6 replaces foo1@2; retain foo@5 and foo2@4.
 		{
 			atRev: 6,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 6}, {Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 6}: {},
 				{Main: 4}: {},
@@ -756,34 +592,10 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 5}: {},
 			},
 		},
+		// At revision 7, foo1 is deleted. Compact retains its tombstone@7,
+		// while Keep omits it. Both retain foo@5 and foo2@4.
 		{
 			atRev: 7,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 2}, revs: []Revision{{Main: 7}}},
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 4}, {Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 4}: {},
 				{Main: 5}: {},
@@ -794,33 +606,10 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 5}: {},
 			},
 		},
+		// At revision 8, foo1's tombstone@7 is removed. Compact retains foo@5
+		// and foo2's tombstone@8; Keep retains only foo@5.
 		{
 			atRev: 8,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 5}, {Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-				{
-					key:      []byte("foo2"),
-					modified: Revision{Main: 8},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 3}, revs: []Revision{{Main: 8}}},
-						{},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 5}: {},
 			},
@@ -829,48 +618,19 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 5}: {},
 			},
 		},
+		// At revision 9, foo2's tombstone@8 is removed. Compact retains foo's
+		// tombstone@9; Keep is empty because all three keys are deleted.
 		{
 			atRev: 9,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 3, created: Revision{Main: 1}, revs: []Revision{{Main: 9}}},
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-			},
-			keep: map[Revision]struct{}{},
+			keep:  map[Revision]struct{}{},
 			compacted: map[Revision]struct{}{
 				{Main: 9}: {},
 			},
 		},
+		// At revision 10, retain the recreated foo@10 and foo1@10.1. Older
+		// history and foo2 are removed, so Compact and Keep agree again.
 		{
 			atRev: 10,
-			keyIndexes: []keyIndex{
-				{
-					key:      []byte("foo"),
-					modified: Revision{Main: 10},
-					generations: []generation{
-						{ver: 1, created: Revision{Main: 10}, revs: []Revision{{Main: 10}}},
-					},
-				},
-				{
-					key:      []byte("foo1"),
-					modified: Revision{Main: 10, Sub: 1},
-					generations: []generation{
-						{ver: 1, created: Revision{Main: 10, Sub: 1}, revs: []Revision{{Main: 10, Sub: 1}}},
-					},
-				},
-			},
 			keep: map[Revision]struct{}{
 				{Main: 10}:         {},
 				{Main: 10, Sub: 1}: {},
@@ -880,6 +640,33 @@ func TestIndexCompactAndKeep(t *testing.T) {
 				{Main: 10, Sub: 1}: {},
 			},
 		},
+	}
+
+	// checkRevisions verifies the result of Compact(compactRev) by the index
+	// interface only. We don't check the tree internals here, so the test
+	// isn't tied to the treeIndex implementation.
+	//
+	// For this fixture, compaction retains at most one live revision per key at
+	// or before compactRev. All other live revisions in that range are removed.
+	// So, for any atRev <= compactRev, Revisions should only return the kept
+	// revisions which are not greater than atRev. If it returns any other
+	// revision, that revision wasn't removed by compaction.
+	//
+	// Note that querying at compactRev only can't catch this issue, because
+	// the uncompacted index returns the same result at compactRev.
+	checkRevisions := func(ti index, compactRev int64, kept map[Revision]struct{}) {
+		t.Helper()
+		for atRev := int64(1); atRev <= compactRev; atRev++ {
+			want := make([]Revision, 0, len(kept))
+			for rev := range kept {
+				if rev.Main <= atRev {
+					want = append(want, rev)
+				}
+			}
+			got, total := ti.Revisions([]byte("foo"), []byte("fop"), atRev, 0, true)
+			require.ElementsMatchf(t, want, got, "revisions at %d after compact(%d)", atRev, compactRev)
+			require.Equalf(t, len(want), total, "total at %d after compact(%d)", atRev, compactRev)
+		}
 	}
 
 	ti := buildTreeIndex()
@@ -896,12 +683,7 @@ func TestIndexCompactAndKeep(t *testing.T) {
 		keep := ti.Keep(i)
 		require.Equalf(t, afterCompacts[j].keep, keep, "#%d: keep(%d) != expected", i, i)
 
-		nti := newTreeIndex(zaptest.NewLogger(t)).(*treeIndex)
-		for k := range afterCompacts[j].keyIndexes {
-			ki := afterCompacts[j].keyIndexes[k]
-			nti.tree.ReplaceOrInsert(&ki)
-		}
-		require.Truef(t, ti.Equal(nti), "#%d: not equal ti", i)
+		checkRevisions(ti, i, afterCompacts[j].keep)
 	}
 
 	// Once Compact and Keep
@@ -919,12 +701,6 @@ func TestIndexCompactAndKeep(t *testing.T) {
 		keep := ti.Keep(i)
 		require.Equalf(t, afterCompacts[j].keep, keep, "#%d: keep(%d) != expected", i, i)
 
-		nti := newTreeIndex(zaptest.NewLogger(t)).(*treeIndex)
-		for k := range afterCompacts[j].keyIndexes {
-			ki := afterCompacts[j].keyIndexes[k]
-			nti.tree.ReplaceOrInsert(&ki)
-		}
-
-		require.Truef(t, ti.Equal(nti), "#%d: not equal ti", i)
+		checkRevisions(ti, i, afterCompacts[j].keep)
 	}
 }

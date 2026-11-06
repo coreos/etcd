@@ -30,7 +30,6 @@ type index interface {
 	Tombstone(key []byte, rev Revision) error
 	Compact(rev int64) map[Revision]struct{}
 	Keep(rev int64) map[Revision]struct{}
-	Equal(b index) bool
 
 	Insert(ki *keyIndex)
 	KeyIndex(ki *keyIndex) *keyIndex
@@ -236,27 +235,6 @@ func (ti *treeIndex) Keep(rev int64) map[Revision]struct{} {
 		return true
 	})
 	return available
-}
-
-func (ti *treeIndex) Equal(bi index) bool {
-	b := bi.(*treeIndex)
-
-	if ti.tree.Len() != b.tree.Len() {
-		return false
-	}
-
-	equal := true
-
-	ti.tree.Ascend(func(aki *keyIndex) bool {
-		bki, _ := b.tree.Get(aki)
-		if !aki.equal(bki) {
-			equal = false
-			return false
-		}
-		return true
-	})
-
-	return equal
 }
 
 func (ti *treeIndex) Insert(ki *keyIndex) {

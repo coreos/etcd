@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/protobuf/proto"
@@ -375,10 +376,10 @@ func TestStoreRestore(t *testing.T) {
 	lg := zaptest.NewLogger(t)
 	s := newFakeStore(lg)
 	b := s.b.(*fakeBackend)
-	fi := s.kvindex.(*fakeIndex)
+	s.kvindex = newTreeIndex(lg)
 	defer s.Close()
 
-	putkey := newTestRevBytes(Revision{Main: 3})
+	putkey := newTestRevBytes(Revision{Main: 4})
 	putkv := mvccpb.KeyValue{
 		Key:            []byte("foo"),
 		Value:          []byte("bar"),
@@ -421,18 +422,15 @@ func TestStoreRestore(t *testing.T) {
 		t.Errorf("tx actions = %+v, want %+v", g, wact)
 	}
 
-	gens := []generation{
-		{created: Revision{Main: 4}, ver: 2, revs: []Revision{{Main: 3}, {Main: 5}}},
-		{created: Revision{Main: 0}, ver: 0, revs: nil},
-	}
-	ki := &keyIndex{key: []byte("foo"), modified: Revision{Main: 5}, generations: gens}
-	wact = []testutil.Action{
-		{Name: "keyIndex", Params: []any{ki}},
-		{Name: "insert", Params: []any{ki}},
-	}
-	if g := fi.Action(); !reflect.DeepEqual(g, wact) {
-		t.Errorf("index action = %+v, want %+v", g, wact)
-	}
+	_, _, _, err = s.kvindex.Get([]byte("foo"), 3)
+	require.ErrorIs(t, err, ErrRevisionNotFound)
+	modified, created, version, err := s.kvindex.Get([]byte("foo"), 4)
+	require.NoError(t, err)
+	require.Equal(t, Revision{Main: 4}, modified)
+	require.Equal(t, Revision{Main: 4}, created)
+	require.Equal(t, int64(1), version)
+	_, _, _, err = s.kvindex.Get([]byte("foo"), 5)
+	require.ErrorIs(t, err, ErrRevisionNotFound)
 }
 
 func TestRestoreDelete(t *testing.T) {
@@ -1114,7 +1112,6 @@ func (i *fakeIndex) Keep(rev int64) map[Revision]struct{} {
 	i.Recorder.Record(testutil.Action{Name: "keep", Params: []any{rev}})
 	return <-i.indexCompactRespc
 }
-func (i *fakeIndex) Equal(b index) bool { return false }
 
 func (i *fakeIndex) Insert(ki *keyIndex) {
 	i.Recorder.Record(testutil.Action{Name: "insert", Params: []any{ki}})
