@@ -109,33 +109,39 @@ function push_mod_tags_cmd {
   log_info "REMOTE_REPO:  ${REMOTE_REPO}"
 
   # Any module ccan be used for this
-  local main_version
-  main_version=$(go mod edit -json | jq -r '.Require[] | select(.Path == "'"${ROOT_MODULE}"'/api/v3") | .Version')
+  local version
+  version=$(go mod edit -json | jq -r '.Require[] | select(.Path == "'"${ROOT_MODULE}"'/api/v3") | .Version')
   local tags=()
 
   keyid=$(get_gpg_key) || return 2
 
-  for module in $(modules); do
-    local version
-    version=$(go mod edit -json | jq -r '.Require[] | select(.Path == "'"${module}"'") | .Version')
+  local _modules=()
+  load_workspace_relative_modules_without_tools _modules
+
+  for module in "${_modules[@]}"; do
+    module="${module%/...}"
+    module="${module#./}"
+
     local path
-    path=$(go mod edit -json | jq -r '.Require[] | select(.Path == "'"${module}"'") | .Path')
-    local subdir="${path//${ROOT_MODULE}\//}"
-    local tag
-    if [ -z "${version}" ]; then
-      tag="${main_version}"
-      version="${main_version}"
-    else
-      tag="${subdir///v[23]/}/${version}"
+    path=$(go mod edit -json | jq -r '.Require[] | select(.Path == "'"${ROOT_MODULE}/${module}"'/v3") | .Path')
+    if [ -z "${path}" ]; then
+      continue
     fi
+    local tag
+    tag="${module///v[23]/}/${version}"
 
     log_info "Tags for: ${module} version:${version} tag:${tag}"
-    # The sleep is ugly hack that guarantees that 'git describe' will
-    # consider main-module's tag as the latest.
-    run sleep 2
     run git tag --local-user "${keyid}" --sign "${tag}" --message "${version}"
     tags+=("${tag}")
   done
+
+  # The sleep is ugly hack that guarantees that 'git describe' will
+  # consider main-module's tag as the latest.
+  run sleep 2
+  log_info "Tags for root module version:${version} tag:${version}"
+  run git tag --local-user "${keyid}" --sign "${version}" --message "${version}"
+  tags+=("${version}")
+
   maybe_run git push -f "${REMOTE_REPO}" "${tags[@]}"
 }
 

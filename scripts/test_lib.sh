@@ -114,7 +114,8 @@ function modules() {
   echo "${modules[@]}"
 }
 
-# Receives a reference to an array variable, and returns the workspace relative modules.
+# Receives a reference to an array variable, and returns the workspace relative modules
+# to be used by Go commands.
 function load_workspace_relative_modules() {
   local -n _relative_modules=$1
   while IFS= read -r line; do _relative_modules+=("$line"); done < <(
@@ -123,8 +124,8 @@ function load_workspace_relative_modules() {
 }
 
 # Receives a reference to an array variable, and returns the workspace relative modules, not
-# including the tools, as they are not considered to be added to the bill for materials.
-function load_workspace_relative_modules_for_bom() {
+# including the tools.
+function load_workspace_relative_modules_without_tools() {
   local -n relative_modules_for_bom=$1
   local modules=()
   load_workspace_relative_modules modules
