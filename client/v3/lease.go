@@ -383,7 +383,7 @@ func (l *lessor) keepAliveCtxCloser(ctx context.Context, id LeaseID, donec <-cha
 func (l *lessor) closeRequireLeader() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, ka := range l.keepAlives {
+	for leaseID, ka := range l.keepAlives {
 		reqIdxs := 0
 		// find all required leader channels, close, mark as nil
 		for i, ctx := range ka.ctxs {
@@ -402,6 +402,11 @@ func (l *lessor) closeRequireLeader() {
 		if reqIdxs == 0 {
 			continue
 		}
+		// All ctxs for this lease ID require leader but now there's no leader
+		if reqIdxs == len(ka.chs) {
+			delete(l.keepAlives, leaseID)
+			continue
+		}
 		// remove all channels that required a leader from keepalive
 		newChs := make([]chan<- *LeaseKeepAliveResponse, len(ka.chs)-reqIdxs)
 		newCtxs := make([]context.Context, len(newChs))
@@ -410,7 +415,7 @@ func (l *lessor) closeRequireLeader() {
 			if ka.chs[i] == nil {
 				continue
 			}
-			newChs[newIdx], newCtxs[newIdx] = ka.chs[i], ka.ctxs[newIdx]
+			newChs[newIdx], newCtxs[newIdx] = ka.chs[i], ka.ctxs[i]
 			newIdx++
 		}
 		ka.chs, ka.ctxs = newChs, newCtxs

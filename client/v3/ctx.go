@@ -25,6 +25,8 @@ import (
 
 // WithRequireLeader requires client requests to only succeed
 // when the cluster has a leader.
+// The leader check is performed by interceptors created by
+// newUnaryInterceptor and newStreamInterceptor.
 func WithRequireLeader(ctx context.Context) context.Context {
 	md, ok := metadata.FromOutgoingContext(ctx)
 	if !ok { // no outgoing metadata ctx key, create one

@@ -720,72 +720,114 @@ func TestV3LeaseFailureOverlap(t *testing.T) {
 	wg.Wait()
 }
 
-// TestLeaseWithRequireLeader checks keep-alive channel close when no leader.
-func TestLeaseWithRequireLeader(t *testing.T) {
+func TestLeaseKeepAliveAndExpirationWithNoLeader(t *testing.T) {
 	integration.BeforeTest(t)
 
-	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 2, UseBridge: true})
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 3, UseBridge: true})
 	defer clus.Terminate(t)
 
 	c := clus.Client(0)
-	lid1, err1 := c.Grant(t.Context(), 60)
-	require.NoError(t, err1)
-	lid2, err2 := c.Grant(t.Context(), 60)
-	require.NoError(t, err2)
-	// kaReqLeader close if the leader is lost
-	kaReqLeader, kerr1 := c.KeepAlive(clientv3.WithRequireLeader(t.Context()), lid1.ID)
-	require.NoError(t, kerr1)
-	// kaWait will wait even if the leader is lost
-	kaWait, kerr2 := c.KeepAlive(t.Context(), lid2.ID)
-	require.NoError(t, kerr2)
+	leaseTTL := 9 * time.Second
 
-	select {
-	case <-kaReqLeader:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("require leader first keep-alive timed out")
-	}
-	select {
-	case <-kaWait:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("leader not required first keep-alive timed out")
-	}
+	t.Run("lease stays alive with mixed keepAlives", func(t *testing.T) {
+		leaseRsp, err := c.Grant(t.Context(), int64(leaseTTL.Seconds()))
+		require.NoError(t, err)
 
-	prevUnavailableCount := getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable")
-	prevCanceledCount := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
+		kaReqLeader, err := c.KeepAlive(clientv3.WithRequireLeader(t.Context()), leaseRsp.ID)
+		require.NoError(t, err)
+		kaWait, err := c.KeepAlive(t.Context(), leaseRsp.ID)
+		require.NoError(t, err)
 
-	clus.Members[1].Stop(t)
-	// kaReqLeader may issue multiple requests while waiting for the first
-	// response from proxy server; drain any stray keepalive responses
-	time.Sleep(100 * time.Millisecond)
-	for {
-		<-kaReqLeader
-		if len(kaReqLeader) == 0 {
-			break
+		for _, ch := range []<-chan *clientv3.LeaseKeepAliveResponse{kaReqLeader, kaWait} {
+			select {
+			case <-ch:
+			case <-time.After(5 * time.Second):
+				t.Fatal("didn't receive first keep-alive within timeout")
+			}
 		}
-	}
 
-	select {
-	case resp, ok := <-kaReqLeader:
-		require.Falsef(t, ok, "expected closed require leader, got response %+v", resp)
-	case <-time.After(5 * time.Second):
-		t.Fatal("keepalive with require leader took too long to close")
-	}
+		prevUnavailable := getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable")
+		prevCanceled := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
+		clus.Members[1].Stop(t)
+		clus.Members[2].Stop(t)
+		waitKeepAliveChannelClose(t, kaReqLeader)
 
-	require.Eventuallyf(t, func() bool {
-		return getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable") > prevUnavailableCount
-	}, 3*time.Second, 100*time.Millisecond,
-		"expected Unavailable metric to increase after leader loss, prev count: %d", prevUnavailableCount)
-	// Ensure the error is Unavailable, not Canceled
-	currentCanceledCount := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
-	require.Equalf(t, prevCanceledCount, currentCanceledCount,
-		"Canceled metric should not change, expected %d, got %d", prevCanceledCount, currentCanceledCount)
+		require.Eventuallyf(t, func() bool {
+			return getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable") > prevUnavailable
+		}, 3*time.Second, 100*time.Millisecond, "expected Unavailable metric to increment after leader loss")
+		curCanceled := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
+		require.Equalf(t, prevCanceled, curCanceled,
+			"Canceled metric should not change, expected %d, got %d", prevCanceled, curCanceled)
 
-	select {
-	case _, ok := <-kaWait:
-		require.Truef(t, ok, "got closed channel with no require leader, expected non-closed")
-	case <-time.After(10 * time.Millisecond):
-		// wait some to detect any closes happening soon after kaReqLeader closing
-	}
+		// This ensures we don't mistake old responses as fresh ones after restore
+	drainLoop:
+		for {
+			select {
+			case _, ok := <-kaWait:
+				if !ok {
+					t.Fatal("kaWait channel unexpectedly closed while draining")
+				}
+			default:
+				break drainLoop
+			}
+		}
+
+		require.NoError(t, clus.Members[1].Restart(t))
+		clus.WaitLeader(t)
+		select {
+		case resp, ok := <-kaWait:
+			require.Truef(t, ok, "keepAlive channel should still be open")
+			require.NotNilf(t, resp, "expected keepAlive response after leader restore")
+		case <-time.After(5 * time.Second):
+			t.Fatal("keepAlive response timed out after leader restored")
+		}
+
+		ttl, err := c.TimeToLive(t.Context(), leaseRsp.ID)
+		require.NoError(t, err)
+		require.Positivef(t, ttl.TTL, "lease should still be alive (TTL>0), got TTL=%d", ttl.TTL)
+	})
+
+	t.Run("lease expires when both keepAlives require leader", func(t *testing.T) {
+		leaseRsp, err := c.Grant(t.Context(), int64(leaseTTL.Seconds()))
+		require.NoError(t, err)
+
+		kaChan1, err := c.KeepAlive(clientv3.WithRequireLeader(t.Context()), leaseRsp.ID)
+		require.NoError(t, err)
+		kaChan2, err := c.KeepAlive(clientv3.WithRequireLeader(t.Context()), leaseRsp.ID)
+		require.NoError(t, err)
+
+		for _, ch := range []<-chan *clientv3.LeaseKeepAliveResponse{kaChan1, kaChan2} {
+			select {
+			case <-ch:
+			case <-time.After(5 * time.Second):
+				t.Fatal("didn't receive first keep-alive within timeout")
+			}
+		}
+
+		prevUnavailable := getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable")
+		prevCanceled := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
+		clus.Members[1].Stop(t)
+		clus.Members[2].Stop(t)
+		waitKeepAliveChannelClose(t, kaChan1)
+		waitKeepAliveChannelClose(t, kaChan2)
+
+		require.Eventuallyf(t, func() bool {
+			return getLeaseKeepAliveMetric(t, clus.Members[0], "Unavailable") > prevUnavailable
+		}, 3*time.Second, 100*time.Millisecond, "expected Unavailable metric to increment after leader loss")
+		curCanceled := getLeaseKeepAliveMetric(t, clus.Members[0], "Canceled")
+		require.Equalf(t, prevCanceled, curCanceled,
+			"Canceled metric should not change, expected %d, got %d", prevCanceled, curCanceled)
+
+		require.NoError(t, clus.Members[1].Restart(t))
+		clus.WaitLeader(t)
+
+		// Add 1 second buffer to ensure lease is fully expired
+		time.Sleep(leaseTTL + time.Second)
+
+		ttl, err := c.TimeToLive(t.Context(), leaseRsp.ID)
+		require.NoError(t, err)
+		require.Equalf(t, int64(-1), ttl.TTL, "lease should have expired (TTL=-1), got TTL=%d", ttl.TTL)
+	})
 }
 
 func getLeaseKeepAliveMetric(t *testing.T, member *integration.Member, grpcCode string) int64 {
@@ -799,4 +841,17 @@ func getLeaseKeepAliveMetric(t *testing.T, member *integration.Member, grpcCode 
 	count, err := strconv.ParseInt(metricVal, 10, 64)
 	require.NoError(t, err)
 	return count
+}
+
+func waitKeepAliveChannelClose(t *testing.T, ch <-chan *clientv3.LeaseKeepAliveResponse) {
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("keepAlive with require leader took too long to close")
+		}
+	}
 }
