@@ -18,7 +18,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap"
 
 	"go.etcd.io/etcd/pkg/v3/traceutil"
 	"go.etcd.io/etcd/server/v3/lease"
@@ -26,8 +26,8 @@ import (
 )
 
 func BenchmarkWatchableStorePut(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := New(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := New(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// arbitrary number of bytes
@@ -46,8 +46,8 @@ func BenchmarkWatchableStorePut(b *testing.B) {
 // with transaction begin and end, where transaction involves
 // some synchronization operations, such as mutex locking.
 func BenchmarkWatchableStoreTxnPut(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := New(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := New(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	// arbitrary number of bytes
@@ -77,8 +77,8 @@ func BenchmarkWatchableStoreWatchPutUnsync(b *testing.B) {
 }
 
 func benchmarkWatchableStoreWatchPut(b *testing.B, synced bool) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := New(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := New(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 	defer cleanup(s, be)
 
 	k := []byte("testkey")
@@ -121,8 +121,8 @@ func benchmarkWatchableStoreWatchPut(b *testing.B, synced bool) {
 // TODO: k is an arbitrary constant. We need to figure out what factor
 // we should put to simulate the real-world use cases.
 func BenchmarkWatchableStoreUnsyncedCancel(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	ws := newWatchableStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	ws := newWatchableStore(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 
 	defer cleanup(ws, be)
 
@@ -163,8 +163,8 @@ func BenchmarkWatchableStoreUnsyncedCancel(b *testing.B) {
 }
 
 func BenchmarkWatchableStoreSyncedCancel(b *testing.B) {
-	be, _ := betesting.NewDefaultTmpBackend(b)
-	s := New(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{})
+	be, _ := betesting.NewDefaultTmpBackendWithNopLogger(b)
+	s := New(zap.NewNop(), be, &lease.FakeLessor{}, StoreConfig{})
 
 	defer cleanup(s, be)
 
