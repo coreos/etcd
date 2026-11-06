@@ -22,8 +22,10 @@ import (
 	"gotest.tools/v3/assert"
 
 	"go.etcd.io/etcd/server/v3/lease"
+	"go.etcd.io/etcd/server/v3/lease/leasepb"
 	"go.etcd.io/etcd/server/v3/storage/backend"
 	"go.etcd.io/etcd/server/v3/storage/mvcc"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 )
 
 func TestCalculateHashKV(t *testing.T) {
@@ -44,14 +46,16 @@ func TestCalculateHashKV(t *testing.T) {
 			setupFunc: func(t *testing.T) (string, func()) {
 				return "/nonexistent/path/to/db", func() {}
 			},
-			expectError: true,
+			expectError:   true,
+			errorContains: "no such file or directory",
 		},
 		{
 			name: "empty directory path",
 			setupFunc: func(t *testing.T) (string, func()) {
 				return "", func() {}
 			},
-			expectError: true,
+			expectError:   true,
+			errorContains: "no such file or directory",
 		},
 		{
 			name: "empty database",
@@ -93,6 +97,34 @@ func TestCalculateHashKV(t *testing.T) {
 			expectError:     false,
 		},
 		{
+			name: "database with data and lease",
+			setupFunc: func(t *testing.T) (string, func()) {
+				tempDir := t.TempDir()
+				dbPath := filepath.Join(tempDir, "test_with_data_lease.db")
+
+				b := backend.NewDefaultBackend(zap.NewNop(), dbPath)
+				// create lease
+				lpb := leasepb.Lease{ID: 1, TTL: 60, RemainingTTL: 60}
+				tx := b.BatchTx()
+				tx.LockOutsideApply()
+				tx.UnsafeCreateBucket(schema.Lease)
+				schema.MustUnsafePutLease(tx, &lpb)
+				tx.Unlock()
+				// put with lease id
+				st := mvcc.NewStore(zap.NewNop(), b, &lease.FakeLessor{}, mvcc.StoreConfig{})
+				st.Put([]byte("test-key"), []byte("test-value"), 1)
+				st.Close()
+				b.Close()
+
+				return dbPath, func() {}
+			},
+			revision:        0,
+			expectedHash:    645561629,
+			expectedRev:     2,
+			expectedCompact: -1,
+			expectError:     false,
+		},
+		{
 			name: "invalid revision",
 			setupFunc: func(t *testing.T) (string, func()) {
 				tempDir := t.TempDir()
@@ -114,12 +146,6 @@ func TestCalculateHashKV(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("Recovered from panic: %v", r)
-				}
-			}()
-
 			dbPath, cleanup := tc.setupFunc(t)
 			defer cleanup()
 
