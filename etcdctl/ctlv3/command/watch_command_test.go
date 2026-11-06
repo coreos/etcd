@@ -28,9 +28,10 @@ func Test_parseWatchArgs(t *testing.T) {
 		envKey, envRange string
 		interactive      bool
 
-		interactiveWatchPrefix  bool
-		interactiveWatchRev     int64
-		interactiveWatchPrevKey bool
+		interactiveWatchPrefix        bool
+		interactiveWatchRev           int64
+		interactiveWatchPrevKey       bool
+		interactiveWatchCreatedNotify bool
 
 		watchArgs []string
 		execArgs  []string
@@ -221,6 +222,14 @@ func Test_parseWatchArgs(t *testing.T) {
 			interactive: false,
 			watchArgs:   []string{"foo", "bar"},
 			execArgs:    []string{"echo", "watch", "event", "received"},
+			err:         nil,
+		},
+		{
+			osArgs:      []string{"./bin/etcdctl", "watch", "foo", "--created-notify", "bar", "--", "echo", "Hello", "World"},
+			commandArgs: []string{"foo", "bar", "echo", "Hello", "World"},
+			interactive: false,
+			watchArgs:   []string{"foo", "bar"},
+			execArgs:    []string{"echo", "Hello", "World"},
 			err:         nil,
 		},
 		{
@@ -533,6 +542,18 @@ func Test_parseWatchArgs(t *testing.T) {
 			execArgs:                []string{"echo", "Hello", "World"},
 			err:                     nil,
 		},
+		{
+			osArgs:                        []string{"./bin/etcdctl", "watch", "-i"},
+			commandArgs:                   []string{"watch", "foo", "bar", "--rev", "7", "--created-notify", "--", "echo", "Hello", "World"},
+			interactive:                   true,
+			interactiveWatchPrefix:        false,
+			interactiveWatchRev:           7,
+			interactiveWatchPrevKey:       false,
+			interactiveWatchCreatedNotify: true,
+			watchArgs:                     []string{"foo", "bar"},
+			execArgs:                      []string{"echo", "Hello", "World"},
+			err:                           nil,
+		},
 	}
 	for i, ts := range tt {
 		watchArgs, execArgs, err := parseWatchArgs(ts.osArgs, ts.commandArgs, ts.envKey, ts.envRange, ts.interactive)
@@ -543,6 +564,7 @@ func Test_parseWatchArgs(t *testing.T) {
 			require.Equalf(t, ts.interactiveWatchPrefix, watchPrefix, "#%d: interactive watchPrefix expected %v, got %v", i, ts.interactiveWatchPrefix, watchPrefix)
 			require.Equalf(t, ts.interactiveWatchRev, watchRev, "#%d: interactive watchRev expected %d, got %d", i, ts.interactiveWatchRev, watchRev)
 			require.Equalf(t, ts.interactiveWatchPrevKey, watchPrevKey, "#%d: interactive watchPrevKey expected %v, got %v", i, ts.interactiveWatchPrevKey, watchPrevKey)
+			require.Equalf(t, ts.interactiveWatchCreatedNotify, watchCreatedNotify, "#%d: interactive watchCreatedNotify expected %v, got %v", i, ts.interactiveWatchCreatedNotify, watchCreatedNotify)
 		}
 	}
 }

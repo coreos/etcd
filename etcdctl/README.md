@@ -404,6 +404,8 @@ RPC: Watch
 
 #### Options
 
+- created-notify -- get a notification when the watch is created on the server
+
 - hex -- print out key and value as hex encode string
 
 - interactive -- begins an interactive watch session

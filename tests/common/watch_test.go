@@ -93,3 +93,32 @@ func TestWatch(t *testing.T) {
 		})
 	}
 }
+
+func TestWatchCreatedNotify(t *testing.T) {
+	testRunner.BeforeTest(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	clus := testRunner.NewCluster(ctx, t, config.WithClusterConfig(config.ClusterConfig{ClusterSize: 1}))
+	defer clus.Close()
+	cc := testutils.MustClient(clus.Client())
+
+	testutils.ExecuteUntil(ctx, t, func() {
+		wch := cc.Watch(ctx, "foo", config.WatchOptions{CreatedNotify: true})
+		require.NotNil(t, wch)
+
+		select {
+		case resp := <-wch:
+			require.Truef(t, resp.Created, "expected a created notification, got %+v", resp)
+			require.Empty(t, resp.Events)
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for the watch created notification")
+		}
+
+		_, err := cc.Put(ctx, "foo", "bar", config.PutOptions{})
+		require.NoError(t, err)
+
+		kvs, err := testutils.KeyValuesFromWatchChan(wch, 1, 5*time.Second)
+		require.NoError(t, err)
+		assert.Equal(t, []testutils.KV{{Key: "foo", Val: "bar"}}, kvs)
+	})
+}

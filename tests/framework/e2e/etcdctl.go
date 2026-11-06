@@ -774,6 +774,9 @@ func (ctl *EtcdctlV3) Watch(ctx context.Context, key string, opts config.WatchOp
 	if opts.Revision != 0 {
 		args = append(args, "--rev", fmt.Sprint(opts.Revision))
 	}
+	if opts.CreatedNotify {
+		args = append(args, "--created-notify")
+	}
 	proc, err := SpawnCmd(args, nil)
 	if err != nil {
 		return nil
@@ -796,7 +799,7 @@ func (ctl *EtcdctlV3) Watch(ctx context.Context, key string, opts config.WatchOp
 						close(ch)
 						return
 					}
-					if len(resp.Events) > 0 {
+					if resp.Created || len(resp.Events) > 0 {
 						ch <- resp
 					}
 				}

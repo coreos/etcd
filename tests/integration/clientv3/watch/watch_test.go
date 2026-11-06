@@ -880,25 +880,6 @@ func TestWatchWithFilter(t *testing.T) {
 	}
 }
 
-// TestWatchWithCreatedNotification checks that WithCreatedNotify returns a
-// Created watch response.
-func TestWatchWithCreatedNotification(t *testing.T) {
-	integration.BeforeTest(t)
-
-	cluster := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
-	defer cluster.Terminate(t)
-
-	client := cluster.RandClient()
-
-	ctx := t.Context()
-
-	createC := client.Watch(ctx, "a", clientv3.WithCreatedNotify())
-
-	resp := <-createC
-
-	require.Truef(t, resp.Created, "expected created event, got %v", resp)
-}
-
 // TestWatchWithCreatedNotificationDropConn ensures that
 // a watcher with created notify does not post duplicate
 // created events from disconnect.

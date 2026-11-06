@@ -501,6 +501,9 @@ func (c integrationClient) Watch(ctx context.Context, key string, opts config.Wa
 	if opts.RangeEnd != "" {
 		opOpts = append(opOpts, clientv3.WithRange(opts.RangeEnd))
 	}
+	if opts.CreatedNotify {
+		opOpts = append(opOpts, clientv3.WithCreatedNotify())
+	}
 
 	return c.Client.Watch(ctx, key, opOpts...)
 }
