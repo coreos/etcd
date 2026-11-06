@@ -172,6 +172,33 @@ func TestServeRaftPrefix(t *testing.T) {
 	}
 }
 
+// TestServeRaftSnapshotPrefixMissingSnapshot ensures that the snapshot
+// handler responds with 400 Bad Request, instead of panicking, when it
+// receives a MsgSnap message whose optional Snapshot field is absent.
+func TestServeRaftSnapshotPrefixMissingSnapshot(t *testing.T) {
+	var body bytes.Buffer
+	enc := &messageEncoder{w: &body}
+	if err := enc.encode(&raftpb.Message{Type: raftpb.MsgSnap.Enum()}); err != nil {
+		t.Fatalf("could not encode message: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "foo", &body)
+	if err != nil {
+		t.Fatalf("could not create request: %#v", err)
+	}
+	req.Header.Set("X-Etcd-Cluster-ID", "1")
+	req.Header.Set("X-Server-Version", version.Version)
+	rw := httptest.NewRecorder()
+	tr := &Transport{Logger: zaptest.NewLogger(t), ClusterID: types.ID(1)}
+	h := newSnapshotHandler(tr, &fakeRaft{}, snap.New(zaptest.NewLogger(t), t.TempDir()), types.ID(1))
+
+	h.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Errorf("got code=%d, want %d", rw.Code, http.StatusBadRequest)
+	}
+}
+
 func TestServeRaftStreamPrefix(t *testing.T) {
 	tests := []struct {
 		path  string
