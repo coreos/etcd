@@ -636,7 +636,9 @@ message Compare {
     int64 create_revision = 5;
     // mod_revision is the last modified revision of the given key.
     int64 mod_revision = 6;
-    // value is the value of the given key, in bytes.
+    // value is the value of the given key, in bytes. A value comparison against a
+    // key that does not exist, or against a range that contains no keys, always
+    // evaluates to false, regardless of the comparison operator.
     bytes value = 7;
     // lease is the lease id of the given key.
     int64 lease = 8 [(versionpb.etcd_version_field)="3.3"];

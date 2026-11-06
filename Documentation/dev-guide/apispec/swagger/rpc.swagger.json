@@ -2070,7 +2070,7 @@
         "value": {
           "type": "string",
           "format": "byte",
-          "description": "value is the value of the given key, in bytes."
+          "description": "value is the value of the given key, in bytes. A value comparison against a\nkey that does not exist, or against a range that contains no keys, always\nevaluates to false, regardless of the comparison operator."
         },
         "lease": {
           "type": "string",

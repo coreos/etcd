@@ -1425,7 +1425,9 @@ type Compare_ModRevision struct {
 }
 
 type Compare_Value struct {
-	// value is the value of the given key, in bytes.
+	// value is the value of the given key, in bytes. A value comparison against a
+	// key that does not exist, or against a range that contains no keys, always
+	// evaluates to false, regardless of the comparison operator.
 	Value []byte `protobuf:"bytes,7,opt,name=value,proto3,oneof"`
 }
 
