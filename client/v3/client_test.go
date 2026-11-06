@@ -108,6 +108,41 @@ func TestDialCancel(t *testing.T) {
 	}
 }
 
+// TestDialConcurrentSetEndpoints checks that Dial does not race with
+// SetEndpoints, which autoSync calls in the background. Run it with -race.
+func TestDialConcurrentSetEndpoints(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	srv := grpc.NewServer()
+	healthpb.RegisterHealthServer(srv, health.NewServer())
+	go srv.Serve(ln)
+	defer srv.Stop()
+
+	ep := ln.Addr().String()
+	c, err := NewClient(t, Config{
+		Endpoints:   []string{ep},
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	defer c.Close()
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 100 {
+			c.SetEndpoints(ep)
+		}
+	})
+
+	for range 100 {
+		conn, err := c.Dial(ep)
+		require.NoError(t, err)
+		conn.Close()
+	}
+	wg.Wait()
+}
+
 func TestMaxUnaryRetries(t *testing.T) {
 	maxUnaryRetries := uint(10)
 	cfg := Config{

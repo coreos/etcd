@@ -324,7 +324,7 @@ func (c *Client) dial(creds grpccredentials.TransportCredentials, dopts ...grpc.
 
 	opts = append(opts, c.cfg.DialOptions...)
 
-	target := fmt.Sprintf("%s://%p/%s", resolver.Schema, c, authority(c.endpoints[0]))
+	target := fmt.Sprintf("%s://%p/%s", resolver.Schema, c, authority(c.Endpoints()[0]))
 	return grpc.NewClient(target, opts...)
 }
 
