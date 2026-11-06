@@ -1262,16 +1262,25 @@ func (s *EtcdServer) downgradeEnable(ctx context.Context, r *pb.DowngradeRequest
 		lg.Warn("reject downgrade request", zap.Error(err))
 		return nil, err
 	}
-	resp := pb.DowngradeResponse{Version: version.Cluster(s.ClusterVersion().String())}
+	cv := s.ClusterVersion()
+	if cv == nil {
+		return nil, errors.ErrClusterVersionUnavailable
+	}
+	resp := pb.DowngradeResponse{Version: version.Cluster(cv.String())}
 	return &resp, nil
 }
 
 func (s *EtcdServer) downgradeCancel(ctx context.Context) (*pb.DowngradeResponse, error) {
+	cv := s.ClusterVersion()
+	if cv == nil {
+		// no cluster version means no downgrade can be in flight; there is nothing to cancel
+		return nil, errors.ErrClusterVersionUnavailable
+	}
 	err := s.Version().DowngradeCancel(ctx)
 	if err != nil {
 		s.lg.Warn("failed to cancel downgrade", zap.Error(err))
 	}
-	resp := pb.DowngradeResponse{Version: version.Cluster(s.ClusterVersion().String())}
+	resp := pb.DowngradeResponse{Version: version.Cluster(cv.String())}
 	return &resp, nil
 }
 

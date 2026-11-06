@@ -19,6 +19,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"go.uber.org/zap"
+
+	"go.etcd.io/etcd/server/v3/etcdserver/errors"
 )
 
 // Manager contains logic to manage etcd cluster version downgrade process.
@@ -44,6 +46,11 @@ func (m *Manager) DowngradeValidate(ctx context.Context, targetVersion *semver.V
 		return err
 	}
 	cv := m.s.GetClusterVersion()
+	if cv == nil {
+		// the cluster version is not decided yet (e.g. during bootstrap):
+		// there is nothing to validate the target against
+		return errors.ErrClusterVersionUnavailable
+	}
 	allowedTargetVersion := allowedDowngradeVersion(cv)
 	if !targetVersion.Equal(allowedTargetVersion) {
 		return ErrInvalidDowngradeTargetVersion

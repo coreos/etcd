@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	"go.etcd.io/etcd/api/v3/version"
+	"go.etcd.io/etcd/server/v3/etcdserver/errors"
 )
 
 func TestUpgradeSingleNode(t *testing.T) {
@@ -252,4 +253,25 @@ func (m *memberMock) UpdateStorageVersion(v semver.Version) error {
 }
 
 func (m *memberMock) TriggerSnapshot() {
+}
+
+// nilVersionMemberMock reports an undecided cluster version, as a member does
+// during bootstrap before the cluster version has been set.
+type nilVersionMemberMock struct {
+	memberMock
+}
+
+func (m *nilVersionMemberMock) GetClusterVersion() *semver.Version {
+	return nil
+}
+
+func TestDowngradeValidateNilClusterVersion(t *testing.T) {
+	m := NewManager(zaptest.NewLogger(t), &nilVersionMemberMock{})
+	target := semver.New(3, 5, 0, "", "")
+
+	err := m.DowngradeValidate(context.Background(), target)
+	require.ErrorIs(t, err, errors.ErrClusterVersionUnavailable)
+
+	err = m.DowngradeEnable(context.Background(), target)
+	require.ErrorIs(t, err, errors.ErrClusterVersionUnavailable)
 }
