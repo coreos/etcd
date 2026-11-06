@@ -56,17 +56,61 @@ func TestFormatJSON_ScalarFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &jr); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if jr.TotalSecs != s.Total.Seconds() {
-		t.Errorf("TotalSecs: got %v, want %v", jr.TotalSecs, s.Total.Seconds())
+	if jr.TotalSecs != round4(s.Total.Seconds()) {
+		t.Errorf("TotalSecs: got %v, want %v", jr.TotalSecs, round4(s.Total.Seconds()))
 	}
-	if jr.FastestSecs != s.Fastest {
-		t.Errorf("FastestSecs: got %v, want %v", jr.FastestSecs, s.Fastest)
+	if jr.FastestSecs != round4(s.Fastest) {
+		t.Errorf("FastestSecs: got %v, want %v", jr.FastestSecs, round4(s.Fastest))
 	}
-	if jr.SlowestSecs != s.Slowest {
-		t.Errorf("SlowestSecs: got %v, want %v", jr.SlowestSecs, s.Slowest)
+	if jr.SlowestSecs != round4(s.Slowest) {
+		t.Errorf("SlowestSecs: got %v, want %v", jr.SlowestSecs, round4(s.Slowest))
 	}
-	if jr.RequestsPerSec != s.RPS {
-		t.Errorf("RequestsPerSec: got %v, want %v", jr.RequestsPerSec, s.RPS)
+	if jr.RequestsPerSec != round4(s.RPS) {
+		t.Errorf("RequestsPerSec: got %v, want %v", jr.RequestsPerSec, round4(s.RPS))
+	}
+}
+
+func TestFormatJSON_RoundedTo4Decimals(t *testing.T) {
+	s := Stats{
+		AvgTotal: 1,
+		Fastest:  0.000321508,
+		Slowest:  0.003703315,
+		Average:  0.0004574702618,
+		Stddev:   0.0001419164847919312,
+		Total:    time.Duration(4.589500805 * float64(time.Second)),
+		RPS:      2178.886206775597,
+		Lats:     []float64{0.000321508, 0.003703315},
+		ErrorDist: map[string]int{},
+	}
+	out, err := FormatJSON(s, "put")
+	if err != nil {
+		t.Fatalf("FormatJSON error: %v", err)
+	}
+	var jr JSONReport
+	if err := json.Unmarshal([]byte(out), &jr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	want := map[string]float64{
+		"total_secs":       4.5895,
+		"slowest_secs":     0.0037,
+		"fastest_secs":     0.0003,
+		"average_secs":     0.0005,
+		"stddev_secs":      0.0001,
+		"requests_per_sec": 2178.8862,
+	}
+	got := map[string]float64{
+		"total_secs":       jr.TotalSecs,
+		"slowest_secs":     jr.SlowestSecs,
+		"fastest_secs":     jr.FastestSecs,
+		"average_secs":     jr.AverageSecs,
+		"stddev_secs":      jr.StddevSecs,
+		"requests_per_sec": jr.RequestsPerSec,
+	}
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("%s: got %v, want %v (4-decimal text alignment)", k, got[k], w)
+		}
 	}
 }
 

@@ -319,20 +319,28 @@ type JSONError struct {
 	Count   int    `json:"count"`
 }
 
+// round4 rounds v to 4 decimal places, matching the default text-report
+// precision ("%4.4f") so JSON and text outputs agree numerically.
+func round4(v float64) float64 {
+	return math.Round(v*1e4) / 1e4
+}
+
 // FormatJSON serialises Stats as indented JSON and returns the string.
+// Floating-point fields are rounded to 4 decimal places to match the
+// default text-report precision.
 func FormatJSON(s Stats, label string) (string, error) {
 	pcs, vals := Percentiles(s.Lats)
 	pctMap := make(map[string]float64, len(pcs))
 	for i, p := range pcs {
 		key := fmt.Sprintf("p%g", p)
-		pctMap[key] = vals[i]
+		pctMap[key] = round4(vals[i])
 	}
 
 	bc := 10
 	buckets, counts, _ := bucketLatencies(s, bc)
 	jsonBuckets := make([]JSONBucket, bc+1)
 	for i := range jsonBuckets {
-		jsonBuckets[i] = JSONBucket{UpperBoundSecs: buckets[i], Count: counts[i]}
+		jsonBuckets[i] = JSONBucket{UpperBoundSecs: round4(buckets[i]), Count: counts[i]}
 	}
 
 	errKeys := make([]string, 0, len(s.ErrorDist))
@@ -347,12 +355,12 @@ func FormatJSON(s Stats, label string) (string, error) {
 
 	jr := JSONReport{
 		Label:          label,
-		TotalSecs:      s.Total.Seconds(),
-		SlowestSecs:    s.Slowest,
-		FastestSecs:    s.Fastest,
-		AverageSecs:    s.Average,
-		StddevSecs:     s.Stddev,
-		RequestsPerSec: s.RPS,
+		TotalSecs:      round4(s.Total.Seconds()),
+		SlowestSecs:    round4(s.Slowest),
+		FastestSecs:    round4(s.Fastest),
+		AverageSecs:    round4(s.Average),
+		StddevSecs:     round4(s.Stddev),
+		RequestsPerSec: round4(s.RPS),
 		Percentiles:    pctMap,
 		Histogram:      jsonBuckets,
 		Errors:         jsonErrs,
