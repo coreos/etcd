@@ -91,6 +91,21 @@ func TestNewUniqueURLsWithExceptions(t *testing.T) {
 	}
 }
 
+func TestUniqueURLsSetReplacesPreviousValue(t *testing.T) {
+	const name = "test"
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.Var(NewUniqueURLsWithExceptions("https://1.2.3.4:1"), name, "usage")
+	require.NoError(t, fs.Parse([]string{
+		"--" + name, "https://1.2.3.4:1,https://1.2.3.4:2",
+		"--" + name, "https://1.2.3.4:1",
+	}))
+
+	require.Equal(t, map[string]struct{}{"https://1.2.3.4:1": {}}, UniqueURLsMapFromFlag(fs, name))
+	uss := UniqueURLsFromFlag(fs, name)
+	require.Len(t, uss, 1)
+	require.Equal(t, "https://1.2.3.4:1", uss[0].String())
+}
+
 func TestUniqueURLsFromFlag(t *testing.T) {
 	const name = "test"
 	urls := []string{

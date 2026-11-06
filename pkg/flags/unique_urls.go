@@ -36,9 +36,6 @@ type UniqueURLs struct {
 // http://127.0.0.1:2380,http://10.1.1.2:80
 // Implements "flag.Value" interface.
 func (us *UniqueURLs) Set(s string) error {
-	if _, ok := us.Values[s]; ok {
-		return nil
-	}
 	if _, ok := us.Allowed[s]; ok {
 		us.Values[s] = struct{}{}
 		return nil
