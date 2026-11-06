@@ -47,6 +47,12 @@ type Interface interface {
 	// is provided for future extensibility in case options become necessary.
 	Count(ctx context.Context, prefix string, opts CountOptions) (int64, error)
 
+	// Keys retrieves only the keys (without values) with the specified prefix.
+	//
+	// If opts.Revision is set to a non-zero value, the keys are retrieved at the specified revision.
+	// If the required revision has been compacted, the request will fail with ErrCompacted.
+	Keys(ctx context.Context, prefix string, opts KeysOptions) (KeysResponse, error)
+
 	// OptimisticPut creates or updates a key-value pair if the key has not been modified or created
 	// since the revision specified in expectedRevision.
 	//
@@ -84,6 +90,13 @@ type ListOptions struct {
 // CountOptions is a placeholder for potential future options for the Count operation.
 type CountOptions struct{}
 
+// KeysOptions contains options for the Keys operation.
+type KeysOptions struct {
+	// Revision is the point-in-time of the etcd key-value store to use for the Keys operation.
+	// If Revision is 0, it gets the latest keys.
+	Revision int64
+}
+
 type PutOptions struct {
 	// GetOnFailure specifies whether to return the modified key-value pair if the Put operation fails due to a revision mismatch.
 	GetOnFailure bool
@@ -114,6 +127,17 @@ type ListResponse struct {
 	Count int64
 
 	// Revision is the revision of the key-value store at the time of the List operation.
+	Revision int64
+}
+
+type KeysResponse struct {
+	// Keys is the list of keys retrieved from etcd, ordered lexicographically.
+	Keys [][]byte
+
+	// Count is the total number of keys with the specified prefix.
+	Count int64
+
+	// Revision is the revision of the key-value store at the time of the Keys operation.
 	Revision int64
 }
 

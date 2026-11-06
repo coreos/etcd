@@ -80,6 +80,21 @@ func (k Client) Count(ctx context.Context, prefix string, _ CountOptions) (int64
 	return resp.Count, nil
 }
 
+func (k Client) Keys(ctx context.Context, prefix string, opts KeysOptions) (resp KeysResponse, err error) {
+	rangeEnd := clientv3.GetPrefixRangeEnd(prefix)
+	rangeResp, err := k.KV.Get(ctx, prefix, clientv3.WithRange(rangeEnd), clientv3.WithKeysOnly(), clientv3.WithRev(opts.Revision))
+	if err != nil {
+		return resp, err
+	}
+	resp.Keys = make([][]byte, len(rangeResp.Kvs))
+	for i, kv := range rangeResp.Kvs {
+		resp.Keys[i] = kv.Key
+	}
+	resp.Count = rangeResp.Count
+	resp.Revision = rangeResp.Header.Revision
+	return resp, nil
+}
+
 func (k Client) OptimisticPut(ctx context.Context, key string, value []byte, expectedRevision int64, opts PutOptions) (resp PutResponse, err error) {
 	txn := k.KV.Txn(ctx).If(
 		clientv3.Compare(clientv3.ModRevision(key), "=", expectedRevision),

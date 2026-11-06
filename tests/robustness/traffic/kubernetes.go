@@ -46,7 +46,9 @@ var (
 			{Choice: KubernetesGetStale, Weight: 2},
 			{Choice: KubernetesGetRev, Weight: 8},
 			{Choice: KubernetesListStale, Weight: 5},
-			{Choice: KubernetesListAndWatch, Weight: 80},
+			{Choice: KubernetesCount, Weight: 3},
+			{Choice: KubernetesKeys, Weight: 2},
+			{Choice: KubernetesListAndWatch, Weight: 75},
 		},
 		// Please keep the sum of weights equal 100.
 		writeChoices: []random.ChoiceWeight[KubernetesRequestType]{
@@ -66,7 +68,9 @@ var (
 			{Choice: KubernetesGetStale, Weight: 2},
 			{Choice: KubernetesGetRev, Weight: 8},
 			{Choice: KubernetesListStale, Weight: 5},
-			{Choice: KubernetesListAndWatch, Weight: 80},
+			{Choice: KubernetesCount, Weight: 3},
+			{Choice: KubernetesKeys, Weight: 2},
+			{Choice: KubernetesListAndWatch, Weight: 75},
 		},
 		// Please keep the sum of weights equal 100.
 		writeChoices: []random.ChoiceWeight[KubernetesRequestType]{
@@ -162,6 +166,10 @@ func (t kubernetesTraffic) Read(ctx context.Context, c *client.RecordingClient, 
 		_, rev := s.PickRandom()
 		_, err := t.List(ctx, kc, s, limiter, keyPrefix, t.averageKeyCount, rev)
 		return err
+	case KubernetesCount:
+		return t.Count(ctx, kc, limiter, keyPrefix)
+	case KubernetesKeys:
+		return t.Keys(ctx, kc, limiter, keyPrefix)
 	case KubernetesListAndWatch:
 		rev, err := t.List(ctx, kc, s, limiter, keyPrefix, t.averageKeyCount, 0)
 		if err != nil {
@@ -176,6 +184,18 @@ func (t kubernetesTraffic) Read(ctx context.Context, c *client.RecordingClient, 
 
 func (t kubernetesTraffic) Get(ctx context.Context, kc kubernetes.Interface, s *storage, limiter *rate.Limiter, key string, rev int64) error {
 	_, err := kc.Get(ctx, key, kubernetes.GetOptions{Revision: rev})
+	limiter.Wait(ctx)
+	return err
+}
+
+func (t kubernetesTraffic) Count(ctx context.Context, kc kubernetes.Interface, limiter *rate.Limiter, keyPrefix string) error {
+	_, err := kc.Count(ctx, keyPrefix, kubernetes.CountOptions{})
+	limiter.Wait(ctx)
+	return err
+}
+
+func (t kubernetesTraffic) Keys(ctx context.Context, kc kubernetes.Interface, limiter *rate.Limiter, keyPrefix string) error {
+	_, err := kc.Keys(ctx, keyPrefix, kubernetes.KeysOptions{})
 	limiter.Wait(ctx)
 	return err
 }
@@ -343,6 +363,8 @@ const (
 	KubernetesGetRev       KubernetesRequestType = "get_rev"
 	KubernetesListStale    KubernetesRequestType = "list_stale"
 	KubernetesListAndWatch KubernetesRequestType = "list_watch"
+	KubernetesCount        KubernetesRequestType = "count"
+	KubernetesKeys         KubernetesRequestType = "keys"
 )
 
 type storage struct {
