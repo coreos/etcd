@@ -471,6 +471,16 @@ func openWALFiles(lg *zap.Logger, dirpath string, names []string, nameIndex int,
 // ReadAll suppresses WAL entries that got overridden (i.e. a newer entry with the same index
 // exists in the log). Such a situation can happen in cases described in figure 7. of the
 // RAFT paper (http://web.stanford.edu/~ouster/cgi-bin/papers/raft-atc14.pdf).
+// An entry record at index i means that raft truncated its log to [.., i-1] before
+// appending it, so every entry read before it with index >= i is stale. This truncation is
+// a property of the record itself and is applied regardless of the snapshot ReadAll was
+// opened at: an overriding entry with index <= snapshot index still discards every entry
+// read so far, since all of them have an index above the snapshot.
+//
+// A snapshot record matching the opening snapshot is treated the way raft treats a received
+// snapshot (see raft.restore): if the entry at the snapshot index read so far does not carry
+// the snapshot term, the snapshot replaced the whole log and every entry read so far is
+// discarded. Otherwise the log is kept and the entries above the snapshot survive.
 //
 // ReadAll may return uncommitted yet entries, that are subject to be overridden.
 // Do not apply entries that have index > state.commit, as they are subject to change.
@@ -487,12 +497,19 @@ func (w *WAL) ReadAll() (metadata []byte, state *raftpb.HardState, ents []*raftp
 	decoder := w.decoder
 
 	var match bool
+	// startTerm is the term of the log entry at w.start.Index as seen by the replay so far.
+	// startTermKnown is false until such an entry (or a matching snapshot) has been read.
+	var startTerm uint64
+	var startTermKnown bool
 	for err = decoder.Decode(rec); err == nil; err = decoder.Decode(rec) {
 		switch rec.GetType() {
 		case EntryType:
 			e := MustUnmarshalEntry(rec.Data)
-			// 0 <= e.GetIndex()-w.start.GetIndex() - 1 < len(ents)
+			// Every entry already collected has index > w.start.GetIndex(). The entry e
+			// overrides every previously read entry with index >= e.GetIndex(), whether or
+			// not e itself is above the snapshot.
 			if e.GetIndex() > w.start.GetIndex() {
+				// 0 <= e.GetIndex()-w.start.GetIndex() - 1 < len(ents)
 				// prevent "panic: runtime error: slice bounds out of range [:13038096702221461992] with capacity 0"
 				offset := e.GetIndex() - w.start.GetIndex() - 1
 				if offset > uint64(len(ents)) {
@@ -504,6 +521,17 @@ func (w *WAL) ReadAll() (metadata []byte, state *raftpb.HardState, ents []*raftp
 				}
 				// The line below is potentially overriding some 'uncommitted' entries.
 				ents = append(ents[:offset], e)
+			} else {
+				// e.GetIndex() <= w.start.GetIndex(): all collected entries are stale.
+				ents = ents[:0]
+			}
+			switch {
+			case e.GetIndex() == w.start.GetIndex():
+				startTerm, startTermKnown = e.GetTerm(), true
+			case e.GetIndex() < w.start.GetIndex():
+				// The log got truncated below w.start.GetIndex(); the entry at that index
+				// does not exist anymore.
+				startTerm, startTermKnown = 0, false
 			}
 			w.enti = e.GetIndex()
 
@@ -536,6 +564,14 @@ func (w *WAL) ReadAll() (metadata []byte, state *raftpb.HardState, ents []*raftp
 					return nil, state, nil, ErrSnapshotMismatch
 				}
 				match = true
+				// Mirror raft.restore: raft keeps its log only when the entry at
+				// snap.Index carries snap.Term (raftLog.matchTerm). Otherwise the
+				// snapshot replaced the whole log and the entries read so far are
+				// stale even though no entry record records that truncation.
+				if startTermKnown && startTerm != snap.GetTerm() {
+					ents = ents[:0]
+				}
+				startTerm, startTermKnown = snap.GetTerm(), true
 			}
 
 		default:
