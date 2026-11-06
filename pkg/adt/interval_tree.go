@@ -902,6 +902,12 @@ func newInt64EmptyInterval() Interval {
 }
 
 func NewInt64Point(a int64) Interval {
+	if a == math.MaxInt64 {
+		// a+1 would overflow. math.MaxInt64 has no representable successor, so
+		// the returned degenerate interval is empty ([a, a)) and matches no
+		// keys, keeping the Begin <= End invariant intact.
+		return Interval{Int64Comparable(a), Int64Comparable(a)}
+	}
 	return Interval{Int64Comparable(a), Int64Comparable(a + 1)}
 }
 
@@ -909,11 +915,10 @@ type Int64Comparable int64
 
 func (v Int64Comparable) Compare(c Comparable) int {
 	vc := c.(Int64Comparable)
-	cmp := v - vc
-	if cmp < 0 {
+	if v < vc {
 		return -1
 	}
-	if cmp > 0 {
+	if v > vc {
 		return 1
 	}
 	return 0

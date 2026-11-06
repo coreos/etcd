@@ -15,6 +15,7 @@
 package adt
 
 import (
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -532,4 +533,31 @@ func TestIntervalTreeContains(t *testing.T) {
 		v := ivt.Contains(tt.chkIvl)
 		assert.Equalf(t, v, tt.wContains, "#%d: ivt.Contains got %v, expected %v", i, v, tt.wContains)
 	}
+}
+
+// TestInt64ComparableCompareExtremes ensures the comparator does not overflow
+// when comparing values far apart, e.g. math.MaxInt64 and math.MinInt64.
+func TestInt64ComparableCompareExtremes(t *testing.T) {
+	maxV := Int64Comparable(math.MaxInt64)
+	minV := Int64Comparable(math.MinInt64)
+
+	require.Equalf(t, 1, maxV.Compare(minV), "MaxInt64 must compare greater than MinInt64")
+	require.Equalf(t, -1, minV.Compare(maxV), "MinInt64 must compare less than MaxInt64")
+	require.Equalf(t, 1, maxV.Compare(Int64Comparable(-1)), "MaxInt64 must compare greater than -1")
+	require.Equalf(t, -1, Int64Comparable(-1).Compare(maxV), "-1 must compare less than MaxInt64")
+	require.Equalf(t, 0, maxV.Compare(maxV), "MaxInt64 must compare equal to itself")
+}
+
+// TestNewInt64PointExtremes ensures point intervals keep the Begin <= End
+// invariant even at the upper bound of int64.
+func TestNewInt64PointExtremes(t *testing.T) {
+	pt := NewInt64Point(math.MaxInt64)
+	require.Equal(t, Int64Comparable(math.MaxInt64), pt.Begin)
+	if pt.Begin.Compare(pt.End) == 1 {
+		t.Fatal("point interval invariant violated: Begin must not be greater than End")
+	}
+
+	normal := NewInt64Point(42)
+	require.Equal(t, Int64Comparable(42), normal.Begin)
+	require.Equal(t, Int64Comparable(43), normal.End)
 }
