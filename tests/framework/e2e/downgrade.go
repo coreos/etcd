@@ -184,22 +184,9 @@ func DowngradeUpgradeMembersByID(t *testing.T, lg *zap.Logger, clus *EtcdProcess
 	time.Sleep(etcdserver.HealthInterval)
 
 	lg.Info("Validating versions")
-	clusterVersion := targetVersion
-	if !isDowngrade {
-		if downgradeEnabled {
-			// If the downgrade isn't cancelled yet, then the cluster
-			// version will always stay at the lower version, no matter
-			// what's the binary version of each member.
-			clusterVersion = currentVersion
-		} else {
-			// If the downgrade has already been cancelled, then the
-			// cluster version is the minimal server version.
-			minVer, err := clus.MinServerVersion()
-			if err != nil {
-				return fmt.Errorf("failed to get min server version: %w", err)
-			}
-			clusterVersion = minVer
-		}
+	clusterVersion, err := expectedClusterVersion(clus, downgradeEnabled, currentVersion, targetVersion)
+	if err != nil {
+		return err
 	}
 
 	for _, memberID := range membersToChange {
@@ -210,6 +197,181 @@ func DowngradeUpgradeMembersByID(t *testing.T, lg *zap.Logger, clus *EtcdProcess
 		})
 	}
 	return nil
+}
+
+func RollingReplaceMembers(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, numberOfMembersToChange int, downgradeEnabled bool, currentVersion, targetVersion *semver.Version) error {
+	membersToChange := rand.Perm(len(clus.Procs))[:numberOfMembersToChange]
+	t.Logf("Elect members for rolling replacement: %v", membersToChange)
+
+	return RollingReplaceMembersByID(t, lg, clus, membersToChange, downgradeEnabled, currentVersion, targetVersion)
+}
+
+func RollingReplaceMembersByID(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, membersToChange []int, downgradeEnabled bool, currentVersion, targetVersion *semver.Version) error {
+	if lg == nil {
+		lg = clus.lg
+	}
+	if len(membersToChange) == 0 {
+		return fmt.Errorf("membersToChange must not be empty")
+	}
+
+	isDowngrade := targetVersion.LessThan(*currentVersion)
+	opString := "upgrading"
+	targetExecPath := BinPath.Etcd
+	targetClusterVersion := CurrentVersion
+	if isDowngrade {
+		opString = "downgrading"
+		targetExecPath = BinPath.EtcdLastRelease
+		targetClusterVersion = LastVersion
+	}
+
+	// Resolve indices to EtcdProcess pointers upfront. Each iteration
+	// mutates clus.Procs (append a learner, remove a voter) so the
+	// indices passed in stop pointing at the same processes after the
+	// first step.
+	victims := make([]EtcdProcess, len(membersToChange))
+	for i, idx := range membersToChange {
+		if idx < 0 || idx >= len(clus.Procs) {
+			return fmt.Errorf("invalid member index %d: cluster has %d procs", idx, len(clus.Procs))
+		}
+		member := clus.Procs[idx]
+		if member.Config().ExecPath == targetExecPath {
+			return fmt.Errorf("member:%s is already running with the %s target binary - %s", member.Config().Name, opString, member.Config().ExecPath)
+		}
+		victims[i] = member
+	}
+
+	newMemberCfg := *clus.Cfg
+	newMemberCfg.Version = targetClusterVersion
+	newMemberCfg.KeepDataDir = false
+
+	newProcs := make([]EtcdProcess, 0, len(victims))
+	for iter, victim := range victims {
+		lg.Info(fmt.Sprintf("%s cluster via rolling replacement", opString),
+			zap.Int("iteration", iter+1),
+			zap.Int("total", len(victims)),
+			zap.String("victim", victim.Config().Name),
+			zap.String("target", targetExecPath),
+		)
+
+		memberID, newProc, err := rollingAddLearner(t, lg, clus, &newMemberCfg)
+		if err != nil {
+			return fmt.Errorf("rolling replacement iter %d: add learner: %w", iter+1, err)
+		}
+		newProcs = append(newProcs, newProc)
+
+		if err := rollingPromoteLearner(t, lg, clus, memberID); err != nil {
+			return fmt.Errorf("rolling replacement iter %d: promote learner: %w", iter+1, err)
+		}
+
+		if err := rollingRemoveMember(t, lg, clus, victim); err != nil {
+			return fmt.Errorf("rolling replacement iter %d: remove victim %s: %w", iter+1, victim.Config().Name, err)
+		}
+
+		time.Sleep(etcdserver.HealthInterval)
+	}
+
+	t.Log("Waiting health interval to make sure the leader propagates version to new processes")
+	time.Sleep(etcdserver.HealthInterval)
+
+	return validateReplacedMembers(t, lg, clus, newProcs, downgradeEnabled, currentVersion, targetVersion)
+}
+
+func validateReplacedMembers(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, newProcs []EtcdProcess, downgradeEnabled bool, currentVersion, targetVersion *semver.Version) error {
+	lg.Info("Validating versions")
+	clusterVersion, err := expectedClusterVersion(clus, downgradeEnabled, currentVersion, targetVersion)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range newProcs {
+		ValidateVersion(t, clus.Cfg, p, version.Versions{
+			Cluster: clusterVersion.String(),
+			Server:  targetVersion.String(),
+		})
+	}
+	return nil
+}
+
+func expectedClusterVersion(clus *EtcdProcessCluster, downgradeEnabled bool, currentVersion, targetVersion *semver.Version) (*semver.Version, error) {
+	if targetVersion.LessThan(*currentVersion) {
+		return targetVersion, nil
+	}
+	// If the downgrade isn't cancelled yet, then the cluster
+	// version will always stay at the lower version, no matter
+	// what's the binary version of each member.
+	if downgradeEnabled {
+		return currentVersion, nil
+	}
+	// If the downgrade has already been cancelled, then the
+	// cluster version is the minimal server version.
+	minVer, err := clus.MinServerVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get min server version: %w", err)
+	}
+	return minVer, nil
+}
+
+func rollingAddLearner(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, newMemberCfg *EtcdProcessClusterConfig) (memberID uint64, proc EtcdProcess, err error) {
+	var serverCfg *EtcdServerProcessConfig
+	testutils.ExecuteWithTimeout(t, 1*time.Minute, func() {
+		for {
+			memberID, serverCfg, err = clus.AddMember(t.Context(), newMemberCfg, t, true)
+			if err == nil {
+				return
+			}
+			if strings.Contains(err.Error(), "etcdserver: unhealthy cluster") {
+				lg.Info("AddMember not yet accepted, retrying", zap.Error(err))
+				time.Sleep(time.Second)
+				continue
+			}
+			return
+		}
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+
+	lg.Info("Started new learner", zap.String("member", serverCfg.Name), zap.String("exec", serverCfg.ExecPath))
+	if err = clus.StartNewProcFromConfig(t.Context(), t, serverCfg); err != nil {
+		return 0, nil, fmt.Errorf("failed to start new learner: %w", err)
+	}
+	proc = clus.Procs[len(clus.Procs)-1]
+	return memberID, proc, nil
+}
+
+func rollingPromoteLearner(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, memberID uint64) error {
+	var promoteErr error
+	testutils.ExecuteWithTimeout(t, 1*time.Minute, func() {
+		for {
+			_, promoteErr = clus.Etcdctl().MemberPromote(t.Context(), memberID)
+			if promoteErr == nil {
+				return
+			}
+			if strings.Contains(promoteErr.Error(), "can only promote a learner member which is in sync with leader") ||
+				strings.Contains(promoteErr.Error(), "etcdserver: unhealthy cluster") ||
+				strings.Contains(promoteErr.Error(), "context deadline exceeded") {
+				lg.Info("MemberPromote not yet ready, retrying", zap.Uint64("member-id", memberID), zap.Error(promoteErr))
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			return
+		}
+	})
+	if promoteErr != nil {
+		return promoteErr
+	}
+	lg.Info("Promoted learner to voting member", zap.Uint64("member-id", memberID))
+	return nil
+}
+
+func rollingRemoveMember(t *testing.T, lg *zap.Logger, clus *EtcdProcessCluster, victim EtcdProcess) error {
+	lg.Info("Removing source-version member",
+		zap.String("member", victim.Config().Name),
+		zap.String("exec", victim.Config().ExecPath),
+	)
+	return clus.CloseProc(t.Context(), func(p EtcdProcess) bool {
+		return p == victim
+	})
 }
 
 func ValidateMemberVersions(t *testing.T, epc *EtcdProcessCluster, expect []*version.Versions) {
