@@ -1603,11 +1603,21 @@ The test checks for the following conditions:
 
 Hence, a workload model may work while another one might fail.
 
+The preset workload can be customized by setting `--clients`, `--limit`, or
+`--duration`. These flags override the selected `--load` preset values when
+provided.
+
 RPC: CheckPerf
 
 #### Options
 
 - load -- the performance check's workload model. Accepted workloads: s(small), m(medium), l(large), xl(xLarge)
+
+- clients -- override the number of clients for the performance check workload.
+
+- limit -- override the expected throughput limit for the performance check workload.
+
+- duration -- override the duration of the performance check workload in seconds.
 
 - prefix -- the prefix for writing the performance check's keys.
 

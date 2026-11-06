@@ -38,6 +38,9 @@ import (
 var (
 	checkPerfLoad        string
 	checkPerfPrefix      string
+	checkPerfLimit       int
+	checkPerfClients     int
+	checkPerfDuration    int
 	checkDatascaleLoad   string
 	checkDatascalePrefix string
 	autoCompact          bool
@@ -127,8 +130,10 @@ func NewCheckPerfCommand() *cobra.Command {
 		Run:   newCheckPerfCommand,
 	}
 
-	// TODO: support customized configuration
 	cmd.Flags().StringVar(&checkPerfLoad, "load", "s", "The performance check's workload model. Accepted workloads: s(small), m(medium), l(large), xl(xLarge). Different workload models use different configurations in terms of number of clients and expected throughput.")
+	cmd.Flags().IntVar(&checkPerfClients, "clients", 0, "Override the number of clients for the performance check workload.")
+	cmd.Flags().IntVar(&checkPerfLimit, "limit", 0, "Override the expected throughput limit for the performance check workload.")
+	cmd.Flags().IntVar(&checkPerfDuration, "duration", 0, "Override the duration of the performance check workload in seconds.")
 	cmd.Flags().StringVar(&checkPerfPrefix, "prefix", "/etcdctl-check-perf/", "The prefix for writing the performance check's keys.")
 	cmd.Flags().BoolVar(&autoCompact, "auto-compact", false, "Compact storage with last revision after test is finished.")
 	cmd.Flags().BoolVar(&autoDefrag, "auto-defrag", false, "Defragment storage after test is finished.")
@@ -139,8 +144,7 @@ func NewCheckPerfCommand() *cobra.Command {
 	return cmd
 }
 
-// newCheckPerfCommand executes the "check perf" command.
-func newCheckPerfCommand(cmd *cobra.Command, args []string) {
+func checkPerfConfigFromCmd(cmd *cobra.Command) (checkPerfCfg, int, error) {
 	checkPerfAlias := map[string]string{
 		"s": "s", "small": "s",
 		"m": "m", "medium": "m",
@@ -150,9 +154,38 @@ func newCheckPerfCommand(cmd *cobra.Command, args []string) {
 
 	model, ok := checkPerfAlias[checkPerfLoad]
 	if !ok {
-		cobrautl.ExitWithError(cobrautl.ExitBadFeature, fmt.Errorf("unknown load option %v", checkPerfLoad))
+		return checkPerfCfg{}, cobrautl.ExitBadFeature, fmt.Errorf("unknown load option %v", checkPerfLoad)
 	}
 	cfg := checkPerfCfgMap[model]
+
+	if cmd.Flags().Changed("clients") {
+		if checkPerfClients <= 0 {
+			return checkPerfCfg{}, cobrautl.ExitInvalidInput, fmt.Errorf("clients must be greater than 0")
+		}
+		cfg.clients = checkPerfClients
+	}
+	if cmd.Flags().Changed("limit") {
+		if checkPerfLimit <= 0 {
+			return checkPerfCfg{}, cobrautl.ExitInvalidInput, fmt.Errorf("limit must be greater than 0")
+		}
+		cfg.limit = checkPerfLimit
+	}
+	if cmd.Flags().Changed("duration") {
+		if checkPerfDuration <= 0 {
+			return checkPerfCfg{}, cobrautl.ExitInvalidInput, fmt.Errorf("duration must be greater than 0")
+		}
+		cfg.duration = checkPerfDuration
+	}
+
+	return cfg, cobrautl.ExitSuccess, nil
+}
+
+// newCheckPerfCommand executes the "check perf" command.
+func newCheckPerfCommand(cmd *cobra.Command, args []string) {
+	cfg, exitCode, err := checkPerfConfigFromCmd(cmd)
+	if err != nil {
+		cobrautl.ExitWithError(exitCode, err)
+	}
 
 	requests := make(chan v3.Op, cfg.clients)
 	limit := rate.NewLimiter(rate.Limit(cfg.limit), 1)
@@ -231,7 +264,7 @@ func newCheckPerfCommand(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	ok = true
+	ok := true
 	if len(s.ErrorDist) != 0 {
 		fmt.Println("FAIL: too many errors")
 		for k, v := range s.ErrorDist {
