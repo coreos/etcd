@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
+	"go.etcd.io/etcd/cache/v3"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/tests/v3/robustness/identity"
 	"go.etcd.io/etcd/tests/v3/robustness/model"
@@ -65,12 +66,51 @@ func NewRecordingClient(endpoints []string, ids identity.Provider, baseTime time
 	if err != nil {
 		return nil, err
 	}
+	c, err := cache.New(cc, "", cache.WithProgressNotifyInterval(100*time.Millisecond))
+	if err != nil {
+		return nil, err
+	}
+	cc.Watcher = &cacheWatcher{
+		Cache:   c,
+		Watcher: cc.Watcher,
+	}
+	cc.KV = &cacheKV{
+		Cache: c,
+		KV:    cc.KV,
+	}
 	return &RecordingClient{
 		ID:           ids.NewClientID(),
 		client:       cc,
 		kvOperations: model.NewAppendableHistory(ids),
 		baseTime:     baseTime,
 	}, nil
+}
+
+type cacheKV struct {
+	clientv3.KV
+	Cache *cache.Cache
+}
+
+func (ckv *cacheKV) Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	return ckv.Cache.Get(ctx, key, opts...)
+}
+
+type cacheWatcher struct {
+	Cache   *cache.Cache
+	Watcher clientv3.Watcher
+}
+
+func (cw *cacheWatcher) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
+	return cw.Cache.Watch(ctx, key, opts...)
+}
+
+func (cw *cacheWatcher) RequestProgress(ctx context.Context) error {
+	return cw.Watcher.RequestProgress(ctx)
+}
+
+func (cw *cacheWatcher) Close() error {
+	cw.Cache.Close()
+	return cw.Watcher.Close()
 }
 
 func (c *RecordingClient) Close() error {
@@ -322,7 +362,8 @@ func (c *RecordingClient) Watch(ctx context.Context, key string, rev int64, with
 		Revision:           rev,
 		WithPrefix:         withPrefix,
 		WithProgressNotify: withProgressNotify,
-		WithPrevKV:         withPrevKV,
+		// TODO: Restore when cache supports
+		// WithPrevKV: withPrevKV,
 	}
 	return c.watch(ctx, request)
 }

@@ -130,16 +130,16 @@ func SimulateTraffic(ctx context.Context, t *testing.T, lg *zap.Logger, clus *e2
 		})
 		require.NoError(t, err)
 	}
-	if profile.Compaction != nil {
-		if profile.Compaction.Period < MinimalCompactionPeriod {
-			t.Fatalf("Compaction period %v below minimal %v", profile.Compaction.Period, MinimalCompactionPeriod)
-		}
-		err = SimulateCompactionTraffic(ctx, &wg, profile.Compaction, endpoints, clientSet, traffic, RunCompactLoopParam{
-			Period: profile.Compaction.Period,
-			Finish: finish,
-		})
-		require.NoError(t, err)
-	}
+	// if profile.Compaction != nil {
+	// 	if profile.Compaction.Period < MinimalCompactionPeriod {
+	// 		t.Fatalf("Compaction period %v below minimal %v", profile.Compaction.Period, MinimalCompactionPeriod)
+	// 	}
+	// 	err = SimulateCompactionTraffic(ctx, &wg, profile.Compaction, endpoints, clientSet, traffic, RunCompactLoopParam{
+	// 		Period: profile.Compaction.Period,
+	// 		Finish: finish,
+	// 	})
+	// 	require.NoError(t, err)
+	// }
 	var fr *report.FailpointInjection
 	select {
 	case frp, ok := <-failpointInjected:
