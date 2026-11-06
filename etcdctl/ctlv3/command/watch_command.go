@@ -79,7 +79,7 @@ func watchCommandFunc(cmd *cobra.Command, args []string) {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
 
-	c := mustClientFromCmd(cmd)
+	c := mustBlockClientFromCmd(cmd)
 	wc, err := getWatchChan(c, watchArgs)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)

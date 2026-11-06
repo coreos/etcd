@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 
 	"go.etcd.io/etcd/client/pkg/v3/logutil"
@@ -156,6 +157,11 @@ func mustClientFromCmd(cmd *cobra.Command) *clientv3.Client {
 	return mustClient(cfg)
 }
 
+func mustBlockClientFromCmd(cmd *cobra.Command) *clientv3.Client {
+	cfg := clientConfigFromCmd(cmd)
+	return mustBlockClient(cfg)
+}
+
 func mustClient(cc *clientv3.ConfigSpec) *clientv3.Client {
 	lg, _ := logutil.CreateDefaultZapLogger(zap.InfoLevel)
 	cfg, err := clientv3.NewClientConfig(cc, lg)
@@ -163,6 +169,23 @@ func mustClient(cc *clientv3.ConfigSpec) *clientv3.Client {
 		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
 	}
 
+	client, err := clientv3.New(*cfg)
+	if err != nil {
+		cobrautl.ExitWithError(cobrautl.ExitBadConnection, err)
+	}
+
+	return client
+}
+
+// mustBlockClient same as mustClient but with grpc.WithBlock dial option, detail see #18335
+func mustBlockClient(cc *clientv3.ConfigSpec) *clientv3.Client {
+	lg, _ := logutil.CreateDefaultZapLogger(zap.InfoLevel)
+	cfg, err := clientv3.NewClientConfig(cc, lg)
+	if err != nil {
+		cobrautl.ExitWithError(cobrautl.ExitBadArgs, err)
+	}
+
+	cfg.DialOptions = append(cfg.DialOptions, grpc.WithBlock())
 	client, err := clientv3.New(*cfg)
 	if err != nil {
 		cobrautl.ExitWithError(cobrautl.ExitBadConnection, err)
