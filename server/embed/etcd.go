@@ -617,7 +617,10 @@ func (e *Etcd) servePeers() {
 				"stopping serving peer traffic",
 				zap.String("address", u),
 			)
-			srv.Shutdown(ctx)
+			if err := srv.Shutdown(ctx); err != nil {
+				// Shutdown does not close active connections when its context expires.
+				srv.Close()
+			}
 			e.cfg.logger.Info(
 				"stopped serving peer traffic",
 				zap.String("address", u),

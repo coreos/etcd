@@ -20,7 +20,9 @@
 package embed_test
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -126,6 +129,47 @@ func TestEmbedEtcd(t *testing.T) {
 
 func TestEmbedEtcdGracefulStopSecure(t *testing.T)   { testEmbedEtcdGracefulStop(t, true) }
 func TestEmbedEtcdGracefulStopInsecure(t *testing.T) { testEmbedEtcdGracefulStop(t, false) }
+
+func TestEmbedEtcdCloseClosesActivePeerConnections(t *testing.T) {
+	testutil.SkipTestIfShortMode(t, "Cannot start embedded cluster in --short tests")
+
+	cfg := embed.NewConfig()
+	urls := newEmbedURLs(false, 2)
+	setupEmbedCfg(cfg, []url.URL{urls[0]}, []url.URL{urls[1]})
+	cfg.Dir = filepath.Join(t.TempDir(), "embed-etcd")
+
+	e, err := embed.StartEtcd(cfg)
+	require.NoError(t, err)
+	defer func() {
+		if e != nil {
+			e.Close()
+		}
+	}()
+	<-e.Server.ReadyNotify()
+
+	conn, err := net.Dial("unix", urls[1].Host)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = fmt.Fprintf(conn, "POST /raft HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\nExpect: 100-continue\r\nX-Server-From: %s\r\nX-Server-Version: %s\r\nX-Min-Cluster-Version: %s\r\nX-Etcd-Cluster-ID: %s\r\n\r\n", e.Server.MemberID(), version.Version, version.MinClusterVersion, e.Server.Cluster().ID())
+	require.NoError(t, err)
+
+	reader := bufio.NewReader(conn)
+	statusLine, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "HTTP/1.1 100 Continue\r\n", statusLine)
+	emptyLine, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "\r\n", emptyLine)
+
+	e.Close()
+	e = nil
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(100*time.Millisecond)))
+	_, err = reader.ReadByte()
+	require.Error(t, err)
+	require.NotErrorIs(t, err, os.ErrDeadlineExceeded)
+}
 
 // testEmbedEtcdGracefulStop ensures embedded server stops
 // cutting existing transports.
