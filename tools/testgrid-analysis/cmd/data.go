@@ -27,6 +27,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+const testGridAPIBaseURL = "https://testgrid-api.prow.k8s.io"
+
 var (
 	validTestStatuses      = []statuspb.TestStatus{statuspb.TestStatus_PASS, statuspb.TestStatus_FAIL, statuspb.TestStatus_FLAKY}
 	failureTestStatuses    = []statuspb.TestStatus{statuspb.TestStatus_FAIL, statuspb.TestStatus_FLAKY}
@@ -47,8 +49,8 @@ type TestResultSummary struct {
 
 func fetchTestResultSummaries(dashboard, tab string) []*TestResultSummary {
 	// Fetch test data
-	rowsURL := fmt.Sprintf("http://testgrid-data.k8s.io/api/v1/dashboards/%s/tabs/%s/rows", dashboard, tab)
-	headersURL := fmt.Sprintf("http://testgrid-data.k8s.io/api/v1/dashboards/%s/tabs/%s/headers", dashboard, tab)
+	rowsURL := fmt.Sprintf("%s/api/v1/dashboards/%s/tabs/%s/rows", testGridAPIBaseURL, dashboard, tab)
+	headersURL := fmt.Sprintf("%s/api/v1/dashboards/%s/tabs/%s/headers", testGridAPIBaseURL, dashboard, tab)
 
 	var testData apipb.ListRowsResponse
 	var headerData apipb.ListHeadersResponse

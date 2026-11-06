@@ -5,7 +5,9 @@ on:
   schedule:
     - cron: "0 0 * * *" # run every day at midnight
 
-permissions: read-all
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   measure-testgrid-flakiness:
