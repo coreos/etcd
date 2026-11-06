@@ -199,7 +199,7 @@ type Server interface {
 	Alarms() []*pb.AlarmMember
 
 	// LeaderChangedNotify returns a channel for application level code to be notified
-	// when etcd leader changes, this function is intend to be used only in application
+	// when etcd leader changes, this function is intended to be used only in application
 	// which embed etcd.
 	// Caution:
 	// 1. the returned channel is being closed when the leadership changes.

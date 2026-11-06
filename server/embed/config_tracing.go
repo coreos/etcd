@@ -131,7 +131,7 @@ func determineSampler(samplingRate int) tracesdk.Sampler {
 
 // As Tracing service Instance ID must be unique, it should
 // never use the empty default string value, it's set if
-// if it's a non empty string.
+// it's a non-empty string.
 func determineResourceWithIDKey(serviceInstanceID string) *resource.Resource {
 	if serviceInstanceID != "" {
 		return resource.NewSchemaless(

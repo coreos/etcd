@@ -257,8 +257,8 @@ func newLessor(lg *zap.Logger, b backend.Backend, cluster cluster, cfg LessorCon
 // smaller term and will not be committed.
 //
 // TODO: raft follower do not forward lease management proposals. There might be a
-// very small window (within second normally which depends on go scheduling) that
-// a raft follow is the primary between the raft leader demotion and lessor demotion.
+// very small window (within a second normally, which depends on Go scheduling) that
+// a raft follower is the primary between the raft leader demotion and lessor demotion.
 // Usually this should not be a problem. Lease should not be that sensitive to timing.
 func (le *lessor) isPrimary() bool {
 	return le.demotec != nil
