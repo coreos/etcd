@@ -64,7 +64,6 @@ func TestPeekLatestAndOldest(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			rb := newRingBuffer(tt.capacity, func(batch []*clientv3.Event) int64 { return batch[0].Kv.ModRevision })
 			for _, r := range tt.revs {
@@ -151,12 +150,10 @@ func TestIterationMethods(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			rb := setupRingBuffer(t, tt.capacity, tt.setupRevisions)
 
 			for _, tc := range tt.cases {
-				tc := tc
 				t.Run(fmt.Sprintf("%s_pivot_%d", tc.method, tc.pivot), func(t *testing.T) {
 					got := collectRevisions(rb, tc.method, tc.pivot)
 					if diff := cmp.Diff(tc.wantIterRevisions, got, protocmp.Transform()); diff != "" {
@@ -237,7 +234,6 @@ func TestIterationWithBatching(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			var got [][]*clientv3.Event
 
@@ -293,7 +289,6 @@ func TestIterationEarlyStop(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			var collected []int64
 			callCount := 0
@@ -396,7 +391,6 @@ func TestAtomicOrdered(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -448,7 +442,6 @@ func TestRebaseHistory(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			rb := newRingBuffer(4, func(batch []*clientv3.Event) int64 { return batch[0].Kv.ModRevision })
@@ -519,7 +512,6 @@ func TestFull(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			rb := newRingBuffer(tt.capacity, func(batch []*clientv3.Event) int64 { return batch[0].Kv.ModRevision })
 
@@ -568,10 +560,208 @@ func makeEventBatch(rev int64, key string, batchSize int) ([]*clientv3.Event, er
 	for i := range events {
 		events[i] = &clientv3.Event{
 			Kv: &mvccpb.KeyValue{
-				Key:         []byte(fmt.Sprintf("%s-%d", key, i)),
+				Key:         fmt.Appendf(nil, "%s-%d", key, i),
 				ModRevision: rev,
 			},
 		}
 	}
 	return events, nil
+}
+
+func TestLen(t *testing.T) {
+	rb := setupRingBuffer(t, 3, []int64{1, 2, 3, 4}) // stored: 2, 3, 4
+
+	if got := rb.Len(); got != 3 {
+		t.Fatalf("Len()=%d, want=%d", got, 3)
+	}
+
+	rb.RemoveLess(4)
+	if got := rb.Len(); got != 1 {
+		t.Fatalf("Len() after RemoveLess=%d, want=%d", got, 1)
+	}
+
+	rb.RebaseHistory()
+	if got := rb.Len(); got != 0 {
+		t.Fatalf("Len() after RebaseHistory=%d, want=%d", got, 0)
+	}
+}
+
+func TestReplaceLatest(t *testing.T) {
+	t.Run("replace_latest_entry", func(t *testing.T) {
+		rb := newRingBuffer(4, func(batch []*clientv3.Event) int64 { return batch[0].Kv.ModRevision })
+		for _, rev := range []int64{5, 10} {
+			batch, err := makeEventBatch(rev, "key", 1)
+			if err != nil {
+				t.Fatalf("makeEventBatch(%d, key, 1) failed: %v", rev, err)
+			}
+			rb.Append(batch)
+		}
+
+		replacement, err := makeEventBatch(12, "replacement", 2)
+		if err != nil {
+			t.Fatalf("makeEventBatch(12, replacement, 2) failed: %v", err)
+		}
+		rb.ReplaceLatest(replacement)
+
+		if got := rb.Len(); got != 2 {
+			t.Fatalf("Len()=%d, want=%d", got, 2)
+		}
+		if got := rb.PeekLatest(); got != 12 {
+			t.Fatalf("PeekLatest()=%d, want=%d", got, 12)
+		}
+
+		gotRevs := collectRevisions(rb, ascendGTE, 0)
+		if diff := cmp.Diff([]int64{5, 12}, gotRevs); diff != "" {
+			t.Fatalf("revisions mismatch (-want +got):\n%s", diff)
+		}
+
+		var gotBatch [][]*clientv3.Event
+		rb.AscendGreaterOrEqual(0, func(rev int64, events []*clientv3.Event) bool {
+			gotBatch = append(gotBatch, events)
+			return true
+		})
+		if diff := cmp.Diff(2, len(gotBatch[1])); diff != "" {
+			t.Fatalf("replacement batch size mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("panic_on_empty_buffer", func(t *testing.T) {
+		rb := newRingBuffer(2, func(batch []*clientv3.Event) int64 { return batch[0].Kv.ModRevision })
+		replacement, err := makeEventBatch(1, "replacement", 1)
+		if err != nil {
+			t.Fatalf("makeEventBatch(1, replacement, 1) failed: %v", err)
+		}
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("ReplaceLatest() did not panic on empty buffer")
+			}
+		}()
+		rb.ReplaceLatest(replacement)
+	})
+}
+
+func TestRemoveLess(t *testing.T) {
+	tests := []struct {
+		name         string
+		capacity     int
+		setupRevs    []int64
+		removeBefore int64
+		wantRevs     []int64
+		wantLen      int
+		wantOldest   int64
+		wantLatest   int64
+	}{
+		{
+			name:         "empty_buffer",
+			capacity:     4,
+			removeBefore: 10,
+			wantRevs:     []int64{},
+			wantLen:      0,
+			wantOldest:   0,
+			wantLatest:   0,
+		},
+		{
+			name:         "no_entries_removed",
+			capacity:     4,
+			setupRevs:    []int64{5, 10, 15},
+			removeBefore: 5,
+			wantRevs:     []int64{5, 10, 15},
+			wantLen:      3,
+			wantOldest:   5,
+			wantLatest:   15,
+		},
+		{
+			name:         "remove_prefix",
+			capacity:     5,
+			setupRevs:    []int64{5, 10, 15, 20},
+			removeBefore: 15,
+			wantRevs:     []int64{15, 20},
+			wantLen:      2,
+			wantOldest:   15,
+			wantLatest:   20,
+		},
+		{
+			name:         "remove_all_entries",
+			capacity:     3,
+			setupRevs:    []int64{10, 11, 12},
+			removeBefore: 20,
+			wantRevs:     []int64{},
+			wantLen:      0,
+			wantOldest:   0,
+			wantLatest:   0,
+		},
+		{
+			name:         "wrapped_buffer",
+			capacity:     3,
+			setupRevs:    []int64{20, 21, 22, 23, 24}, // stored: 22, 23, 24
+			removeBefore: 24,
+			wantRevs:     []int64{24},
+			wantLen:      1,
+			wantOldest:   24,
+			wantLatest:   24,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rb := setupRingBuffer(t, tt.capacity, tt.setupRevs)
+
+			rb.RemoveLess(tt.removeBefore)
+
+			if got := rb.Len(); got != tt.wantLen {
+				t.Fatalf("Len()=%d, want=%d", got, tt.wantLen)
+			}
+			if got := rb.PeekOldest(); got != tt.wantOldest {
+				t.Fatalf("PeekOldest()=%d, want=%d", got, tt.wantOldest)
+			}
+			if got := rb.PeekLatest(); got != tt.wantLatest {
+				t.Fatalf("PeekLatest()=%d, want=%d", got, tt.wantLatest)
+			}
+
+			gotRevs := collectRevisions(rb, ascendGTE, 0)
+			if diff := cmp.Diff(tt.wantRevs, gotRevs); diff != "" {
+				t.Fatalf("remaining revisions mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEnsureCapacity(t *testing.T) {
+	t.Run("grow_preserves_logical_order", func(t *testing.T) {
+		rb := setupRingBuffer(t, 3, []int64{1, 2, 3, 4}) // wrapped: stored 2, 3, 4
+
+		rb.ensureCapacity(5)
+
+		if got := len(rb.buffer); got != 6 {
+			t.Fatalf("len(buffer)=%d, want=%d", got, 6)
+		}
+		if rb.tail != 0 {
+			t.Fatalf("tail=%d, want=%d", rb.tail, 0)
+		}
+		if rb.head != rb.size {
+			t.Fatalf("head=%d, want size=%d", rb.head, rb.size)
+		}
+
+		gotRevs := collectRevisions(rb, ascendGTE, 0)
+		if diff := cmp.Diff([]int64{2, 3, 4}, gotRevs); diff != "" {
+			t.Fatalf("revisions mismatch after ensureCapacity (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("noop_when_capacity_is_sufficient", func(t *testing.T) {
+		rb := setupRingBuffer(t, 4, []int64{1, 2})
+		beforeCap := len(rb.buffer)
+		beforeHead, beforeTail, beforeSize := rb.head, rb.tail, rb.size
+
+		rb.ensureCapacity(4)
+
+		if got := len(rb.buffer); got != beforeCap {
+			t.Fatalf("len(buffer)=%d, want=%d", got, beforeCap)
+		}
+		if rb.head != beforeHead || rb.tail != beforeTail || rb.size != beforeSize {
+			t.Fatalf("ringBuffer metadata changed unexpectedly: got head=%d tail=%d size=%d, want head=%d tail=%d size=%d",
+				rb.head, rb.tail, rb.size, beforeHead, beforeTail, beforeSize)
+		}
+	})
 }

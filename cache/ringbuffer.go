@@ -154,3 +154,60 @@ func (r *ringBuffer[T]) findLastIndexLessOrEqual(pivot int64) int {
 	}
 	return right
 }
+
+// Len returns the number of entries currently stored in the buffer.
+func (r *ringBuffer[T]) Len() int {
+	return r.size
+}
+
+// ReplaceLatest overwrites the most recently appended entry with the given item.
+// Panics if the buffer is empty.
+func (r *ringBuffer[T]) ReplaceLatest(item T) {
+	if r.size == 0 {
+		panic("ringBuffer.ReplaceLatest called on empty buffer")
+	}
+	r.buffer[r.moduloIndex(r.head-1)] = entry[T]{revision: r.revisionOf(item), item: item}
+}
+
+// RemoveLess drops all entries whose revision is strictly less than rv.
+func (r *ringBuffer[T]) RemoveLess(rv int64) {
+	if r.size == 0 {
+		return
+	}
+	idx := r.findFirstIndexGreaterOrEqual(rv)
+	if idx <= 0 {
+		return
+	}
+	if idx == r.size {
+		r.RebaseHistory()
+		return
+	}
+	for i := range idx {
+		r.buffer[r.moduloIndex(r.tail+i)] = entry[T]{}
+	}
+	r.tail = r.moduloIndex(r.tail + idx)
+	r.size -= idx
+}
+
+// ensureCapacity grows the underlying slice (doubling) until it can hold at
+// least minCapacity entries. After expansion the logical entries are laid out
+// contiguously starting at index 0.
+func (r *ringBuffer[T]) ensureCapacity(minCapacity int) {
+	if len(r.buffer) >= minCapacity {
+		return
+	}
+	newCap := len(r.buffer)
+	if newCap == 0 {
+		newCap = 1
+	}
+	for newCap < minCapacity {
+		newCap *= 2
+	}
+	newBuffer := make([]entry[T], newCap)
+	for i := 0; i < r.size; i++ {
+		newBuffer[i] = r.at(i)
+	}
+	r.buffer = newBuffer
+	r.tail = 0
+	r.head = r.size
+}
