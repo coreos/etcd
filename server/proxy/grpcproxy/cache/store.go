@@ -89,17 +89,8 @@ func (c *cache) Add(req *pb.RangeRequest, resp *pb.RangeResponse) {
 		return
 	}
 
-	var (
-		iv  *adt.IntervalValue
-		ivl adt.Interval
-	)
-	if len(req.RangeEnd) != 0 {
-		ivl = adt.NewStringAffineInterval(string(req.Key), string(req.RangeEnd))
-	} else {
-		ivl = adt.NewStringAffinePoint(string(req.Key))
-	}
-
-	iv = c.cachedRanges.Find(ivl)
+	ivl := rangeInterval(req.Key, req.RangeEnd)
+	iv := c.cachedRanges.Find(ivl)
 
 	if iv == nil {
 		val := map[string]struct{}{key: {}}
@@ -135,17 +126,8 @@ func (c *cache) Invalidate(key, endkey []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var (
-		ivs []*adt.IntervalValue
-		ivl adt.Interval
-	)
-	if len(endkey) == 0 {
-		ivl = adt.NewStringAffinePoint(string(key))
-	} else {
-		ivl = adt.NewStringAffineInterval(string(key), string(endkey))
-	}
-
-	ivs = c.cachedRanges.Stab(ivl)
+	ivl := rangeInterval(key, endkey)
+	ivs := c.cachedRanges.Stab(ivl)
 	for _, iv := range ivs {
 		keys := iv.Val.(map[string]struct{})
 		for key := range keys {
@@ -154,6 +136,22 @@ func (c *cache) Invalidate(key, endkey []byte) {
 	}
 	// delete after removing all keys since it is destructive to 'ivs'
 	c.cachedRanges.Delete(ivl)
+}
+
+// rangeInterval is the key space a Range or DeleteRange request covers. A
+// range end of a single zero byte is the wire convention for "every key >=
+// key" (the server applies the same rule in mkGteRange), and "" is the
+// largest StringAffineComparable, so that is what an open-ended interval
+// needs; passing the zero byte through would build an interval whose end
+// sorts below its begin, which only ever intersects its own start key.
+func rangeInterval(key, rangeEnd []byte) adt.Interval {
+	if len(rangeEnd) == 0 {
+		return adt.NewStringAffinePoint(string(key))
+	}
+	if len(rangeEnd) == 1 && rangeEnd[0] == 0 {
+		return adt.NewStringAffineInterval(string(key), "")
+	}
+	return adt.NewStringAffineInterval(string(key), string(rangeEnd))
 }
 
 // Compact invalidate all caching response before the given rev.
