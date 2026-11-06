@@ -7,10 +7,10 @@ For installation guides, please check out [play.etcd.io](http://play.etcd.io) an
 ```sh
 ETCD_VER=${RELEASE_VERSION}
 
-# choose either URL
-GOOGLE_URL=https://storage.googleapis.com/etcd
+# GitHub Releases is the primary download source; Google Storage is also available.
 GITHUB_URL=https://github.com/etcd-io/etcd/releases/download
-DOWNLOAD_URL=${GOOGLE_URL}
+GOOGLE_URL=https://storage.googleapis.com/etcd
+DOWNLOAD_URL=${GITHUB_URL}
 
 rm -f /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
 rm -rf /tmp/etcd-download-test && mkdir -p /tmp/etcd-download-test
@@ -36,10 +36,10 @@ rm -f /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
 ```sh
 ETCD_VER=${RELEASE_VERSION}
 
-# choose either URL
-GOOGLE_URL=https://storage.googleapis.com/etcd
+# GitHub Releases is the primary download source; Google Storage is also available.
 GITHUB_URL=https://github.com/etcd-io/etcd/releases/download
-DOWNLOAD_URL=${GOOGLE_URL}
+GOOGLE_URL=https://storage.googleapis.com/etcd
+DOWNLOAD_URL=${GITHUB_URL}
 
 rm -f /tmp/etcd-${ETCD_VER}-darwin-amd64.zip
 rm -rf /tmp/etcd-download-test && mkdir -p /tmp/etcd-download-test
@@ -55,19 +55,19 @@ mv /tmp/etcd-${ETCD_VER}-darwin-amd64/* /tmp/etcd-download-test && rm -rf mv /tm
 
 ###### Docker
 
-etcd uses [`gcr.io/etcd-development/etcd`](https://gcr.io/etcd-development/etcd) as a primary container registry, and [`quay.io/coreos/etcd`](https://quay.io/coreos/etcd) as secondary.
+etcd publishes its official multi-architecture container image at `registry.k8s.io/etcd`. Images remain available from [`gcr.io/etcd-development/etcd`](https://gcr.io/etcd-development/etcd) and [`quay.io/coreos/etcd`](https://quay.io/coreos/etcd) as secondary registries.
 
 ```sh
 ETCD_VER=${RELEASE_VERSION}
 
 rm -rf /tmp/etcd-data.tmp && mkdir -p /tmp/etcd-data.tmp && \
-  docker rmi gcr.io/etcd-development/etcd:${ETCD_VER} || true && \
+  docker rmi registry.k8s.io/etcd:${ETCD_VER} || true && \
   docker run \
   -p 2379:2379 \
   -p 2380:2380 \
   --mount type=bind,source=/tmp/etcd-data.tmp,destination=/etcd-data \
-  --name etcd-gcr-${ETCD_VER} \
-  gcr.io/etcd-development/etcd:${ETCD_VER} \
+  --name etcd-${ETCD_VER} \
+  registry.k8s.io/etcd:${ETCD_VER} \
   /usr/local/bin/etcd \
   --name s1 \
   --data-dir /etcd-data \
@@ -82,10 +82,10 @@ rm -rf /tmp/etcd-data.tmp && mkdir -p /tmp/etcd-data.tmp && \
   --logger zap \
   --log-outputs stderr
 
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcd --version
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcdctl version
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcdutl version
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcdctl endpoint health
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcdctl put foo bar
-docker exec etcd-gcr-${ETCD_VER} /usr/local/bin/etcdctl get foo
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcd --version
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcdctl version
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcdutl version
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcdctl endpoint health
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcdctl put foo bar
+docker exec etcd-${ETCD_VER} /usr/local/bin/etcdctl get foo
 ```
