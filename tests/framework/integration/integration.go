@@ -16,6 +16,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/concurrency"
 	etcdctlcmd "go.etcd.io/etcd/etcdctl/v3/ctlv3/command"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	intf "go.etcd.io/etcd/tests/v3/framework/interfaces"
@@ -503,6 +505,22 @@ func (c integrationClient) Watch(ctx context.Context, key string, opts config.Wa
 	}
 
 	return c.Client.Watch(ctx, key, opOpts...)
+}
+
+func (c integrationClient) Elect(ctx context.Context, name, proposal string) (string, func() error, error) {
+	s, err := concurrency.NewSession(c.Client)
+	if err != nil {
+		return "", nil, err
+	}
+	e := concurrency.NewElection(s, name)
+	if err = e.Campaign(ctx, proposal); err != nil {
+		s.Close()
+		return "", nil, err
+	}
+	resign := func() error {
+		return errors.Join(e.Resign(context.Background()), s.Close())
+	}
+	return e.Key(), resign, nil
 }
 
 func (c integrationClient) MemberAdd(ctx context.Context, _ string, peerAddrs []string) (*clientv3.MemberAddResponse, error) {

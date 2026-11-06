@@ -86,6 +86,10 @@ type Client interface {
 	MemberRemove(ctx context.Context, id uint64) (*clientv3.MemberRemoveResponse, error)
 
 	Watch(ctx context.Context, key string, opts config.WatchOptions) clientv3.WatchChan
+
+	// Elect campaigns in the election name with the given proposal and blocks until it is elected or ctx is done.
+	// It returns the elected key and a function to resign leadership.
+	Elect(ctx context.Context, name, proposal string) (key string, resign func() error, err error)
 }
 
 type TemplateEndpoints interface {

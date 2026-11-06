@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -805,4 +806,26 @@ func (ctl *EtcdctlV3) Watch(ctx context.Context, key string, opts config.WatchOp
 	}()
 
 	return ch
+}
+
+func (ctl *EtcdctlV3) Elect(ctx context.Context, name, proposal string) (string, func() error, error) {
+	proc, err := SpawnCmd(ctl.cmdArgs("elect", name, proposal), nil)
+	if err != nil {
+		return "", nil, err
+	}
+	// etcdctl prints the elected key once it wins the election.
+	key, err := proc.ExpectWithContext(ctx, expect.ExpectedResponse{Value: name + "/"})
+	if err != nil {
+		proc.Stop()
+		CloseWithTimeout(proc, time.Second)
+		return "", nil, err
+	}
+	resign := func() error {
+		// etcdctl resigns from the election on interrupt before exiting.
+		if err := proc.Signal(os.Interrupt); err != nil {
+			return err
+		}
+		return CloseWithTimeout(proc, time.Second)
+	}
+	return strings.TrimSpace(key), resign, nil
 }
