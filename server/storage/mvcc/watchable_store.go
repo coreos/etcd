@@ -15,6 +15,7 @@
 package mvcc
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -362,8 +363,31 @@ func (s *watchableStore) syncWatchers() int {
 	curRev := s.store.currentRev
 	compactionRev := s.store.compactMainRev
 
-	wg, minRev := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
-	evs := rangeEvents(s.store.lg, s.store.b, minRev, curRev+1, wg)
+	wg, _ := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
+
+	// Scan at most watchBatchMaxRevs revisions per pass, the same bound already applied to how
+	// many revisions are sent per pass, so unsent revisions aren't scanned. Watchers are grouped
+	// into cohorts and each cohort gets its own scan.
+	for _, c := range cohortsByRevision(wg, compactionRev) {
+		maxScanRev := curRev + 1
+		if c.minRev <= curRev && curRev-c.minRev > int64(watchBatchMaxRevs) {
+			maxScanRev = c.minRev + int64(watchBatchMaxRevs) + 1
+		}
+		s.syncWatcherCohort(c.wg, c.minRev, maxScanRev, curRev, compactionRev)
+	}
+
+	vsz := 0
+	for _, v := range s.victims {
+		vsz += len(v)
+	}
+	slowWatcherGauge.Set(float64(s.unsynced.size() + vsz))
+
+	return s.unsynced.size()
+}
+
+func (s *watchableStore) syncWatcherCohort(wg *watcherGroup, minRev, maxScanRev, curRev, compactionRev int64) {
+	reachedCurRev := maxScanRev == curRev+1
+	evs := rangeEvents(s.store.lg, s.store.b, minRev, maxScanRev, wg)
 
 	victims := make(watcherBatch)
 	wb := newWatcherBatch(wg, evs)
@@ -373,13 +397,15 @@ func (s *watchableStore) syncWatchers() int {
 			// Next retry of syncWatchers would try to resend the compacted watch response to w.ch
 			continue
 		}
-		w.minRev = max(curRev+1, w.minRev)
+		w.minRev = max(maxScanRev, w.minRev)
 
 		eb, ok := wb[w]
 		if !ok {
-			// bring un-notified watcher to synced
-			s.synced.add(w)
-			s.unsynced.delete(w)
+			if reachedCurRev {
+				// bring un-notified watcher to synced
+				s.synced.add(w)
+				s.unsynced.delete(w)
+			}
 			continue
 		}
 
@@ -396,7 +422,7 @@ func (s *watchableStore) syncWatchers() int {
 		if w.victim {
 			victims[w] = eb
 		} else {
-			if eb.moreRev != 0 {
+			if eb.moreRev != 0 || !reachedCurRev {
 				// stay unsynced; more to read
 				continue
 			}
@@ -405,14 +431,39 @@ func (s *watchableStore) syncWatchers() int {
 		s.unsynced.delete(w)
 	}
 	s.addVictim(victims)
+}
 
-	vsz := 0
-	for _, v := range s.victims {
-		vsz += len(v)
+// revCohort is a group of unsynced watchers whose minRevs fall within one
+// watchBatchMaxRevs-wide window starting at minRev.
+type revCohort struct {
+	minRev int64
+	wg     *watcherGroup
+}
+
+// cohortsByRevision groups wg's watchers into windows of at most watchBatchMaxRevs revisions,
+// sorted by minRev so each window covers a contiguous run of watchers.
+func cohortsByRevision(wg *watcherGroup, compactionRev int64) []revCohort {
+	sorted := make([]*watcher, 0, len(wg.watchers))
+	for w := range wg.watchers {
+		// Skip compacted watchers since they cannot be recovered.
+		if w.minRev < compactionRev {
+			continue
+		}
+		sorted = append(sorted, w)
 	}
-	slowWatcherGauge.Set(float64(s.unsynced.size() + vsz))
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].minRev < sorted[j].minRev })
 
-	return s.unsynced.size()
+	var cohorts []revCohort
+	for _, w := range sorted {
+		if n := len(cohorts); n > 0 && w.minRev-cohorts[n-1].minRev <= int64(watchBatchMaxRevs) {
+			cohorts[n-1].wg.add(w)
+			continue
+		}
+		g := newWatcherGroup()
+		g.add(w)
+		cohorts = append(cohorts, revCohort{minRev: w.minRev, wg: &g})
+	}
+	return cohorts
 }
 
 // rangeEvents returns events in range [minRev, maxRev).

@@ -15,6 +15,7 @@
 package mvcc
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -196,5 +197,43 @@ func BenchmarkWatchableStoreSyncedCancel(b *testing.B) {
 		if err := w.Cancel(watchIDs[idx]); err != nil {
 			b.Error(err)
 		}
+	}
+}
+
+// BenchmarkWatchableStoreSyncWatchersDeepBacklog measures one syncWatchers pass for a watcher far
+// behind the current revision. The per-pass cost is what the watchable-store lock is held for, and
+// what the apply path waits on.
+func BenchmarkWatchableStoreSyncWatchersDeepBacklog(b *testing.B) {
+	for _, backlog := range []int{10000, 100000} {
+		b.Run(fmt.Sprintf("backlog=%d", backlog), func(b *testing.B) {
+			be, _ := betesting.NewDefaultTmpBackend(b)
+			s := &watchableStore{
+				store:    NewStore(zaptest.NewLogger(b), be, &lease.FakeLessor{}, StoreConfig{}),
+				unsynced: newWatcherGroup(),
+				synced:   newWatcherGroup(),
+				stopc:    make(chan struct{}),
+			}
+			defer cleanup(s, be)
+
+			for i := 0; i < backlog; i++ {
+				s.Put([]byte(fmt.Sprintf("k%d", i%10)), []byte("v"), lease.NoLease)
+			}
+			ws := s.NewWatchStream()
+			defer ws.Close()
+			if _, err := ws.Watch(b.Context(), 0, []byte("k0"), []byte("l"), 1); err != nil {
+				b.Fatal(err)
+			}
+			w := ws.(*watchStream).watchers[0]
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				w.minRev = 1 // same starting depth every iteration
+				s.syncWatchers()
+				for len(ws.Chan()) > 0 {
+					<-ws.Chan()
+				}
+			}
+		})
 	}
 }
