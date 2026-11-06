@@ -136,12 +136,17 @@ func (e *Election) Resign(ctx context.Context) (err error) {
 	client := e.session.Client()
 	cmp := v3.Compare(v3.CreateRevision(e.leaderKey), "=", e.leaderRev)
 	resp, err := client.Txn(ctx).If(cmp).Then(v3.OpDelete(e.leaderKey)).Commit()
-	if err == nil {
-		e.hdr = resp.Header
+	if err != nil {
+		// The transaction may not have reached etcd at all (e.g. a
+		// canceled context), so the leader key might still exist there.
+		// Keep the local state so a subsequent Resign can retry the
+		// delete instead of silently becoming a no-op.
+		return err
 	}
+	e.hdr = resp.Header
 	e.leaderKey = ""
 	e.leaderSession = nil
-	return err
+	return nil
 }
 
 // Leader returns the leader value for the current election.
