@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/storage"
@@ -160,6 +161,46 @@ func TestMetricsHealth(t *testing.T) {
 	hv, err := clus.Members[0].Metric("etcd_server_health_failures")
 	require.NoError(t, err)
 	require.Equalf(t, "0", hv, "expected '0' from etcd_server_health_failures, got %q", hv)
+}
+
+// TestMetricClusterVersionRecover verifies that the etcd_cluster_version metric
+// is set after a member restart, which goes through the RaftCluster.Recover() path.
+func TestMetricClusterVersionRecover(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	clusterVersionLabel := fmt.Sprintf(`cluster_version="%s"`, version.Cluster(version.Version))
+
+	// The metric is set asynchronously by monitorClusterVersions on the
+	// leader, so poll until it appears with the expected version label.
+	waitMetric := func() string {
+		var (
+			v   string
+			err error
+		)
+		require.Eventuallyf(t, func() bool {
+			v, err = clus.Members[0].Metric("etcd_cluster_version", clusterVersionLabel)
+			return err == nil && v == "1"
+		}, 10*time.Second, 100*time.Millisecond,
+			"expected etcd_cluster_version{%s} = 1, last value %q, err %v",
+			clusterVersionLabel, v, err)
+		return v
+	}
+
+	waitMetric()
+
+	// Restart the member: this exercises RaftCluster.Recover()
+	clus.Members[0].Stop(t)
+	require.NoError(t, clus.Members[0].Restart(t))
+	require.Equal(t, 0, clus.WaitMembersForLeader(t, clus.Members))
+	clus.Members[0].WaitOK(t)
+
+	// After RaftCluster.Recover(), the metric must still report 1 for the current cluster version.
+	v := waitMetric()
+	require.Equalf(t, "1", v,
+		"expected etcd_cluster_version{%s} = 1 after restart, got %q",
+		clusterVersionLabel, v)
 }
 
 func TestMetricsRangeDurationSeconds(t *testing.T) {
