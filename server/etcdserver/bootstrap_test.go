@@ -39,6 +39,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/cindex"
 	serverstorage "go.etcd.io/etcd/server/v3/storage"
+	"go.etcd.io/etcd/server/v3/storage/backend/testing"
 	"go.etcd.io/etcd/server/v3/storage/datadir"
 	"go.etcd.io/etcd/server/v3/storage/schema"
 	"go.etcd.io/etcd/server/v3/storage/wal"
@@ -267,6 +268,91 @@ func createWALFileWithSnapshotRecord(cfg config.ServerConfig, snapshotTerm, snap
 	}
 
 	return w.Save(&raftpb.HardState{Term: &snapshotTerm, Vote: new(uint64(3)), Commit: &snapshotIndex}, nil)
+}
+
+func TestFinalizeForceNewClusterRemovesStaleMembers(t *testing.T) {
+	selfID := types.ID(1)
+	otherMembers := []*membership.Member{
+		{ID: types.ID(2), RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2381"}}},
+		{ID: types.ID(3), RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2382"}}},
+	}
+
+	tests := []struct {
+		name            string
+		forceNewCluster bool
+		members         []*membership.Member
+		expectedCount   int
+	}{
+		{
+			name:            "force-new-cluster removes stale members",
+			forceNewCluster: true,
+			members: append([]*membership.Member{
+				{ID: selfID, RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2380"}}},
+			}, otherMembers...),
+			expectedCount: 1,
+		},
+		{
+			name:            "no force-new-cluster keeps all members",
+			forceNewCluster: false,
+			members: append([]*membership.Member{
+				{ID: selfID, RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2380"}}},
+			}, otherMembers...),
+			expectedCount: 3,
+		},
+		{
+			name:            "force-new-cluster single member is noop",
+			forceNewCluster: true,
+			members: []*membership.Member{
+				{ID: selfID, RaftAttributes: membership.RaftAttributes{PeerURLs: []string{"http://localhost:2380"}}},
+			},
+			expectedCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lg := zaptest.NewLogger(t)
+			be, _ := betesting.NewDefaultTmpBackend(t)
+			t.Cleanup(func() { betesting.Close(t, be) })
+
+			mbe := schema.NewMembershipBackend(lg, be)
+			mbe.MustCreateBackendBuckets()
+			for _, m := range tt.members {
+				mbe.MustSaveMemberToBackend(m)
+			}
+			be.ForceCommit()
+
+			c := &bootstrappedCluster{
+				cl:     membership.NewCluster(lg),
+				nodeID: selfID,
+			}
+			s := &bootstrappedStorage{
+				backend: &bootstrappedBackend{be: be, beExist: true},
+				wal:     &bootstrappedWAL{haveWAL: true},
+			}
+			cfg := config.ServerConfig{
+				Logger:          lg,
+				ForceNewCluster: tt.forceNewCluster,
+				MaxLearners:     1,
+				DataDir:         t.TempDir(),
+			}
+
+			err := c.Finalize(cfg, s)
+			require.NoError(t, err)
+
+			members := c.cl.Members()
+			require.Len(t, members, tt.expectedCount)
+
+			found := false
+			for _, m := range members {
+				if m.ID == selfID {
+					found = true
+					break
+				}
+			}
+			require.True(t, found, "self member should always be present")
+		})
+	}
 }
 
 func createSnapshotAndBackendDB(cfg config.ServerConfig, snapshotTerm, snapshotIndex uint64) error {

@@ -500,6 +500,14 @@ func (c *bootstrappedCluster) Finalize(cfg config.ServerConfig, s *bootstrappedS
 	c.cl.SetBackend(schema.NewMembershipBackend(cfg.Logger, s.backend.be))
 	if s.wal.haveWAL {
 		c.cl.Recover(api.UpdateCapability)
+		if cfg.ForceNewCluster {
+			cfg.Logger.Info("force-new-cluster: removing stale members from backend")
+			for _, m := range c.cl.Members() {
+				if m.ID != c.nodeID {
+					c.cl.RemoveMember(m.ID, true)
+				}
+			}
+		}
 		if c.databaseFileMissing(s) {
 			bepath := cfg.BackendPath()
 			os.RemoveAll(bepath)
