@@ -155,3 +155,78 @@ func TestPurgeFileHoldingLockFile(t *testing.T) {
 
 	close(stop)
 }
+
+// TestPurgeFileCloseOnRemoveError verifies that when flock is true and os.Remove
+// fails, the LockedFile is properly closed. This tests the fix for the FD leak
+// where the LockedFile l acquired by TryLockFile was never closed when Remove failed.
+func TestPurgeFileCloseOnRemoveError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create files that will be candidates for purging
+	// We need more files than max to trigger purging
+	// Root bypasses directory write permission checks (CAP_DAC_OVERRIDE),
+	// so chmod'ing the parent directory cannot make os.Remove fail here.
+	// Skip instead of reporting a false failure.
+	if os.Geteuid() == 0 {
+		t.Skip("skipping test: running as root, cannot make os.Remove fail via directory permissions")
+	}
+
+	maxFiles := uint(3)
+	totalFiles := 10
+	for i := 0; i < totalFiles; i++ {
+		f, err := os.Create(filepath.Join(dir, fmt.Sprintf("%d.test", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	// Make directory read-only so os.Remove fails for ALL files
+	// This ensures the first file that purge tries to lock will fail on Remove
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Skipf("skipping test: failed to make directory read-only: %v", err)
+	}
+	defer os.Chmod(dir, 0o755)
+
+	stop := make(chan struct{})
+	errch := purgeFile(zaptest.NewLogger(t), dir, "test", maxFiles, time.Millisecond, stop, nil, nil, true)
+
+	// Wait for the error to be reported (os.Remove should fail on any file)
+	select {
+	case err := <-errch:
+		if err == nil {
+			t.Errorf("expected error from purge, got nil")
+		}
+	case <-time.After(time.Second):
+		t.Errorf("timeout waiting for purge error")
+	}
+
+	close(stop)
+
+	// Give the goroutine time to exit
+	time.Sleep(10 * time.Millisecond)
+
+	// Restore permissions so we can try locking files
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to lock the first file that purge tried to acquire (0.test based on alphabetical order)
+	// If the lock was leaked, TryLockFile would fail with "resource temporarily unavailable"
+	firstFile := filepath.Join(dir, "0.test")
+	lock, lockErr := TryLockFile(firstFile, os.O_WRONLY, PrivateFileMode)
+	if lockErr != nil {
+		t.Errorf("LockedFile was leaked after Remove failure: failed to lock file: %v", lockErr)
+	} else {
+		lock.Close()
+	}
+
+	// Also try a middle file (5.test) to ensure they were all cleaned up
+	middleFile := filepath.Join(dir, "5.test")
+	lock, lockErr = TryLockFile(middleFile, os.O_WRONLY, PrivateFileMode)
+	if lockErr != nil {
+		t.Errorf("LockedFile was leaked after Remove failure: failed to lock file: %v", lockErr)
+	} else {
+		lock.Close()
+	}
+}
