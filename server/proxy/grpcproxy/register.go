@@ -53,6 +53,7 @@ func Register(lg *zap.Logger, c *clientv3.Client, prefix string, addr string, tt
 			case <-ss.Done():
 				lg.Warn("session expired; possible network partition or server restart")
 				lg.Warn("creating a new session to rejoin")
+				ss.Close()
 				continue
 			}
 		}

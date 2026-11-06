@@ -149,11 +149,15 @@ func (ms *maintenanceServer) Snapshot(sr *pb.SnapshotRequest, srv pb.Maintenance
 	defer pr.Close()
 
 	go func() {
-		snap.WriteTo(pw)
+		if _, err := snap.WriteTo(pw); err != nil {
+			ms.lg.Warn("failed to send snapshot", zap.Error(err))
+			pw.CloseWithError(err)
+		} else {
+			pw.Close()
+		}
 		if err := snap.Close(); err != nil {
 			ms.lg.Warn("failed to close snapshot", zap.Error(err))
 		}
-		pw.Close()
 	}()
 
 	// record SHA digest of snapshot data
