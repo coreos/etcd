@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:debug multipathtcp=0
+
 // etcdctl is a command line application that controls etcd.
 package main
 
