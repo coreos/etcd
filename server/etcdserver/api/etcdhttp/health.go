@@ -219,7 +219,7 @@ func checkLeader(lg *zap.Logger, srv ServerHealth, serializable bool) Health {
 func checkAPI(ctx context.Context, lg *zap.Logger, srv ServerHealth, serializable bool) Health {
 	h := Health{Health: "true"}
 	cfg := srv.Config()
-	ctx = srv.AuthStore().WithRoot(ctx)
+	ctx = auth.WithRootInternal(ctx, srv.AuthStore())
 	cctx, cancel := context.WithTimeout(ctx, cfg.ReqTimeout())
 	_, err := srv.Range(cctx, &pb.RangeRequest{KeysOnly: true, Limit: 1, Serializable: serializable})
 	cancel()
@@ -431,7 +431,7 @@ func activeAlarmCheck(srv ServerHealth, at pb.AlarmType) func(context.Context) e
 
 func readCheck(srv ServerHealth, serializable bool) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		ctx = srv.AuthStore().WithRoot(ctx)
+		ctx = auth.WithRootInternal(ctx, srv.AuthStore())
 		_, err := srv.Range(ctx, &pb.RangeRequest{KeysOnly: true, Limit: 1, Serializable: serializable})
 		return err
 	}

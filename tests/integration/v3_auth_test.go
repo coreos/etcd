@@ -24,11 +24,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 
 	"go.etcd.io/etcd/api/v3/authpb"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/server/v3/auth"
 	"go.etcd.io/etcd/tests/v3/framework/integration"
 )
 
@@ -134,6 +136,34 @@ func TestV3AuthWithLeaseRevokeWithRoot(t *testing.T) {
 // And tests if server is able to revoke expiry lease item.
 func TestV3AuthWithLeaseRevokeWithRootJWT(t *testing.T) {
 	testV3AuthWithLeaseRevokeWithRoot(t, integration.ClusterConfig{Size: 1, AuthToken: integration.DefaultTokenJWT})
+}
+
+func TestV3AuthWithRootInternalRPCIsolationJWT(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1, AuthToken: integration.DefaultTokenJWT})
+	defer clus.Terminate(t)
+
+	api := integration.ToGRPC(clus.Client(0))
+	authSetupUsers(t, api.Auth, []user{{name: "limited", password: "123", role: "limited", key: "allowed"}})
+	authSetupRoot(t, api.Auth)
+
+	// Context values are local to this process and must not authenticate RPCs.
+	internalCtx := auth.WithRootInternal(t.Context(), clus.Members[0].Server.AuthStore())
+	req := &pb.RangeRequest{Key: []byte("forbidden")}
+	_, err := api.KV.Range(internalCtx, req)
+	require.Truef(t, eqErrGRPC(err, rpctypes.ErrGRPCUserEmpty), "got %v, expected %v", err, rpctypes.ErrGRPCUserEmpty)
+
+	invalidCtx := metadata.NewOutgoingContext(internalCtx, metadata.Pairs(rpctypes.TokenFieldNameGRPC, "invalid"))
+	_, err = api.KV.Range(invalidCtx, req)
+	require.Truef(t, eqErrGRPC(err, rpctypes.ErrGRPCInvalidAuthToken), "got %v, expected %v", err, rpctypes.ErrGRPCInvalidAuthToken)
+
+	limited, err := integration.NewClient(t, clientv3.Config{
+		Endpoints: clus.Client(0).Endpoints(), Username: "limited", Password: "123",
+	})
+	require.NoError(t, err)
+	defer limited.Close()
+	_, err = limited.Get(internalCtx, "forbidden")
+	require.Truef(t, eqErrGRPC(err, rpctypes.ErrGRPCPermissionDenied), "got %v, expected %v", err, rpctypes.ErrGRPCPermissionDenied)
 }
 
 func testV3AuthWithLeaseRevokeWithRoot(t *testing.T, ccfg integration.ClusterConfig) {
