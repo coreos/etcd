@@ -39,7 +39,7 @@ func benchmarkIndexCompact(b *testing.B, size int) {
 	bytesN := 64
 	keys := createBytesSlice(bytesN, size)
 	for i := 1; i < size; i++ {
-		kvindex.Put(keys[i], Revision{Main: int64(i), Sub: int64(i)})
+		kvindex.Put(keys[i], Revision{Main: int64(i), Sub: int64(i)}, 0)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -69,7 +69,7 @@ func benchmarkIndexPut(b *testing.B, keys [][]byte, txnSize int, prepopulate boo
 	var baseRev int64
 	if prepopulate {
 		for i, key := range keys {
-			kvindex.Put(key, Revision{Main: int64(i + 1)})
+			kvindex.Put(key, Revision{Main: int64(i + 1)}, 0)
 		}
 		baseRev = int64(len(keys))
 	}
@@ -79,7 +79,7 @@ func benchmarkIndexPut(b *testing.B, keys [][]byte, txnSize int, prepopulate boo
 		kvindex.Put(keys[i%len(keys)], Revision{
 			Main: baseRev + int64(i/txnSize) + 1,
 			Sub:  int64(i % txnSize),
-		})
+		}, 0)
 	}
 }
 
@@ -103,7 +103,7 @@ func BenchmarkIndexPutTombstone(b *testing.B) {
 func benchmarkIndexPutTombstone(b *testing.B, keys, activeKeys [][]byte) {
 	kvindex := newTreeIndex(zap.NewNop())
 	for i, key := range keys {
-		kvindex.Put(key, Revision{Main: int64(i + 1)})
+		kvindex.Put(key, Revision{Main: int64(i + 1)}, 0)
 	}
 	var putIndex, tombstoneIndex int
 	b.ReportAllocs()
@@ -111,12 +111,12 @@ func benchmarkIndexPutTombstone(b *testing.B, keys, activeKeys [][]byte) {
 	for i := range b.N {
 		rev := Revision{Main: int64(len(keys) + i + 1)}
 		if i%3 == 1 {
-			if err := kvindex.Tombstone(activeKeys[tombstoneIndex%len(activeKeys)], rev); err != nil {
+			if _, err := kvindex.Tombstone(activeKeys[tombstoneIndex%len(activeKeys)], rev); err != nil {
 				b.Fatal(err)
 			}
 			tombstoneIndex++
 		} else {
-			kvindex.Put(activeKeys[putIndex%len(activeKeys)], rev)
+			kvindex.Put(activeKeys[putIndex%len(activeKeys)], rev, 0)
 			putIndex++
 		}
 	}
@@ -189,7 +189,7 @@ func benchmarkIndexPutRangeLimit(b *testing.B, keys [][]byte, limit int, withTot
 func benchmarkIndexPutWithRead(b *testing.B, keys [][]byte, read func(index) bool) {
 	kvindex := newTreeIndex(zap.NewNop())
 	for i, key := range keys {
-		kvindex.Put(key, Revision{Main: int64(i + 1)})
+		kvindex.Put(key, Revision{Main: int64(i + 1)}, 0)
 	}
 	var stop atomic.Bool
 	var wg sync.WaitGroup
@@ -209,7 +209,7 @@ func benchmarkIndexPutWithRead(b *testing.B, keys [][]byte, read func(index) boo
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		kvindex.Put(keys[i%len(keys)], Revision{Main: int64(len(keys) + i + 1)})
+		kvindex.Put(keys[i%len(keys)], Revision{Main: int64(len(keys) + i + 1)}, 0)
 	}
 	stop.Store(true)
 	b.StopTimer()
@@ -223,7 +223,7 @@ func BenchmarkIndexGet(b *testing.B) {
 	bytesN := 64
 	keys := createBytesSlice(bytesN, b.N)
 	for i := 1; i < b.N; i++ {
-		kvindex.Put(keys[i], Revision{Main: int64(i), Sub: int64(i)})
+		kvindex.Put(keys[i], Revision{Main: int64(i), Sub: int64(i)}, 0)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

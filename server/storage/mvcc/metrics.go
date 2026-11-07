@@ -66,6 +66,15 @@ var (
 		},
 	)
 
+	liveKVPayloadGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "etcd",
+			Subsystem: "mvcc",
+			Name:      "live_kv_payload_bytes",
+			Help:      "Sum of key and value byte lengths for the latest non-deleted version of each key in this member's applied state. Excludes historical revisions, MVCC encoding, and backend storage overhead; it is not disk or memory usage.",
+		},
+	)
+
 	watchStreamGauge = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "etcd_debugging",
@@ -292,6 +301,7 @@ func init() {
 	prometheus.MustRegister(deleteCounter)
 	prometheus.MustRegister(txnCounter)
 	prometheus.MustRegister(keysGauge)
+	prometheus.MustRegister(liveKVPayloadGauge)
 	prometheus.MustRegister(watchStreamGauge)
 	prometheus.MustRegister(watcherGauge)
 	prometheus.MustRegister(slowWatcherGauge)

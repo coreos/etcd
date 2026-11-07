@@ -352,7 +352,8 @@ func (s *store) restore() error {
 	scheduledCompact, _ := UnsafeReadScheduledCompact(tx)
 	// index keys concurrently as they're loaded in from tx
 	keysGauge.Set(0)
-	rkvc, revc := restoreIntoIndex(s.lg, s.kvindex)
+	liveKVPayloadGauge.Set(0)
+	rkvc, resultc := restoreIntoIndex(s.lg, s.kvindex)
 	for {
 		keys, vals := tx.UnsafeRange(schema.Key, min, max, int64(restoreChunkKeys))
 		if len(keys) == 0 {
@@ -374,7 +375,9 @@ func (s *store) restore() error {
 
 	{
 		s.revMu.Lock()
-		s.currentRev = <-revc
+		restored := <-resultc
+		s.currentRev = restored.revision
+		liveKVPayloadGauge.Set(float64(restored.liveSize))
 
 		// keys in the range [compacted revision -N, compaction] might all be deleted due to compaction.
 		// the correct revision should be set to compaction revision in the case, not the largest revision
@@ -441,11 +444,17 @@ type revKeyValue struct {
 	kstr string
 }
 
-func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int64) {
-	rkvc, revc := make(chan revKeyValue, restoreChunkKeys), make(chan int64, 1)
+type restoreResult struct {
+	revision int64
+	liveSize int64
+}
+
+func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan restoreResult) {
+	rkvc, resultc := make(chan revKeyValue, restoreChunkKeys), make(chan restoreResult, 1)
 	go func() {
 		currentRev := int64(1)
-		defer func() { revc <- currentRev }()
+		var liveSize int64
+		defer func() { resultc <- restoreResult{revision: currentRev, liveSize: liveSize} }()
 		// restore the tree index from streaming the unordered index.
 		kiCache := make(map[string]*keyIndex, restoreChunkKeys)
 		for rkv := range rkvc {
@@ -482,10 +491,11 @@ func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int
 				if isTombstone(rkv.key) {
 					if err := ki.tombstone(lg, rev.Main, rev.Sub); err != nil {
 						lg.Warn("tombstone encountered error", zap.Error(err))
+						continue
 					}
-					continue
+				} else {
+					ki.put(lg, rev.Main, rev.Sub)
 				}
-				ki.put(lg, rev.Main, rev.Sub)
 			} else {
 				if isTombstone(rkv.key) {
 					ki.restoreTombstone(lg, rev.Main, rev.Sub)
@@ -495,9 +505,15 @@ func restoreIntoIndex(lg *zap.Logger, idx index) (chan<- revKeyValue, <-chan int
 				idx.Insert(ki)
 				kiCache[rkv.kstr] = ki
 			}
+			newSize := int64(0)
+			if !isTombstone(rkv.key) {
+				newSize = int64(len(rkv.kv.Key) + len(rkv.kv.Value))
+			}
+			liveSize += newSize - ki.liveSize
+			ki.liveSize = newSize
 		}
 	}()
-	return rkvc, revc
+	return rkvc, resultc
 }
 
 func restoreChunk(lg *zap.Logger, kvc chan<- revKeyValue, keys, vals [][]byte, keyToLease map[string]lease.LeaseID) {

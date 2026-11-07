@@ -42,6 +42,35 @@ func TestMetricDbSizeBoot(t *testing.T) {
 	require.NotEqualf(t, "0", v, "expected non-zero, got %q", v)
 }
 
+func TestMetricLiveKVPayload(t *testing.T) {
+	integration.BeforeTest(t)
+	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})
+	defer clus.Terminate(t)
+
+	kvc := integration.ToGRPC(clus.Client(0)).KV
+	checkSize := func(want int) {
+		t.Helper()
+		value, err := clus.Members[0].Metric("etcd_mvcc_live_kv_payload_bytes")
+		require.NoError(t, err)
+		got, err := strconv.Atoi(value)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	}
+	checkSize(0)
+
+	_, err := kvc.Put(t.Context(), &pb.PutRequest{Key: []byte("key"), Value: []byte("old value")})
+	require.NoError(t, err)
+	checkSize(len("key") + len("old value"))
+
+	_, err = kvc.Put(t.Context(), &pb.PutRequest{Key: []byte("key"), Value: []byte("new")})
+	require.NoError(t, err)
+	checkSize(len("key") + len("new"))
+
+	_, err = kvc.DeleteRange(t.Context(), &pb.DeleteRangeRequest{Key: []byte("key")})
+	require.NoError(t, err)
+	checkSize(0)
+}
+
 func TestMetricDbSizeDefrag(t *testing.T) {
 	testMetricDbSizeDefrag(t, "etcd")
 }

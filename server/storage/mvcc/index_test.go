@@ -25,8 +25,8 @@ import (
 
 func TestIndexGet(t *testing.T) {
 	ti := newTreeIndex(zaptest.NewLogger(t))
-	ti.Put([]byte("foo"), Revision{Main: 2})
-	ti.Put([]byte("foo"), Revision{Main: 4})
+	ti.Put([]byte("foo"), Revision{Main: 2}, 0)
+	ti.Put([]byte("foo"), Revision{Main: 4}, 0)
 	ti.Tombstone([]byte("foo"), Revision{Main: 6})
 
 	tests := []struct {
@@ -68,7 +68,7 @@ func TestIndexRange(t *testing.T) {
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], allRevs[i], 0)
 	}
 
 	atRev := int64(3)
@@ -280,20 +280,26 @@ func TestIndexRange(t *testing.T) {
 
 func TestIndexTombstone(t *testing.T) {
 	ti := newTreeIndex(zaptest.NewLogger(t))
-	ti.Put([]byte("foo"), Revision{Main: 1})
+	ti.Put([]byte("foo"), Revision{Main: 1}, 2)
 
-	err := ti.Tombstone([]byte("foo"), Revision{Main: 2})
+	sizeDelta, err := ti.Tombstone([]byte("foo"), Revision{Main: 2})
 	if err != nil {
 		t.Errorf("tombstone error = %v, want nil", err)
+	}
+	if sizeDelta != -5 {
+		t.Errorf("tombstone size delta = %d, want -5", sizeDelta)
 	}
 
 	_, _, _, err = ti.Get([]byte("foo"), 2)
 	if !errors.Is(err, ErrRevisionNotFound) {
 		t.Errorf("get error = %v, want ErrRevisionNotFound", err)
 	}
-	err = ti.Tombstone([]byte("foo"), Revision{Main: 3})
+	sizeDelta, err = ti.Tombstone([]byte("foo"), Revision{Main: 3})
 	if !errors.Is(err, ErrRevisionNotFound) {
 		t.Errorf("tombstone error = %v, want %v", err, ErrRevisionNotFound)
+	}
+	if sizeDelta != 0 {
+		t.Errorf("failed tombstone size delta = %d, want 0", sizeDelta)
 	}
 }
 
@@ -303,7 +309,7 @@ func TestIndexRevision(t *testing.T) {
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], allRevs[i], 0)
 	}
 
 	tests := []struct {
@@ -397,7 +403,7 @@ func TestIndexRevisionsWithTotalCount(t *testing.T) {
 
 	ti := newTreeIndex(zaptest.NewLogger(t))
 	for i := range allKeys {
-		ti.Put(allKeys[i], allRevs[i])
+		ti.Put(allKeys[i], allRevs[i], 0)
 	}
 
 	// Range [foo, fop) @ rev 6 matches 3 keys: foo, foo1, foo2.
@@ -508,17 +514,20 @@ func TestIndexCompactAndKeep(t *testing.T) {
 	buildTreeIndex := func() index {
 		ti := newTreeIndex(zaptest.NewLogger(t))
 
-		ti.Put([]byte("foo"), Revision{Main: 1})
-		ti.Put([]byte("foo1"), Revision{Main: 2})
-		ti.Put([]byte("foo2"), Revision{Main: 3})
-		ti.Put([]byte("foo2"), Revision{Main: 4})
-		ti.Put([]byte("foo"), Revision{Main: 5})
-		ti.Put([]byte("foo1"), Revision{Main: 6})
-		require.NoError(t, ti.Tombstone([]byte("foo1"), Revision{Main: 7}))
-		require.NoError(t, ti.Tombstone([]byte("foo2"), Revision{Main: 8}))
-		require.NoError(t, ti.Tombstone([]byte("foo"), Revision{Main: 9}))
-		ti.Put([]byte("foo"), Revision{Main: 10})
-		ti.Put([]byte("foo1"), Revision{Main: 10, Sub: 1})
+		ti.Put([]byte("foo"), Revision{Main: 1}, 0)
+		ti.Put([]byte("foo1"), Revision{Main: 2}, 0)
+		ti.Put([]byte("foo2"), Revision{Main: 3}, 0)
+		ti.Put([]byte("foo2"), Revision{Main: 4}, 0)
+		ti.Put([]byte("foo"), Revision{Main: 5}, 0)
+		ti.Put([]byte("foo1"), Revision{Main: 6}, 0)
+		_, err := ti.Tombstone([]byte("foo1"), Revision{Main: 7})
+		require.NoError(t, err)
+		_, err = ti.Tombstone([]byte("foo2"), Revision{Main: 8})
+		require.NoError(t, err)
+		_, err = ti.Tombstone([]byte("foo"), Revision{Main: 9})
+		require.NoError(t, err)
+		ti.Put([]byte("foo"), Revision{Main: 10}, 0)
+		ti.Put([]byte("foo1"), Revision{Main: 10, Sub: 1}, 0)
 		return ti
 	}
 
@@ -899,6 +908,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 		nti := newTreeIndex(zaptest.NewLogger(t)).(*treeIndex)
 		for k := range afterCompacts[j].keyIndexes {
 			ki := afterCompacts[j].keyIndexes[k]
+			if !ki.generations[len(ki.generations)-1].isEmpty() {
+				ki.liveSize = int64(len(ki.key))
+			}
 			nti.tree.ReplaceOrInsert(&ki)
 		}
 		require.Truef(t, ti.Equal(nti), "#%d: not equal ti", i)
@@ -922,6 +934,9 @@ func TestIndexCompactAndKeep(t *testing.T) {
 		nti := newTreeIndex(zaptest.NewLogger(t)).(*treeIndex)
 		for k := range afterCompacts[j].keyIndexes {
 			ki := afterCompacts[j].keyIndexes[k]
+			if !ki.generations[len(ki.generations)-1].isEmpty() {
+				ki.liveSize = int64(len(ki.key))
+			}
 			nti.tree.ReplaceOrInsert(&ki)
 		}
 

@@ -58,6 +58,54 @@ func TestStoreRev(t *testing.T) {
 	}
 }
 
+func TestStoreLiveKVPayload(t *testing.T) {
+	b, _ := betesting.NewDefaultTmpBackend(t)
+	s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+	defer cleanup(s, b)
+
+	checkSize := func(want int) {
+		t.Helper()
+		if got := readGaugeInt(liveKVPayloadGauge); got != want {
+			t.Fatalf("live KV payload = %d, want %d", got, want)
+		}
+	}
+	checkSize(0)
+
+	s.Put([]byte("a"), []byte("123"), lease.NoLease)
+	checkSize(4)
+	s.Put([]byte("a"), []byte("1"), lease.NoLease)
+	checkSize(2)
+	s.Put([]byte("b"), nil, lease.NoLease)
+	checkSize(3)
+
+	txn := s.Write(traceutil.TODO())
+	txn.Put([]byte("a"), []byte("long"), lease.NoLease)
+	txn.DeleteRange([]byte("a"), nil)
+	txn.Put([]byte("a"), []byte("xy"), lease.NoLease)
+	txn.End()
+	checkSize(4)
+
+	s.DeleteRange([]byte("a"), []byte("c"))
+	checkSize(0)
+	s.Put([]byte("c"), []byte("final"), lease.NoLease)
+	checkSize(6)
+
+	ch, err := s.Compact(traceutil.TODO(), s.Rev())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-ch
+	checkSize(6)
+
+	s.Commit()
+	if err := s.Restore(b); err != nil {
+		t.Fatal(err)
+	}
+	checkSize(6)
+	s.DeleteRange([]byte("c"), nil)
+	checkSize(0)
+}
+
 func TestStorePut(t *testing.T) {
 	lg := zaptest.NewLogger(t)
 	kv := mvccpb.KeyValue{
@@ -1057,6 +1105,9 @@ type indexRangeEventsResp struct {
 	revs []Revision
 }
 
+// fakeIndex records calls to the index but does not model per-key live sizes.
+// Its Put and Tombstone methods return zero size deltas, so tests using this
+// fake cannot verify liveKVPayloadGauge; use a real treeIndex for that.
 type fakeIndex struct {
 	testutil.Recorder
 	indexGetRespc         chan indexGetResp
@@ -1090,13 +1141,14 @@ func (i *fakeIndex) Range(key, end []byte, atRev int64, limit int, withTotalCoun
 	return r.keys, r.revs, r.creates, r.versions, r.total
 }
 
-func (i *fakeIndex) Put(key []byte, rev Revision) {
+func (i *fakeIndex) Put(key []byte, rev Revision, valueSize int64) int64 {
 	i.Recorder.Record(testutil.Action{Name: "put", Params: []any{key, rev}})
+	return 0
 }
 
-func (i *fakeIndex) Tombstone(key []byte, rev Revision) error {
+func (i *fakeIndex) Tombstone(key []byte, rev Revision) (int64, error) {
 	i.Recorder.Record(testutil.Action{Name: "tombstone", Params: []any{key, rev}})
-	return nil
+	return 0, nil
 }
 
 func (i *fakeIndex) RangeSince(key, end []byte, rev int64) []Revision {

@@ -74,6 +74,7 @@ type keyIndex struct {
 	key         []byte
 	modified    Revision // the main rev of the last modification
 	generations []generation
+	liveSize    int64 // len(key) + len(value) for the current non-deleted version
 }
 
 // put puts a revision to the keyIndex.
@@ -320,6 +321,9 @@ func (ki *keyIndex) equal(b *keyIndex) bool {
 		return false
 	}
 	if ki.modified != b.modified {
+		return false
+	}
+	if ki.liveSize != b.liveSize {
 		return false
 	}
 	if len(ki.generations) != len(b.generations) {

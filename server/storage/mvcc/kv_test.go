@@ -669,9 +669,9 @@ func TestKVRestore(t *testing.T) {
 			kv.Put([]byte("foo2"), []byte("bar0"), 1)
 		},
 		func(kv KV) {
-			kv.Put([]byte("foo"), []byte("bar0"), 1)
+			kv.Put([]byte("foo"), []byte("short"), 1)
 			kv.DeleteRange([]byte("foo"), nil)
-			kv.Put([]byte("foo"), []byte("bar1"), 2)
+			kv.Put([]byte("foo"), []byte("longer-value"), 2)
 		},
 		func(kv KV) {
 			kv.Put([]byte("foo"), []byte("bar0"), 1)
@@ -691,6 +691,10 @@ func TestKVRestore(t *testing.T) {
 			ch, _ := kv.Compact(traceutil.TODO(), delAtRev)
 			<-ch
 		},
+		func(kv KV) {
+			kv.Put([]byte("foo"), []byte("longer-value"), lease.NoLease)
+			kv.DeleteRange([]byte("foo"), nil)
+		},
 	}
 	for i, tt := range tests {
 		b, _ := betesting.NewDefaultTmpBackend(t)
@@ -702,6 +706,7 @@ func TestKVRestore(t *testing.T) {
 			kvss = append(kvss, r.KVs)
 		}
 
+		checkLiveKVPayload(t, s)
 		keysBefore := readGaugeInt(keysGauge)
 		s.Close()
 
@@ -711,6 +716,7 @@ func TestKVRestore(t *testing.T) {
 		if keysRestore := readGaugeInt(keysGauge); keysBefore != keysRestore {
 			t.Errorf("#%d: got %d key count, expected %d", i, keysRestore, keysBefore)
 		}
+		checkLiveKVPayload(t, ns)
 
 		// wait for possible compaction to finish
 		testutil.WaitSchedule()
@@ -719,11 +725,60 @@ func TestKVRestore(t *testing.T) {
 			r, _ := ns.Range(t.Context(), []byte("a"), []byte("z"), RangeOptions{Rev: k})
 			nkvss = append(nkvss, r.KVs)
 		}
-		cleanup(ns, b)
 
 		if !cmp.Equal(nkvss, kvss, protocmp.Transform()) {
 			t.Errorf("#%d: kvs history = %+v, want %+v", i, nkvss, kvss)
 		}
+
+		key := []byte("foo")
+		if i == 3 {
+			key = []byte("foo2")
+		}
+		ns.Put(key, []byte("longer-value-after-restore"), lease.NoLease)
+		checkLiveKVPayload(t, ns)
+		ns.DeleteRange(key, nil)
+		checkLiveKVPayload(t, ns)
+		cleanup(ns, b)
+	}
+}
+
+func TestKVRestoreLiveKVPayloadAfterCacheEviction(t *testing.T) {
+	oldChunk := restoreChunkKeys
+	restoreChunkKeys = 10
+	defer func() { restoreChunkKeys = oldChunk }()
+
+	b, _ := betesting.NewDefaultTmpBackend(t)
+	s := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+	for i := 0; i <= restoreChunkKeys; i++ {
+		s.Put([]byte(fmt.Sprintf("key-%02d", i)), []byte("v"), lease.NoLease)
+	}
+	// Restoring key-10 evicts key-00 and key-01 from the cache before these later revisions.
+	s.Put([]byte("key-00"), []byte("longer-value"), lease.NoLease)
+	s.DeleteRange([]byte("key-01"), nil)
+	checkLiveKVPayload(t, s)
+	s.Close()
+
+	ns := NewStore(zaptest.NewLogger(t), b, &lease.FakeLessor{}, StoreConfig{})
+	defer cleanup(ns, b)
+	checkLiveKVPayload(t, ns)
+	ns.Put([]byte("key-00"), []byte("x"), lease.NoLease)
+	checkLiveKVPayload(t, ns)
+	ns.DeleteRange([]byte("key-10"), nil)
+	checkLiveKVPayload(t, ns)
+}
+
+func checkLiveKVPayload(t *testing.T, kv KV) {
+	t.Helper()
+	r, err := kv.Range(t.Context(), []byte("a"), []byte("z"), RangeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	for _, item := range r.KVs {
+		want += len(item.Key) + len(item.Value)
+	}
+	if got := readGaugeInt(liveKVPayloadGauge); got != want {
+		t.Errorf("live KV payload = %d, want %d from current Range", got, want)
 	}
 }
 

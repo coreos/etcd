@@ -167,8 +167,9 @@ type storeTxnWrite struct {
 	storeTxnCommon
 	tx backend.BatchTx
 	// beginRev is the revision where the txn begins; it will write to the next revision.
-	beginRev int64
-	changes  []*mvccpb.KeyValue
+	beginRev      int64
+	changes       []*mvccpb.KeyValue
+	liveSizeDelta int64
 }
 
 func (s *store) Write(trace *traceutil.Trace) TxnWrite {
@@ -214,6 +215,9 @@ func (tw *storeTxnWrite) End() {
 		tw.s.currentRev++
 	}
 	tw.tx.Unlock()
+	if tw.liveSizeDelta != 0 {
+		liveKVPayloadGauge.Add(float64(tw.liveSizeDelta))
+	}
 	if len(tw.changes) != 0 {
 		tw.s.revMu.Unlock()
 	}
@@ -257,7 +261,7 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 
 	tw.trace.Step("marshal mvccpb.KeyValue")
 	tw.tx.UnsafeSeqPut(schema.Key, ibytes, d)
-	tw.s.kvindex.Put(key, idxRev)
+	tw.liveSizeDelta += tw.s.kvindex.Put(key, idxRev, int64(len(value)))
 	tw.changes = append(tw.changes, kv)
 	tw.trace.Step("store kv pair into bolt db")
 
@@ -321,7 +325,7 @@ func (tw *storeTxnWrite) delete(key []byte) {
 	}
 
 	tw.tx.UnsafeSeqPut(schema.Key, ibytes, d)
-	err = tw.s.kvindex.Tombstone(key, idxRev.Revision)
+	sizeDelta, err := tw.s.kvindex.Tombstone(key, idxRev.Revision)
 	if err != nil {
 		tw.storeTxnCommon.s.lg.Fatal(
 			"failed to tombstone an existing key",
@@ -329,6 +333,7 @@ func (tw *storeTxnWrite) delete(key []byte) {
 			zap.Error(err),
 		)
 	}
+	tw.liveSizeDelta += sizeDelta
 	tw.changes = append(tw.changes, kv)
 
 	item := lease.LeaseItem{Key: string(key)}
