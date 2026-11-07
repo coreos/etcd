@@ -75,6 +75,17 @@ var trafficProfiles = []TrafficProfile{
 			Compaction: &traffic.CompactionDefault,
 		},
 	},
+	{
+		// By default events are not served from the watch cache, so they
+		// exercise the direct watch path (ProgressNotify=false).
+		Name:    "KubernetesEventsTraffic",
+		Traffic: traffic.KubernetesEvents,
+		Profile: traffic.Profile{
+			KeyValue:   &traffic.KeyValueMedium,
+			Watch:      &traffic.WatchDefault,
+			Compaction: &traffic.CompactionDefault,
+		},
+	},
 }
 
 type TestScenario struct {

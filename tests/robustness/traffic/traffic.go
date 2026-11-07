@@ -453,7 +453,7 @@ func runWatch(ctx context.Context, c *client.RecordingClient, p RunWatchLoopPara
 	if cfg.requireLeader {
 		watchCtx = clientv3.WithRequireLeader(watchCtx)
 	}
-	w := c.Watch(watchCtx, cfg.key, rev, true, true, true)
+	w := c.Watch(watchCtx, cfg.key, rev, true, cfg.progressNotify, true)
 	for {
 		select {
 		case <-ctx.Done():
@@ -469,8 +469,9 @@ func runWatch(ctx context.Context, c *client.RecordingClient, p RunWatchLoopPara
 }
 
 type watchLoopConfig struct {
-	key           string
-	requireLeader bool
+	key            string
+	requireLeader  bool
+	progressNotify bool
 }
 
 func CheckEmptyDatabaseAtStart(ctx context.Context, lg *zap.Logger, endpoints []string, cs *client.ClientSet) error {

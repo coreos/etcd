@@ -74,6 +74,29 @@ var (
 			{Choice: KubernetesCreate, Weight: 60},
 		},
 	}
+
+	// KubernetesEvents models the events resource, which by default is not served
+	// from the apiserver watch cache. Request handlers watch etcd directly, so its
+	// watches use ProgressNotify=false (the direct/uncached path).
+	KubernetesEvents Traffic = kubernetesTraffic{
+		averageKeyCount: 10,
+		resource:        "events",
+		namespace:       "default",
+		// Please keep the sum of weights equal 100.
+		readChoices: []random.ChoiceWeight[KubernetesRequestType]{
+			{Choice: KubernetesGet, Weight: 5},
+			{Choice: KubernetesGetStale, Weight: 2},
+			{Choice: KubernetesGetRev, Weight: 8},
+			{Choice: KubernetesListStale, Weight: 5},
+			{Choice: KubernetesListAndWatch, Weight: 80},
+		},
+		// Please keep the sum of weights equal 100.
+		writeChoices: []random.ChoiceWeight[KubernetesRequestType]{
+			{Choice: KubernetesUpdate, Weight: 5},
+			{Choice: KubernetesDelete, Weight: 35},
+			{Choice: KubernetesCreate, Weight: 60},
+		},
+	}
 )
 
 type kubernetesTraffic struct {
@@ -82,6 +105,20 @@ type kubernetesTraffic struct {
 	namespace       string
 	readChoices     []random.ChoiceWeight[KubernetesRequestType]
 	writeChoices    []random.ChoiceWeight[KubernetesRequestType]
+}
+
+// progressNotify reports whether watches on this resource request ProgressNotify.
+// It is derived from the resource: cached resources are watched via the apiserver
+// watch cache, whose internal etcd watch sets ProgressNotify=true, while uncached
+// resources (events) are watched directly by request handlers, which do not set it.
+// https://github.com/kubernetes/kubernetes/blob/2016fab3085562b4132e6d3774b6ded5ba9939fd/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go#L74
+// https://github.com/kubernetes/kubernetes/blob/2016fab3085562b4132e6d3774b6ded5ba9939fd/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go#L391
+func (t kubernetesTraffic) progressNotify() bool {
+	// By default the apiserver disables the watch cache for events: their default
+	// watch cache size is 0, and a size <= 0 selects uncached storage.
+	// https://github.com/kubernetes/kubernetes/blob/2016fab3085562b4132e6d3774b6ded5ba9939fd/pkg/kubeapiserver/default_storage_factory_builder.go#L52
+	// https://github.com/kubernetes/kubernetes/blob/2016fab3085562b4132e6d3774b6ded5ba9939fd/staging/src/k8s.io/apiserver/pkg/server/options/etcd.go#L411
+	return t.resource != "events"
 }
 
 func (t kubernetesTraffic) ExpectUniqueRevision() bool {
@@ -137,10 +174,15 @@ func (t kubernetesTraffic) RunKeyValueLoop(ctx context.Context, c *client.Record
 }
 
 func (t kubernetesTraffic) RunWatchLoop(ctx context.Context, c *client.RecordingClient, p RunWatchLoopParam) {
-	runWatchLoop(ctx, c, p, watchLoopConfig{
-		key:           "/registry/" + t.resource + "/",
-		requireLeader: true,
-	})
+	runWatchLoop(ctx, c, p, t.watchLoopConfig())
+}
+
+func (t kubernetesTraffic) watchLoopConfig() watchLoopConfig {
+	return watchLoopConfig{
+		key:            "/registry/" + t.resource + "/",
+		requireLeader:  true,
+		progressNotify: t.progressNotify(),
+	}
 }
 
 func (t kubernetesTraffic) Read(ctx context.Context, c *client.RecordingClient, s *storage, limiter *rate.Limiter, keyPrefix string) error {
@@ -267,8 +309,10 @@ func (t kubernetesTraffic) Watch(ctx context.Context, c *client.RecordingClient,
 	// Kubernetes issues Watch requests by requiring a leader to exist
 	// in the cluster:
 	// https://github.com/kubernetes/kubernetes/blob/2016fab3085562b4132e6d3774b6ded5ba9939fd/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go#L872
+	// ProgressNotify depends on whether the resource is served from the watch
+	// cache (see kubernetesTraffic.progressNotify).
 	watchCtx = clientv3.WithRequireLeader(watchCtx)
-	for e := range c.Watch(watchCtx, keyPrefix, revision, true, true, true) {
+	for e := range c.Watch(watchCtx, keyPrefix, revision, true, t.progressNotify(), true) {
 		s.Update(e)
 	}
 	limiter.Wait(ctx)
