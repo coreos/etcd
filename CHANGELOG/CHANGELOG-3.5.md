@@ -6,6 +6,11 @@ Previous change logs can be found at [CHANGELOG-3.4](https://github.com/etcd-io/
 
 ## v3.5.36 (TBC)
 
+### etcd server
+
+- Fix [`--force-new-cluster` permanently bricking a member whose backend consistent index is ahead of its WAL](https://github.com/etcd-io/etcd/pull/22688)
+- [Define `alarmStore` as an `atomic.Pointer` to avoid race condition](https://github.com/etcd-io/etcd/pull/22707)
+
 ---
 
 ## v3.5.35 (2026-10-22)
